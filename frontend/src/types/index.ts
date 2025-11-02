@@ -5,9 +5,20 @@
   Notes: Defines interfaces for backend data structures and API responses.
 */
 
+// Represents a project workspace
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  createdAt: Date;
+  lastIndexed?: Date;
+  description?: string;
+}
+
 // Represents a semantic chunk of code
 export interface Chunk {
   id: string;
+  projectId: string; // Added project namespace
   filePath: string;
   kind: string; // function_declaration, class_declaration, etc.
   name: string;
@@ -22,6 +33,7 @@ export interface Chunk {
 // Represents a symbol in the codebase
 export interface Symbol {
   id: string;
+  projectId: string; // Added project namespace
   name: string;
   kind: string;
   filePath: string;
@@ -57,6 +69,7 @@ export interface SearchFilters {
 
 // Search request
 export interface SearchRequest {
+  projectId: string; // Added project namespace
   query: string;
   k: number;
   filters?: SearchFilters;
@@ -71,6 +84,7 @@ export interface SearchResponse {
 
 // Outline request
 export interface OutlineRequest {
+  projectId: string; // Added project namespace
   path: string;
   depth?: number;
 }
@@ -83,6 +97,7 @@ export interface NodeSourceRequest {
 
 // Symbol search request
 export interface SymbolSearchRequest {
+  projectId: string; // Added project namespace
   query: string;
   kinds?: string[];
   limit?: number;
@@ -95,4 +110,45 @@ export interface ProjectStats {
   totalSymbols: number;
   indexSize: number; // bytes
   lastIndexed?: Date;
+}
+
+// MCP Server configuration
+export interface MCPServerConfig {
+  host: string;
+  port: number;
+  protocol: 'http' | 'stdio';
+  autoStart: boolean;
+  maxConnections: number;
+}
+
+// MCP Server status
+export interface MCPServerStatus {
+  isRunning: boolean;
+  uptime: number; // seconds
+  activeConnections: number;
+  totalRequests: number;
+  averageResponseTime: number; // milliseconds
+  lastError?: string;
+}
+
+// MCP Tool definition
+export interface MCPTool {
+  name: string;
+  description: string;
+  enabled: boolean;
+  callCount: number;
+}
+
+// Project creation request
+export interface CreateProjectRequest {
+  id?: string;
+  name: string;
+  path: string;
+  description?: string;
+}
+
+// Project list response
+export interface ProjectListResponse {
+  projects: Project[];
+  currentProjectId?: string;
 }

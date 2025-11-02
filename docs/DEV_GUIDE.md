@@ -9,14 +9,15 @@
 
 ## 1. Project Purpose
 
-**CodeTextor** is a local application designed to analyze source code using **Tree-sitter**, extract semantic **chunks** (functions, classes, modules, comments), and build a **vector index** using **SQLite-vec** for fast semantic retrieval.
-It acts as an **MCP (Model Context Protocol) server** and can be used by IDE plugins or LLM assistants to retrieve contextual information about a project, enabling code understanding, navigation, and search.
+**CodeTextor** is a local **multi-project** application designed to analyze source code using **Tree-sitter**, extract semantic **chunks** (functions, classes, modules, comments), and build **isolated vector indexes** using **SQLite-vec** for fast semantic retrieval.
+It acts as an **MCP (Model Context Protocol) server** and can be used by IDE plugins or LLM assistants to retrieve contextual information about multiple projects simultaneously, enabling code understanding, navigation, and search across different codebases.
 
-The project’s goal is to:
+The project's goal is to:
 
 * Build an *embedded* RAG-like retrieval system for code, without external dependencies.
+* Support **multiple projects** with complete isolation (one SQLite-vec database per project).
 * Provide precise, hierarchical code chunks with semantic meaning.
-* Expose structured APIs for retrieval, navigation, and symbol introspection.
+* Expose structured APIs for retrieval, navigation, and symbol introspection with **explicit project scoping**.
 * Remain modular, lightweight, and transparent for both developers and AI agents.
 
 ---
@@ -27,9 +28,9 @@ The project’s goal is to:
 
 | Layer        | Language                    | Purpose                                                                                     |
 | ------------ | --------------------------- | ------------------------------------------------------------------------------------------- |
-| **Frontend** | TypeScript + Vue            | Provide GUI for indexing progress, search results, and visual exploration of the code tree. |
-| **Backend**  | Go (Wails)                  | Handle parsing, chunking, embedding, storage, and MCP API endpoints.                        |
-| **Storage**  | SQLite-vec                  | Store vector embeddings and symbol metadata.                                                |
+| **Frontend** | TypeScript + Vue            | Provide GUI for project management, indexing progress, search results, and code exploration. |
+| **Backend**  | Go (Wails)                  | Handle parsing, chunking, embedding, storage, and MCP API endpoints with project isolation.  |
+| **Storage**  | SQLite-vec (per-project)    | One database file per project (`indexes/<projectId>.db`) for complete isolation.             |
 
 ### 🔹 Core Subsystems
 
@@ -40,7 +41,53 @@ The project’s goal is to:
 
 ---
 
-## 3. Folder Structure Guidelines
+## 3. Multi-Project Architecture
+
+### 🔹 Design Principles
+
+CodeTextor is designed as a **multi-project application** with complete isolation between projects:
+
+1. **One Database Per Project**: Each project has its own SQLite-vec database file stored at `indexes/<projectId>.db`.
+2. **Explicit Project Scoping**: All MCP API calls **require** a `projectId` parameter. Requests without it are rejected.
+3. **No Cross-Contamination**: Search results, embeddings, and metadata never mix between projects.
+4. **Independent Configuration**: Each project can have its own indexing parameters, file filters, and embedding models.
+
+### 🔹 Storage Strategy
+
+```
+/indexes/
+  project-abc123.db       → SQLite-vec database for project "abc123"
+  project-def456.db       → SQLite-vec database for project "def456"
+  ...
+
+/config/
+  projects.json           → Project metadata (name, path, createdAt, settings)
+```
+
+**Benefits:**
+* **Complete isolation**: No risk of mixing data between projects
+* **Easy backup/restore**: Copy single `.db` file + project config
+* **Independent lifecycle**: Delete, archive, or migrate projects independently
+* **Simpler queries**: No need to filter by `project_id` in every query
+
+### 🔹 Project Lifecycle
+
+1. **Creation**: User provides project name, root path, optional description
+2. **Initialization**: Create `indexes/<projectId>.db` and project config entry
+3. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
+4. **Querying**: All MCP tools receive `projectId` and query the correct DB
+5. **Deletion**: Remove `indexes/<projectId>.db` and config entry
+
+### 🔹 Security & Boundaries
+
+* **Root Path Enforcement**: Each project has a whitelist of allowed root paths
+* **Path Validation**: Tools like `nodeSource`, `fileAt` reject paths outside project roots
+* **Size Limits**: Independent byte caps per project for MCP responses
+* **Resource Limits**: Per-project throttling to prevent CPU monopolization
+
+---
+
+## 4. Folder Structure Guidelines
 
 ### Root layout
 
@@ -72,7 +119,7 @@ The project’s goal is to:
 
 ---
 
-## 4. Coding Conventions
+## 5. Coding Conventions
 
 ### General
 
@@ -83,6 +130,7 @@ The project’s goal is to:
   2. Input parameters and expected types.
   3. Returned values and possible side effects.
 * Functions that perform complex logic should also include a brief *inline* comment per key section.
+  Remove or update these comments when the implementation changes or becomes self-explanatory to avoid drift.
 * Comments must be written in **concise, descriptive English** and kept up-to-date.
 
 Example:
@@ -106,9 +154,11 @@ Each source file should begin with:
 */
 ```
 
+Use the native doc-comment style of each language. For example, TypeScript/Vue files should prefer `/** ... */` JSDoc headers, while Go files use `/* ... */` as illustrated above.
+
 ---
 
-## 5. Chunking & Indexing Strategy
+## 6. Chunking & Indexing Strategy
 
 ### Core principles
 
@@ -125,30 +175,49 @@ Each source file should begin with:
 4. **Semantic embedding:** Generate vector representations for chunk content + metadata.
 5. **Incremental indexing:** Only update changed files (based on hash + mtime).
 
+### Per-Project Indexing
+
+Each project maintains its own complete indexing state:
+
+* **Independent indexes**: Each project's chunks and vectors are stored in `indexes/<projectId>.db`
+* **Per-project configuration**: Indexing parameters (chunk size, embedding model, file filters) are stored in project metadata
+* **Isolated file watchers**: Each project has its own file system watcher for incremental updates
+* **Separate indexing queues**: Multiple projects can be indexed concurrently without interference
+* **Project-specific exclusions**: `.gitignore`, custom ignore patterns are applied per project
+
 ---
 
-## 6. MCP Server Responsibilities
+## 7. MCP Server Responsibilities
 
-Expose lightweight, composable tools (JSON-RPC or HTTP) usable by IDEs and AI agents:
+Expose lightweight, composable tools (JSON-RPC or HTTP) usable by IDEs and AI agents.
 
-| Tool                                            | Description                             |
-| ----------------------------------------------- | --------------------------------------- |
-| `retrieve(query, k, filters)`                   | Semantic top-k retrieval from vector DB |
-| `outline(path, depth)`                          | Get structural outline of a file        |
-| `nodeAt(path, line)`                            | Return AST node at specific position    |
-| `nodeSource(id, collapseBody)`                  | Return source snippet of node           |
-| `searchSymbols(query, kinds)`                   | Lexical symbol search                   |
-| `findDefinition(name)` / `findReferences(name)` | Optional, reference navigation          |
+### 🔹 MCP Tools with Project Scoping
+
+**All MCP tools require a `projectId` parameter.** Requests without it are rejected with an error.
+
+| Tool                                                    | Description                                      |
+| ------------------------------------------------------- | ------------------------------------------------ |
+| `retrieve(projectId, query, k, filters)`                | Semantic top-k retrieval from project's vector DB |
+| `outline(projectId, path, depth)`                       | Get structural outline of a file in project       |
+| `nodeAt(projectId, path, line)`                         | Return AST node at specific position in project   |
+| `nodeSource(projectId, id, collapseBody)`               | Return source snippet of node from project        |
+| `searchSymbols(projectId, query, kinds)`                | Lexical symbol search within project              |
+| `findDefinition(projectId, name)` / `findReferences(projectId, name)` | Optional, reference navigation within project     |
+
+### 🔹 MCP Server Requirements
 
 All endpoints must:
 
-* Return **bounded results** (limited by byte size).
-* Support **pagination** when returning large sets.
-* Never include the entire AST in a single response.
+* **Require projectId**: Validate that the project exists and is accessible
+* **Query correct database**: Use `indexes/<projectId>.db` for the specified project
+* **Enforce path boundaries**: Only return results for files within the project's root path
+* **Return bounded results**: Limited by byte size (configurable per project)
+* **Support pagination**: When returning large result sets
+* **Never leak cross-project data**: Results must be strictly scoped to the requested project
 
 ---
 
-## 7. Frontend Guidelines
+## 8. Frontend Guidelines
 
 * Written in **TypeScript**, using **Vue 3** (Tailwind).
 * Components must be modular: one component = one purpose.
@@ -157,12 +226,28 @@ All endpoints must:
 * All UI strings in English.
 * Document every component with JSDoc block at the top.
 
+Example:
+
+```ts
+/** 
+ * Component: ProjectList
+ * Purpose: Display the list of indexed projects with quick actions.
+ * Props: projects (ProjectSummary[])
+ */
+```
+
 ---
 
-## 8. Testing and Documentation
+## 9. Testing and Documentation
 
 * **Unit tests** for each backend package (`*_test.go`) and frontend component.
-* **Integration tests** for MCP endpoints.
+* **Integration tests** for MCP endpoints with multi-project scenarios.
+* **Multi-project test coverage**:
+  * Test project isolation (no data leakage between projects)
+  * Test concurrent indexing of multiple projects
+  * Test project creation, deletion, and switching
+  * Test MCP tools with valid and invalid projectId parameters
+  * Test path boundary enforcement
 * Maintain `/docs/` directory with:
 
   * `ARCHITECTURE.md`
@@ -173,7 +258,7 @@ All endpoints must:
 
 ---
 
-## 9. Quality & Readability Targets
+## 10. Quality & Readability Targets
 
 | Metric                   | Target      |
 | ------------------------ | ----------- |
@@ -185,7 +270,7 @@ All endpoints must:
 
 ---
 
-## 10. Design Philosophy Summary
+## 11. Design Philosophy Summary
 
 * **Local-first:** No cloud dependencies; everything runs locally.
 * **Modular:** Each concern isolated in its own package or component.
@@ -195,7 +280,7 @@ All endpoints must:
 
 ---
 
-## 11. AI Collaboration Principles
+## 12. AI Collaboration Principles
 
 This project will be co-developed by human and LLM agents.
 LLMs working on CodeTextor must:

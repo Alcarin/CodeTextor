@@ -1,19 +1,156 @@
-# README
+# 🧠 CodeTextor
 
-## About
+**Local codebase context provider for LLMs, IDEs, and AI agents.**  
+CodeTextor analyzes your source code using [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) and builds a lightweight **vector index** (via [SQLite-vec](https://github.com/asg017/sqlite-vec)) for fast semantic retrieval and navigation — completely offline.
 
-This is the official Wails Vue template.
+---
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+## ✨ Overview
 
-## Live Development
+CodeTextor is a **local-first semantic indexer** for your projects.  
+It extracts structural code chunks (functions, classes, comments, modules), generates embeddings, and serves them through a simple **MCP (Model Context Protocol)** API.
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+This enables:
+- IDE plugins or AI assistants to query the local codebase semantically.  
+- Fast "where is this defined?" or "show me related functions" queries.  
+- Offline RAG-style context retrieval for LLMs without cloud APIs.
 
-## Building
+---
 
-To build a redistributable, production mode package, use `wails build`.
+## 🔍 Key Features
+
+- 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking  
+- 🧩 **Adaptive chunking strategy**  
+  - Collapses large functions/classes (`{ ... }`)  
+  - Merges small ones with comments and metadata  
+- 💾 **Embedded vector store** (SQLite-vec, no external DB)  
+- 🧠 **MCP Server mode** for use with IDEs and LLM agents  
+  - `retrieve`, `outline`, `nodeAt`, `nodeSource`, `searchSymbols`, etc.  
+- 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search  
+- 🔒 100% **local & private**, no data leaves your machine
+
+---
+
+## 🧱 Architecture
+
+```
+
+frontend/        → Wails UI (Vue/React + TypeScript)
+backend/
+internal/
+chunker/     → Tree-sitter parsing & chunking
+indexer/     → Embeddings & SQLite-vec store
+mcp/         → MCP tools (context retrieval API)
+store/       → DB schema & helpers
+search/      → Lexical + semantic query logic
+cmd/           → CLI entry points
+docs/            → Developer documentation & API references
+
+````
+
+---
+
+## ⚙️ Installation
+
+### Prerequisites
+- [Go ≥ 1.23](https://go.dev/)  
+- [Node.js ≥ 20](https://nodejs.org/)  
+- [Wails ≥ 3](https://wails.io/)  
+- A compiler toolchain for your OS (gcc / clang)
+
+### Build
+
+```bash
+git clone https://github.com/<your-org>/codetextor.git
+cd codetextor
+wails build
+````
+
+### Run
+
+```bash
+./build/bin/codetextor
+```
+
+or in dev mode:
+
+```bash
+wails dev
+```
+
+CodeTextor will launch both the local web UI and the MCP server.
+
+---
+
+## 🧠 Using the MCP API
+
+CodeTextor exposes a lightweight JSON-based MCP interface.
+Example tools include:
+
+| Tool                           | Description                        |
+| ------------------------------ | ---------------------------------- |
+| `retrieve(query, k, filters)`  | Top-k semantic retrieval           |
+| `outline(path, depth)`         | Structural outline of a file       |
+| `nodeAt(path, line)`           | Returns the AST node at a position |
+| `nodeSource(id, collapseBody)` | Returns code snippet of a symbol   |
+| `searchSymbols(query, kinds)`  | Lexical symbol search              |
+
+Integrate it with your LLM or IDE plugin to provide local context awareness.
+
+---
+
+## 📚 Documentation
+
+Developer and contributor documentation lives under [`/docs`](./docs):
+
+* [`DEV_GUIDE.md`](./docs/DEV_GUIDE.md) — detailed architecture, coding standards, and LLM collaboration rules
+* `API_REFERENCE.md` — MCP and internal API reference (coming soon)
+* `ARCHITECTURE.md` — system overview diagrams and data flows
+
+---
+
+## 🧩 Design Principles
+
+* **Local-first:** runs entirely on your machine
+* **Modular:** each subsystem in its own package
+* **Transparent:** all data and embeddings are inspectable
+* **Extensible:** easy to add languages or custom chunkers
+* **Readable:** written for humans *and* LLMs — every function documented
+
+---
+
+## 🧑‍💻 Contributing
+
+Pull requests and ideas are welcome!
+Please read the [Developer Guide](./docs/DEV_GUIDE.md) before contributing.
+
+* Write all code and comments in **English**.
+* Use **modular design** and split large files into logical parts.
+* Document every function (including arrow or anonymous ones).
+* Keep code clean, readable, and deterministic.
+
+---
+
+## 📜 License
+
+CodeTextor is released under the **MIT License**.
+See [LICENSE](./LICENSE) for details.
+
+---
+
+## 💬 Acknowledgments
+
+Built with ❤️ using:
+
+* [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+* [SQLite-vec](https://github.com/asg017/sqlite-vec)
+* [Wails](https://wails.io/)
+* [MCP Protocol](https://modelcontextprotocol.io/)
+
+---
+
+> *“Code should be easy to read — even for machines that read it to help us.”*
+> — *CodeTextor Manifesto*
+
+```
+

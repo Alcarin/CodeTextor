@@ -8,7 +8,7 @@
 import { ref } from 'vue';
 
 // Available views in the application
-export type ViewName = 'indexing' | 'search' | 'outline' | 'stats';
+export type ViewName = 'projects' | 'indexing' | 'search' | 'outline' | 'stats' | 'mcp';
 
 // Current active view
 const currentView = ref<ViewName>('indexing');
