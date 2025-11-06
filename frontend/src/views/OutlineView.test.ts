@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import OutlineView from './OutlineView.vue';
 import { mockBackend } from '../services/mockBackend';
 import { useCurrentProject } from '../composables/useCurrentProject';
@@ -20,9 +20,13 @@ describe('OutlineView.vue', () => {
     currentProjectRef.value = { id: 'p1', name: 'Test Project', path: '/root' };
     vi.mocked(useCurrentProject).mockReturnValue({
       currentProject: currentProjectRef,
+      loading: ref(false),
+      hasCurrentProject: computed(() => false),
+      currentProjectId: computed(() => null),
       setCurrentProject: vi.fn(),
       loadCurrentProject: vi.fn(),
       clearCurrentProject: vi.fn(),
+      refreshCurrentProject: vi.fn(),
     });
     vi.clearAllMocks();
   });

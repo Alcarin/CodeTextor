@@ -147,6 +147,13 @@ export interface CreateProjectRequest {
   description?: string;
 }
 
+// Project update request
+export interface UpdateProjectRequest {
+  name?: string;
+  description?: string;
+  lastIndexed?: Date;
+}
+
 // Project list response
 export interface ProjectListResponse {
   projects: Project[];

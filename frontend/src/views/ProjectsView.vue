@@ -164,19 +164,6 @@ const saveProject = async () => {
 
 
 /**
- * Selects a project as current.
- * @param project - Project to select
- */
-const selectProject = async (project: Project) => {
-  try {
-    await setCurrentProject(project);
-  } catch (error) {
-    console.error('Failed to select project:', error);
-    alert('Failed to select project: ' + (error instanceof Error ? error.message : 'Unknown error'));
-  }
-};
-
-/**
  * Opens delete confirmation dialog.
  * @param project - Project to delete
  */
@@ -250,18 +237,6 @@ onMounted(() => {
 
 <template>
   <div class="projects-view">
-    <!-- Info banner -->
-    <div class="info-section section">
-      <div class="info-banner">
-        <span class="info-icon">ℹ️</span>
-        <div class="info-content">
-          <strong>Multi-Project Architecture:</strong> Each project has its own isolated SQLite-vec database
-          stored at <code>indexes/&lt;projectId&gt;.db</code>. Projects are completely independent with
-          no data mixing or cross-contamination.
-        </div>
-      </div>
-    </div>
-
     <!-- Actions -->
     <div class="actions-bar">
       <button @click="openCreateForm" class="btn btn-primary">
@@ -293,9 +268,9 @@ onMounted(() => {
         :key="project.id"
         :class="['project-card', { active: currentProject?.id === project.id }]"
       >
-        <!-- Active badge -->
-        <div v-if="currentProject?.id === project.id" class="active-badge">
-          ● Active
+        <!-- Indexing badge -->
+        <div v-if="currentProject?.id === project.id" class="indexing-badge">
+          ● Indexing
         </div>
 
         <!-- Project header -->
@@ -332,16 +307,8 @@ onMounted(() => {
         <!-- Actions -->
         <div class="project-actions">
           <button
-            v-if="currentProject?.id !== project.id"
-            @click="selectProject(project)"
-            class="btn btn-primary btn-sm"
-          >
-            Select Project
-          </button>
-          <button
-            v-else
             @click="navigateTo('indexing')"
-            class="btn btn-success btn-sm"
+            class="btn btn-primary btn-sm"
           >
             Go to Indexing
           </button>
@@ -474,47 +441,6 @@ onMounted(() => {
   margin-bottom: 1.5rem;
 }
 
-/* Info banner */
-.info-section {
-  margin-bottom: 1.5rem;
-}
-
-.info-banner {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: #1a3a5a;
-  border: 1px solid #007acc;
-  border-radius: 4px;
-  align-items: flex-start;
-}
-
-.info-icon {
-  font-size: 1.2rem;
-  flex-shrink: 0;
-}
-
-.info-content {
-  flex: 1;
-  color: #7fc7ff;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.info-content strong {
-  color: #a8d8ff;
-}
-
-.info-content code {
-  background: #0d2438;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  color: #4ec9b0;
-  font-family: 'Courier New', monospace;
-  font-size: 0.9em;
-  border: 1px solid #1a4a6e;
-}
-
 /* Actions bar */
 .actions-bar {
   display: flex;
@@ -549,7 +475,7 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
 }
 
-.active-badge {
+.indexing-badge {
   position: absolute;
   top: 1rem;
   right: 1rem;

@@ -98,11 +98,6 @@ onMounted(() => {
           <div class="item-header">
             <span class="item-icon">📁</span>
             <span class="item-name">{{ project.name }}</span>
-            <span v-if="currentProject?.id === project.id" class="item-badge">Active</span>
-          </div>
-          <div class="item-path">{{ project.path }}</div>
-          <div v-if="project.lastIndexed" class="item-meta">
-            Last indexed: {{ formatDate(project.lastIndexed) }}
           </div>
         </button>
       </div>

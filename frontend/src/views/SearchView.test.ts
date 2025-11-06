@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import SearchView from './SearchView.vue';
 import { mockBackend } from '../services/mockBackend';
 import { useCurrentProject } from '../composables/useCurrentProject';
@@ -14,9 +14,13 @@ describe('SearchView.vue', () => {
     currentProjectRef.value = { id: 'p1', name: 'Test Project', path: '/root' };
     vi.mocked(useCurrentProject).mockReturnValue({
       currentProject: currentProjectRef,
+      loading: ref(false),
+      hasCurrentProject: computed(() => false),
+      currentProjectId: computed(() => null),
       setCurrentProject: vi.fn(),
       loadCurrentProject: vi.fn(),
       clearCurrentProject: vi.fn(),
+      refreshCurrentProject: vi.fn(),
     });
     vi.clearAllMocks();
   });
@@ -42,8 +46,8 @@ describe('SearchView.vue', () => {
 
   it('displays search results', async () => {
     const chunks = [
-      { id: 'c1', name: 'Chunk 1', content: 'content 1', filePath: 'file1.ts', startLine: 1, endLine: 10, similarity: 0.9, kind: 'function' },
-      { id: 'c2', name: 'Chunk 2', content: 'content 2', filePath: 'file2.ts', startLine: 5, endLine: 15, similarity: 0.8, kind: 'class' },
+      { id: 'c1', projectId: 'p1', name: 'Chunk 1', content: 'content 1', filePath: 'file1.ts', startLine: 1, endLine: 10, startByte: 0, endByte: 100, similarity: 0.9, kind: 'function' },
+      { id: 'c2', projectId: 'p1', name: 'Chunk 2', content: 'content 2', filePath: 'file2.ts', startLine: 5, endLine: 15, startByte: 50, endByte: 150, similarity: 0.8, kind: 'class' },
     ];
     vi.spyOn(mockBackend, 'semanticSearch').mockResolvedValue({ chunks, totalResults: 2, queryTime: 123 });
 

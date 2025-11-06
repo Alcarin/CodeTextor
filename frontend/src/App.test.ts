@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import App from './App.vue';
 import { useCurrentProject } from './composables/useCurrentProject';
 import { useNavigation } from './composables/useNavigation';
@@ -26,9 +26,13 @@ describe('App.vue', () => {
     currentViewRef.value = 'projects';
     vi.mocked(useCurrentProject).mockReturnValue({
       currentProject: currentProjectRef,
+      loading: ref(false),
+      hasCurrentProject: computed(() => false),
+      currentProjectId: computed(() => null),
       loadCurrentProject: vi.fn(),
       setCurrentProject: vi.fn(),
       clearCurrentProject: vi.fn(),
+      refreshCurrentProject: vi.fn(),
     });
     vi.mocked(useNavigation).mockReturnValue({
       currentView: currentViewRef,
@@ -68,10 +72,12 @@ describe('App.vue', () => {
   it('disables navigation when no project is selected', async () => {
     const wrapper = mountComponent();
     const searchButton = wrapper.findAll('button').find(b => b.text().includes('Search'));
-    expect(searchButton.attributes('disabled')).toBeDefined();
+    expect(searchButton).toBeDefined();
+    expect(searchButton!.attributes('disabled')).toBeDefined();
 
     const indexingButton = wrapper.findAll('button').find(b => b.text().includes('Indexing'));
-    expect(indexingButton.attributes('disabled')).toBeDefined();
+    expect(indexingButton).toBeDefined();
+    expect(indexingButton!.attributes('disabled')).toBeDefined();
   });
 
   it('enables navigation when a project is selected', async () => {
@@ -80,10 +86,12 @@ describe('App.vue', () => {
     await flushPromises();
 
     const searchButton = wrapper.findAll('button').find(b => b.text().includes('Search'));
-    expect(searchButton.attributes('disabled')).toBeUndefined();
+    expect(searchButton).toBeDefined();
+    expect(searchButton!.attributes('disabled')).toBeUndefined();
 
     const indexingButton = wrapper.findAll('button').find(b => b.text().includes('Indexing'));
-    expect(indexingButton.attributes('disabled')).toBeUndefined();
+    expect(indexingButton).toBeDefined();
+    expect(indexingButton!.attributes('disabled')).toBeUndefined();
   });
 
   it('navigates to a different view on button click', async () => {

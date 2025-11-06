@@ -334,17 +334,6 @@ const disableContinuousIndexing = async () => {
   progress.value = await mockBackend.getIndexingProgress();
 };
 
-/**
- * Toggles continuous indexing on/off.
- */
-const toggleIndexing = async () => {
-  if (indexingEnabled.value) {
-    await disableContinuousIndexing();
-  } else {
-    await enableContinuousIndexing();
-  }
-};
-
 const indexingToggleLabel = computed(() =>
   indexingEnabled.value ? 'Disable continuous indexing' : 'Enable continuous indexing'
 );
