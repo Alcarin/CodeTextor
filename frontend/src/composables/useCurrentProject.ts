@@ -3,11 +3,12 @@
   Purpose: Manages the current active project state.
   Author: CodeTextor project
   Notes: Provides reactive current project state for the application.
+         Uses database persistence (is_selected flag) instead of localStorage.
 */
 
 import { ref, computed } from 'vue';
 import type { Project } from '../types';
-import { mockBackend } from '../services/mockBackend';
+import { backend } from '../api/backend';
 
 // Current active project
 const currentProject = ref<Project | null>(null);
@@ -22,13 +23,15 @@ const loading = ref<boolean>(false);
  */
 export function useCurrentProject() {
   /**
-   * Loads the current project from backend.
+   * Loads the currently selected project from the database.
    * Called on app initialization.
+   * Automatically selects the oldest project if none is selected.
    */
   const loadCurrentProject = async () => {
     loading.value = true;
     try {
-      currentProject.value = await mockBackend.getCurrentProject();
+      const project = await backend.getSelectedProject();
+      currentProject.value = project;
     } catch (error) {
       console.error('Failed to load current project:', error);
       currentProject.value = null;
@@ -39,12 +42,13 @@ export function useCurrentProject() {
 
   /**
    * Sets a project as the current active project.
+   * Persists selection to database.
    * @param project - Project to set as current
    */
   const setCurrentProject = async (project: Project) => {
     loading.value = true;
     try {
-      await mockBackend.setCurrentProject(project.id);
+      await backend.setSelectedProject(project.id);
       currentProject.value = project;
     } catch (error) {
       console.error('Failed to set current project:', error);
@@ -55,26 +59,34 @@ export function useCurrentProject() {
   };
 
   /**
-   * Clears the current project.
+   * Clears the current project selection.
    */
-  const clearCurrentProject = () => {
-    currentProject.value = null;
+  const clearCurrentProject = async () => {
+    loading.value = true;
+    try {
+      await backend.clearSelectedProject();
+      currentProject.value = null;
+    } catch (error) {
+      console.error('Failed to clear current project:', error);
+    } finally {
+      loading.value = false;
+    }
   };
 
   /**
-   * Refreshes the current project data.
+   * Refreshes the current project data from backend.
    */
   const refreshCurrentProject = async () => {
     if (!currentProject.value) return;
 
     loading.value = true;
     try {
-      const updatedProject = await mockBackend.getCurrentProject();
-      if (updatedProject && updatedProject.id === currentProject.value.id) {
-        currentProject.value = updatedProject;
-      }
+      const updatedProject = await backend.getProject(currentProject.value.id);
+      currentProject.value = updatedProject;
     } catch (error) {
       console.error('Failed to refresh current project:', error);
+      // If project doesn't exist anymore, clear it
+      await clearCurrentProject();
     } finally {
       loading.value = false;
     }

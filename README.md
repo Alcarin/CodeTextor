@@ -1,5 +1,7 @@
 # 🧠 CodeTextor
 
+**Note:** This project is currently in early development. First release (v0.1.0) will be announced when core functionality is complete.
+
 **Local codebase context provider for LLMs, IDEs, and AI agents.**  
 CodeTextor analyzes your source code using [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) and builds a lightweight **vector index** (via [SQLite-vec](https://github.com/asg017/sqlite-vec)) for fast semantic retrieval and navigation — completely offline.
 

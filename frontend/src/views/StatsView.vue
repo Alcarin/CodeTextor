@@ -138,7 +138,7 @@ onMounted(() => {
           <div class="stat-icon">💾</div>
           <div class="stat-content">
             <div class="stat-label">Index Size</div>
-            <div class="stat-value">{{ formatBytes(stats.indexSize) }}</div>
+            <div class="stat-value">{{ formatBytes(stats.databaseSize) }}</div>
           </div>
         </div>
       </div>
@@ -149,7 +149,7 @@ onMounted(() => {
         <div class="info-grid">
           <div class="info-item">
             <span class="info-label">Last Indexed:</span>
-            <span class="info-value">{{ formatDate(stats.lastIndexed) }}</span>
+            <span class="info-value">{{ formatDate(stats.lastIndexedAt) }}</span>
           </div>
           <div class="info-item">
             <span class="info-label">Average Chunks per File:</span>

@@ -28,7 +28,15 @@ describe('StatsView.vue', () => {
   const mountComponent = () => mount(StatsView);
 
   it('renders the component and loads initial data', async () => {
-    const getStatsSpy = vi.spyOn(mockBackend, 'getProjectStats').mockResolvedValue({ totalFiles: 100, totalChunks: 1000, totalSymbols: 5000, indexSize: 1234567 });
+    const getStatsSpy = vi.spyOn(mockBackend, 'getProjectStats').mockResolvedValue({
+      totalFiles: 100,
+      totalChunks: 1000,
+      totalSymbols: 5000,
+      databaseSize: 1234567,
+      isIndexing: false,
+      indexingProgress: 0,
+      convertValues: (a: any) => a
+    });
 
     const wrapper = mountComponent();
     await flushPromises();
@@ -38,7 +46,15 @@ describe('StatsView.vue', () => {
   });
 
   it('displays project stats correctly', async () => {
-    vi.spyOn(mockBackend, 'getProjectStats').mockResolvedValue({ totalFiles: 123, totalChunks: 1234, totalSymbols: 5678, indexSize: 1234567 });
+    vi.spyOn(mockBackend, 'getProjectStats').mockResolvedValue({
+      totalFiles: 123,
+      totalChunks: 1234,
+      totalSymbols: 5678,
+      databaseSize: 1234567,
+      isIndexing: false,
+      indexingProgress: 0,
+      convertValues: (a: any) => a
+    });
 
     const wrapper = mountComponent();
     await flushPromises();

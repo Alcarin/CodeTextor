@@ -6,11 +6,11 @@
 -->
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
-import { mockBackend } from '../services/mockBackend';
-import type { Project, CreateProjectRequest } from '../types';
+import { backend } from '../api/backend';
+import type { Project } from '../types';
 
 // Get composables
 const { currentProject, setCurrentProject, clearCurrentProject } = useCurrentProject();
@@ -26,32 +26,10 @@ const projectToEdit = ref<Project | null>(null);
 
 // Form state
 const projectName = ref<string>('');
-const projectId = ref<string>('');
 const projectDescription = ref<string>('');
 const isSavingProject = ref<boolean>(false);
 
 const isEditMode = computed(() => projectToEdit.value !== null);
-
-/**
- * Slugify a string
- * @param text The text to slugify
- * @returns Slugified text
- */
-const slugify = (text: string): string => {
-  return text
-    .toString()
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-') // Replace spaces with -
-    .replace(/[^\w\-]+/g, '') // Remove all non-word chars
-    .replace(/--+/g, '-'); // Replace multiple - with single -
-};
-
-watch(projectName, (newName) => {
-  if (!isEditMode.value) {
-    projectId.value = slugify(newName);
-  }
-});
 
 /**
  * Loads all projects from backend.
@@ -59,8 +37,7 @@ watch(projectName, (newName) => {
 const loadProjects = async () => {
   isLoading.value = true;
   try {
-    const response = await mockBackend.listProjects();
-    projects.value = response.projects;
+    projects.value = await backend.listProjects();
   } catch (error) {
     console.error('Failed to load projects:', error);
     alert('Failed to load projects: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -75,7 +52,6 @@ const loadProjects = async () => {
 const resetForm = () => {
   projectName.value = '';
   projectDescription.value = '';
-  projectId.value = '';
   projectToEdit.value = null;
 };
 
@@ -96,7 +72,6 @@ const openEditForm = (project: Project) => {
   projectToEdit.value = project;
   projectName.value = project.name;
   projectDescription.value = project.description || '';
-  projectId.value = project.id;
   showProjectForm.value = true;
 };
 
@@ -116,20 +91,17 @@ const saveProject = async () => {
     alert('Please enter a project name');
     return;
   }
-  if (!projectId.value.trim()) {
-    alert('Please enter a project ID');
-    return;
-  }
 
   isSavingProject.value = true;
 
   try {
     if (isEditMode.value && projectToEdit.value) {
       // Update existing project
-      const updatedProject = await mockBackend.updateProject(projectToEdit.value.id, {
-        name: projectName.value,
-        description: projectDescription.value || undefined,
-      });
+      const updatedProject = await backend.updateProject(
+        projectToEdit.value.id,
+        projectName.value,
+        projectDescription.value || ''
+      );
 
       // Update project in the list
       const index = projects.value.findIndex(p => p.id === updatedProject.id);
@@ -137,16 +109,12 @@ const saveProject = async () => {
         projects.value[index] = updatedProject;
       }
     } else {
-      // Create new project
-      const request: CreateProjectRequest = {
-        id: projectId.value,
-        name: projectName.value,
-        // The user does not want to specify the path, so we use the project id.
-        path: `/path/to/${projectId.value}`,
-        description: projectDescription.value || undefined
-      };
+      // Create new project (backend generates the ID)
+      const newProject = await backend.createProject(
+        projectName.value,
+        projectDescription.value || ''
+      );
 
-      const newProject = await mockBackend.createProject(request);
       projects.value.push(newProject);
       await setCurrentProject(newProject);
       navigateTo('indexing');
@@ -187,7 +155,7 @@ const deleteProject = async () => {
   if (!projectToDelete.value) return;
 
   try {
-    await mockBackend.deleteProject(projectToDelete.value.id);
+    await backend.deleteProject(projectToDelete.value.id);
 
     // Remove from list
     projects.value = projects.value.filter(p => p.id !== projectToDelete.value!.id);
@@ -269,7 +237,7 @@ onMounted(() => {
         :class="['project-card', { active: currentProject?.id === project.id }]"
       >
         <!-- Indexing badge -->
-        <div v-if="currentProject?.id === project.id" class="indexing-badge">
+        <div v-if="project.stats?.isIndexing" class="indexing-badge">
           ● Indexing
         </div>
 
@@ -298,9 +266,9 @@ onMounted(() => {
             <span class="detail-label">Created:</span>
             <span class="detail-value">{{ formatDate(project.createdAt) }}</span>
           </div>
-          <div class="detail-row">
+          <div class="detail-row" v-if="project.stats">
             <span class="detail-label">Last Indexed:</span>
-            <span class="detail-value">{{ formatDate(project.lastIndexed) }}</span>
+            <span class="detail-value">{{ formatDate(project.stats.lastIndexedAt) }}</span>
           </div>
         </div>
 
@@ -347,18 +315,6 @@ onMounted(() => {
           </div>
 
           <div class="form-group">
-            <label for="project-id">Project ID *</label>
-            <input
-              id="project-id"
-              v-model="projectId"
-              type="text"
-              placeholder="my-awesome-project"
-              class="form-input"
-              :disabled="isSavingProject || isEditMode"
-            />
-          </div>
-
-          <div class="form-group">
             <label for="project-description">Description (optional)</label>
             <textarea
               id="project-description"
@@ -381,7 +337,7 @@ onMounted(() => {
           </button>
           <button
             @click="saveProject"
-            :disabled="!projectName || !projectId || isSavingProject"
+            :disabled="!projectName || isSavingProject"
             class="btn btn-success"
           >
             {{ isSavingProject ? 'Saving...' : (isEditMode ? 'Save Changes' : 'Create Project') }}

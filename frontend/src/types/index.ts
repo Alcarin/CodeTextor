@@ -3,17 +3,11 @@
   Purpose: TypeScript type definitions for CodeTextor frontend.
   Author: CodeTextor project
   Notes: Defines interfaces for backend data structures and API responses.
+         Imports Project types from backend bindings for type safety.
 */
 
-// Represents a project workspace
-export interface Project {
-  id: string;
-  name: string;
-  path: string;
-  createdAt: Date;
-  lastIndexed?: Date;
-  description?: string;
-}
+// Re-export backend generated types
+export type { Project, ProjectConfig, ProjectStats } from '../api/backend'
 
 // Represents a semantic chunk of code
 export interface Chunk {
@@ -103,14 +97,8 @@ export interface SymbolSearchRequest {
   limit?: number;
 }
 
-// Project statistics
-export interface ProjectStats {
-  totalFiles: number;
-  totalChunks: number;
-  totalSymbols: number;
-  indexSize: number; // bytes
-  lastIndexed?: Date;
-}
+// Note: ProjectStats is now imported from backend types above
+// It includes: totalFiles, totalChunks, totalSymbols, databaseSize, lastIndexedAt, isIndexing, indexingProgress
 
 // MCP Server configuration
 export interface MCPServerConfig {
@@ -139,23 +127,5 @@ export interface MCPTool {
   callCount: number;
 }
 
-// Project creation request
-export interface CreateProjectRequest {
-  id?: string;
-  name: string;
-  path: string;
-  description?: string;
-}
-
-// Project update request
-export interface UpdateProjectRequest {
-  name?: string;
-  description?: string;
-  lastIndexed?: Date;
-}
-
-// Project list response
-export interface ProjectListResponse {
-  projects: Project[];
-  currentProjectId?: string;
-}
+// Note: Project, ProjectConfig, and ProjectStats are imported from backend types
+// Project includes: id, name, description, createdAt, updatedAt, config, stats

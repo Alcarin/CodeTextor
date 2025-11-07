@@ -8,7 +8,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
-import { mockBackend } from '../services/mockBackend';
+import { backend } from '../api/backend';
 import type { Project } from '../types';
 
 // Get current project composable
@@ -25,8 +25,7 @@ const loading = ref(false);
 const loadProjects = async () => {
   loading.value = true;
   try {
-    const response = await mockBackend.listProjects();
-    projects.value = response.projects;
+    projects.value = await backend.listProjects();
   } catch (error) {
     console.error('Failed to load projects:', error);
   } finally {
@@ -106,25 +105,7 @@ onMounted(() => {
 </template>
 
 <script lang="ts">
-/**
- * Formats a date to relative time.
- * @param date - Date to format
- * @returns Formatted string
- */
-function formatDate(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - new Date(date).getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return new Date(date).toLocaleDateString();
-}
+// Utility functions for project selector can be added here if needed
 </script>
 
 <style scoped>

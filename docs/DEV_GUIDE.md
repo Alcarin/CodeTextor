@@ -22,7 +22,81 @@ The project's goal is to:
 
 ---
 
-## 2. Architectural Overview
+## 2. Documentation Guidelines
+
+### 📁 Documentation Structure
+
+CodeTextor maintains documentation in `/docs/`:
+
+| Document | Purpose | Keep Updated |
+|----------|---------|--------------|
+| **DEV_GUIDE.md** | Development standards and practices | Always (this is the source of truth) |
+| **ARCHITECTURE.md** | System design, data flow, component interaction | When architecture changes |
+| **API_REFERENCE.md** | Wails and MCP API specifications | When APIs change |
+| **TODO.md** | Development roadmap and task tracking | As tasks complete/added |
+| **CHANGELOG.md** | User-facing changes per version | At release time |
+
+### 📝 When to Document
+
+**DO create/update documentation for:**
+- ✅ Architectural decisions (new subsystems, major refactors)
+- ✅ Non-obvious design choices (why we chose X over Y)
+- ✅ Public APIs and interfaces (MCP tools, Wails bindings)
+- ✅ Development workflows (how to add migrations, run tests)
+- ✅ Breaking changes or migration paths
+
+**DON'T create documentation for:**
+- ❌ Individual bug fixes (use commit messages + code comments)
+- ❌ Implementation details already clear from code
+- ❌ Temporary workarounds (add to TODO.md, never in code comments)
+- ❌ Experimental features (add to TODO.md as pending tasks)
+
+### 📏 Documentation Proportionality
+
+**Size guideline:** Documentation should be proportional to complexity and impact.
+
+- **Small change** (bug fix, minor feature): Good commit message + code comments
+- **Medium change** (new component, API change): Update relevant section in existing docs
+- **Large change** (new subsystem, architecture shift): New section or document
+
+**Example:**
+- ✅ Database migration system → Short section in DEV_GUIDE.md (32 lines)
+- ❌ Database migration system → 3 separate documents + 220 lines in DEV_GUIDE
+- ✅ Bug fix (null array) → Commit message + inline comment explaining the fix
+- ❌ Bug fix (null array) → Separate BUGFIX_NULL_ARRAY.md document
+
+### 🔄 Documentation Maintenance
+
+**Update docs when:**
+1. **Architecture changes**: Update ARCHITECTURE.md with new components or data flows
+2. **API changes**: Update API_REFERENCE.md (DEV_GUIDE.md only for API guidelines)
+3. **Development workflow changes**: Update DEV_GUIDE.md procedures
+4. **Tasks completed or new tasks identified**: Update TODO.md
+5. **Releases**: Update CHANGELOG.md with user-facing changes
+
+**How to update:**
+- Keep changes minimal and focused
+- Remove outdated information rather than adding "deprecated" notes
+- Consolidate related information (don't scatter across multiple files)
+- Link to code when appropriate instead of duplicating
+
+### 🎯 Documentation Quality
+
+**Good documentation:**
+- Explains **why**, not just **what** (code already shows what)
+- Provides context and rationale for decisions
+- Is concise and scannable (use bullet points, tables)
+- Stays synchronized with code
+
+**Poor documentation:**
+- Repeats what code already says
+- Contains outdated information
+- Focuses on minutiae instead of concepts
+- Exists in multiple contradictory places
+
+---
+
+## 3. Architectural Overview
 
 ### 🔹 Layers
 
@@ -41,7 +115,7 @@ The project's goal is to:
 
 ---
 
-## 3. Multi-Project Architecture
+## 4. Multi-Project Architecture
 
 ### 🔹 Design Principles
 
@@ -61,7 +135,7 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
   ...
 
 /config/
-  projects.json           → Project metadata (name, path, createdAt, settings)
+  projects.json           → Project metadata (name, id, description, createdAt, indexing settings)
 ```
 
 **Benefits:**
@@ -72,22 +146,40 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 
 ### 🔹 Project Lifecycle
 
-1. **Creation**: User provides project name, root path, optional description
+1. **Creation**: User provides project name, project ID, optional description
+   - **Note**: Projects do NOT have a single root path. Instead, users configure flexible indexing scope.
 2. **Initialization**: Create `indexes/<projectId>.db` and project config entry
-3. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
-4. **Querying**: All MCP tools receive `projectId` and query the correct DB
-5. **Deletion**: Remove `indexes/<projectId>.db` and config entry
+3. **Indexing Configuration**:
+   - User selects multiple folders to include (can be from different file system locations)
+   - User defines exclude patterns (e.g., `node_modules`, `.git`, `.cache`)
+   - User optionally filters by file extensions
+   - Auto-exclude hidden directories option
+4. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
+5. **Querying**: All MCP tools receive `projectId` and query the correct DB
+6. **Deletion**: Remove `indexes/<projectId>.db` and config entry
+
+### 🔹 Indexing Status & Active Project
+
+* **Active Project**: The project currently selected in the UI for configuration/viewing (stored in localStorage)
+* **Indexing Status**: Indicates which projects are currently being indexed by the backend
+  - **Multiple projects can be indexed concurrently** using separate goroutines/watchers per project
+  - Each project has its own file system watcher and indexing queue to avoid interference
+  - The UI displays an "Indexing" badge on project cards that are currently being indexed
+  - Active project ≠ Indexing projects (user can configure one project while multiple others are indexing)
+* **MCP Server**: Serves all indexed projects simultaneously
+  - All MCP tool calls **require a `projectId` parameter** to specify which project's index to query
+  - This ensures queries are executed against the correct isolated database (`indexes/<projectId>.db`)
 
 ### 🔹 Security & Boundaries
 
-* **Root Path Enforcement**: Each project has a whitelist of allowed root paths
-* **Path Validation**: Tools like `nodeSource`, `fileAt` reject paths outside project roots
+* **Path Allowlist**: Each project has a whitelist of allowed include paths configured by the user
+* **Path Validation**: Tools like `nodeSource`, `fileAt` reject paths outside configured include paths
 * **Size Limits**: Independent byte caps per project for MCP responses
 * **Resource Limits**: Per-project throttling to prevent CPU monopolization
 
 ---
 
-## 4. Folder Structure Guidelines
+## 5. Folder Structure Guidelines
 
 ### Root layout
 
@@ -103,10 +195,14 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
     /chunker/       → Tree-sitter logic, code parsing, collapsing
     /indexer/       → Embedding generation, vector storage
     /mcp/           → Model Context Protocol tools
-    /store/         → SQLite-vec database models
+    /store/         → Project metadata, database migrations, and project-scoped storage
+      /migrations/  → SQL migration files (embedded in binary)
     /search/        → Semantic and lexical query logic
   /cmd/             → CLI commands, entry points
-  /pkg/             → Shared utilities and abstractions
+  /pkg/             → Shared utilities, models, and services
+    /models/        → Public data models (Project, ProjectConfig, etc.)
+    /services/      → Business logic layer (ProjectService, etc.)
+    /utils/         → Cross-platform utilities (paths, etc.)
 ```
 
 ### Best Practices
@@ -119,7 +215,42 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 
 ---
 
-## 5. Coding Conventions
+## 6. Database Migrations
+
+CodeTextor uses **[golang-migrate/migrate](https://github.com/golang-migrate/migrate)** for database schema changes.
+
+### Adding a Migration
+
+1. Create SQL files in `backend/internal/store/migrations/`:
+   ```bash
+   # Format: NNNNNN_description.{up|down}.sql
+   000003_add_column.up.sql    # Apply change
+   000003_add_column.down.sql  # Rollback
+   ```
+
+2. Write idempotent SQL:
+   ```sql
+   ALTER TABLE projects ADD COLUMN new_col INTEGER DEFAULT 0;
+   CREATE INDEX IF NOT EXISTS idx_new_col ON projects(new_col);
+   ```
+
+3. Test: `go test ./backend/internal/store/...`
+
+### Critical Rules
+
+- **NEVER modify existing migrations** after release
+- Always use sequential version numbers (000001, 000002, ...)
+- Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
+- Add `DEFAULT` values for new columns
+- Test on both empty and existing databases
+
+Migrations are embedded in the binary and run automatically at startup.
+
+**See [DATABASE_MIGRATIONS.md](DATABASE_MIGRATIONS.md) for details.**
+
+---
+
+## 7. Coding Conventions
 
 ### General
 
@@ -158,7 +289,7 @@ Use the native doc-comment style of each language. For example, TypeScript/Vue f
 
 ---
 
-## 6. Chunking & Indexing Strategy
+## 8. Chunking & Indexing Strategy
 
 ### Core principles
 
@@ -177,17 +308,20 @@ Use the native doc-comment style of each language. For example, TypeScript/Vue f
 
 ### Per-Project Indexing
 
-Each project maintains its own complete indexing state:
+Each project maintains its own complete indexing state with concurrent indexing support:
 
 * **Independent indexes**: Each project's chunks and vectors are stored in `indexes/<projectId>.db`
 * **Per-project configuration**: Indexing parameters (chunk size, embedding model, file filters) are stored in project metadata
-* **Isolated file watchers**: Each project has its own file system watcher for incremental updates
-* **Separate indexing queues**: Multiple projects can be indexed concurrently without interference
+* **Isolated file watchers**: Each project runs its own goroutine with a dedicated file system watcher for incremental updates
+* **Concurrent indexing**: Multiple projects can be indexed simultaneously without interference
+  - Each project has its own indexing queue and worker pool
+  - Projects do not share resources or slow each other down
+  - UI shows "Indexing" badge on all projects currently being processed
 * **Project-specific exclusions**: `.gitignore`, custom ignore patterns are applied per project
 
 ---
 
-## 7. MCP Server Responsibilities
+## 9. MCP Server Responsibilities
 
 Expose lightweight, composable tools (JSON-RPC or HTTP) usable by IDEs and AI agents.
 
@@ -210,14 +344,18 @@ All endpoints must:
 
 * **Require projectId**: Validate that the project exists and is accessible
 * **Query correct database**: Use `indexes/<projectId>.db` for the specified project
-* **Enforce path boundaries**: Only return results for files within the project's root path
+* **Enforce path boundaries**: Only return results for files within the project's configured include paths
 * **Return bounded results**: Limited by byte size (configurable per project)
 * **Support pagination**: When returning large result sets
 * **Never leak cross-project data**: Results must be strictly scoped to the requested project
+* **Concurrent serving**: Support serving multiple projects simultaneously
+  - MCP server handles requests for any indexed project via `projectId` parameter
+  - Multiple projects can be actively indexing while MCP serves queries on all of them
+  - Each query is isolated to its project's database
 
 ---
 
-## 8. Frontend Guidelines
+## 10. Frontend Guidelines
 
 * Written in **TypeScript**, using **Vue 3** (Tailwind).
 * Components must be modular: one component = one purpose.
@@ -238,7 +376,7 @@ Example:
 
 ---
 
-## 9. Testing and Documentation
+## 11. Testing and Documentation
 
 * **Unit tests** for each backend package (`*_test.go`) and frontend component.
 * **Integration tests** for MCP endpoints with multi-project scenarios.
@@ -258,7 +396,7 @@ Example:
 
 ---
 
-## 10. Quality & Readability Targets
+## 12. Quality & Readability Targets
 
 | Metric                   | Target      |
 | ------------------------ | ----------- |
@@ -270,7 +408,7 @@ Example:
 
 ---
 
-## 11. Design Philosophy Summary
+## 13. Design Philosophy Summary
 
 * **Local-first:** No cloud dependencies; everything runs locally.
 * **Modular:** Each concern isolated in its own package or component.
@@ -280,7 +418,7 @@ Example:
 
 ---
 
-## 12. AI Collaboration Principles
+## 14. AI Collaboration Principles
 
 This project will be co-developed by human and LLM agents.
 LLMs working on CodeTextor must:

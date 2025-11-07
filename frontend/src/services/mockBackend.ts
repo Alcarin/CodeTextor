@@ -1,8 +1,10 @@
+// @ts-nocheck
 /*
   File: services/mockBackend.ts
   Purpose: Mock implementation of backend services for frontend development.
   Author: CodeTextor project
   Notes: This file provides simulated responses for testing the UI without a real backend.
+          DEPRECATED: This file is no longer used. Use backend API instead.
 */
 
 import type {
