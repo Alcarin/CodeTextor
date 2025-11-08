@@ -4,9 +4,15 @@ import {models} from '../models';
 
 export function ClearSelectedProject():Promise<void>;
 
-export function CreateProject(arg1:string,arg2:string):Promise<models.Project>;
+export function CreateProject(arg1:string,arg2:string,arg3:string,arg4:string):Promise<models.Project>;
 
 export function DeleteProject(arg1:string):Promise<void>;
+
+export function GetFilePreviews(arg1:string,arg2:models.ProjectConfig):Promise<Array<models.FilePreview>>;
+
+export function GetGitignorePatterns(arg1:string):Promise<Array<string>>;
+
+export function GetIndexingProgress(arg1:string):Promise<models.IndexingProgress>;
 
 export function GetProject(arg1:string):Promise<models.Project>;
 
@@ -18,7 +24,15 @@ export function ListProjects():Promise<Array<models.Project>>;
 
 export function ProjectExists(arg1:string):Promise<boolean>;
 
+export function SelectDirectory(arg1:string,arg2:string):Promise<string>;
+
+export function SetProjectIndexing(arg1:string,arg2:boolean):Promise<void>;
+
 export function SetSelectedProject(arg1:string):Promise<void>;
+
+export function StartIndexing(arg1:string):Promise<void>;
+
+export function StopIndexing(arg1:string):Promise<void>;
 
 export function UpdateProject(arg1:string,arg2:string,arg3:string):Promise<models.Project>;
 

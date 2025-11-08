@@ -6,7 +6,7 @@
 -->
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
 import { backend } from '../api/backend';
@@ -26,10 +26,41 @@ const projectToEdit = ref<Project | null>(null);
 
 // Form state
 const projectName = ref<string>('');
+const projectSlug = ref<string>('');
 const projectDescription = ref<string>('');
+const projectRootFolder = ref<string>('');
 const isSavingProject = ref<boolean>(false);
 
 const isEditMode = computed(() => projectToEdit.value !== null);
+
+/**
+ * Generates a URL-safe slug from a string.
+ * Rules match the backend GenerateSlug function:
+ * - Converts to lowercase
+ * - Replaces spaces and underscores with hyphens
+ * - Removes all non-alphanumeric characters except hyphens
+ * - Collapses multiple consecutive hyphens to single hyphen
+ * - Trims leading/trailing hyphens
+ */
+const generateSlug = (text: string): string => {
+  return text
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')           // Replace spaces and underscores with hyphens
+    .replace(/[^a-z0-9-]+/g, '')       // Remove non-alphanumeric except hyphens
+    .replace(/-+/g, '-')               // Collapse multiple hyphens
+    .replace(/^-+|-+$/g, '');          // Trim leading/trailing hyphens
+};
+
+/**
+ * Watch projectName and auto-update slug only in create mode.
+ * In edit mode, slug is immutable and shouldn't change.
+ */
+watch(projectName, (newName) => {
+  // Only auto-update slug in create mode (not edit mode)
+  if (!isEditMode.value) {
+    projectSlug.value = generateSlug(newName);
+  }
+});
 
 /**
  * Loads all projects from backend.
@@ -51,7 +82,9 @@ const loadProjects = async () => {
  */
 const resetForm = () => {
   projectName.value = '';
+  projectSlug.value = '';
   projectDescription.value = '';
+  projectRootFolder.value = '';
   projectToEdit.value = null;
 };
 
@@ -71,7 +104,9 @@ const openEditForm = (project: Project) => {
   resetForm();
   projectToEdit.value = project;
   projectName.value = project.name;
+  projectSlug.value = project.id || '';
   projectDescription.value = project.description || '';
+  projectRootFolder.value = project.config?.rootPath || '';
   showProjectForm.value = true;
 };
 
@@ -83,6 +118,19 @@ const cancelSave = () => {
   resetForm();
 };
 
+const chooseProjectRoot = async () => {
+  const defaultPath = projectRootFolder.value || '/';
+  try {
+    const selected = await backend.selectDirectory('Select project root folder', defaultPath);
+    if (selected) {
+      projectRootFolder.value = selected;
+    }
+  } catch (error) {
+    console.error('Failed to select project root folder:', error);
+    alert('Failed to select project root folder: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
+};
+
 /**
  * Saves a project (creates or updates).
  */
@@ -92,27 +140,41 @@ const saveProject = async () => {
     return;
   }
 
+  const rootPath = projectRootFolder.value.trim();
+  if (!rootPath) {
+    alert('Please select a project root folder');
+    return;
+  }
+
   isSavingProject.value = true;
 
   try {
     if (isEditMode.value && projectToEdit.value) {
-      // Update existing project
-      const updatedProject = await backend.updateProject(
+      // Update existing project metadata (name/description)
+      const updatedMeta = await backend.updateProject(
         projectToEdit.value.id,
         projectName.value,
         projectDescription.value || ''
       );
 
+      // Update project configuration (root path) separately
+      const updatedProject = await backend.updateProjectConfig(projectToEdit.value.id, {
+        ...updatedMeta.config,
+        rootPath
+      });
+
       // Update project in the list
-      const index = projects.value.findIndex(p => p.id === updatedProject.id);
+      const index = projects.value.findIndex((p: Project) => p.id === updatedProject.id);
       if (index !== -1) {
         projects.value[index] = updatedProject;
       }
     } else {
-      // Create new project (backend generates the ID)
+      // Create new project (backend generates the ID, slug optional)
       const newProject = await backend.createProject(
         projectName.value,
-        projectDescription.value || ''
+        projectDescription.value || '',
+        projectSlug.value || '', // Pass slug (empty for auto-generation)
+        rootPath
       );
 
       projects.value.push(newProject);
@@ -158,7 +220,7 @@ const deleteProject = async () => {
     await backend.deleteProject(projectToDelete.value.id);
 
     // Remove from list
-    projects.value = projects.value.filter(p => p.id !== projectToDelete.value!.id);
+    projects.value = projects.value.filter((p: Project) => p.id !== projectToDelete.value!.id);
 
     // Clear current project if it was deleted
     if (currentProject.value?.id === projectToDelete.value.id) {
@@ -175,15 +237,23 @@ const deleteProject = async () => {
 };
 
 /**
- * Formats date to relative time.
- * @param date - Date to format
+ * Formats date to relative time or system locale format.
+ * @param date - Date to format (Unix timestamp in seconds from Go backend)
  * @returns Formatted string
  */
-const formatDate = (date?: Date): string => {
+const formatDate = (date?: Date | number | string): string => {
   if (!date) return 'Never';
 
+  // Convert Unix timestamp (seconds) to milliseconds for JavaScript Date
+  // Go sends timestamps as int64 seconds, JavaScript needs milliseconds
+  const timestamp = typeof date === 'number' ? date * 1000 : date;
+
   const now = new Date();
-  const target = new Date(date);
+  const target = new Date(timestamp);
+
+  // Check if date is valid
+  if (isNaN(target.getTime())) return 'Invalid date';
+
   const diffMs = now.getTime() - target.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
@@ -194,7 +264,22 @@ const formatDate = (date?: Date): string => {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
 
-  return target.toLocaleDateString();
+  // Use system locale for date formatting with both date and time
+  return target.toLocaleString();
+};
+
+/**
+ * Selects a project and navigates to indexing view.
+ * @param project - Project to select
+ */
+const goToIndexing = async (project: Project) => {
+  try {
+    await setCurrentProject(project);
+    navigateTo('indexing');
+  } catch (error) {
+    console.error('Failed to select project:', error);
+    alert('Failed to select project: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
 };
 
 // Load projects on mount
@@ -234,10 +319,13 @@ onMounted(() => {
       <div
         v-for="project in projects"
         :key="project.id"
-        :class="['project-card', { active: currentProject?.id === project.id }]"
+        :class="['project-card', {
+          active: currentProject?.id === project.id,
+          indexing: project.isIndexing
+        }]"
       >
         <!-- Indexing badge -->
-        <div v-if="project.stats?.isIndexing" class="indexing-badge">
+        <div v-if="project.isIndexing" class="indexing-badge">
           ● Indexing
         </div>
 
@@ -255,12 +343,16 @@ onMounted(() => {
         <!-- Project details -->
         <div class="project-details">
           <div class="detail-row">
-            <span class="detail-label">Project ID:</span>
+            <span class="detail-label">ID:</span>
             <code class="detail-value">{{ project.id }}</code>
           </div>
           <div class="detail-row">
             <span class="detail-label">Database:</span>
-            <code class="detail-value db-path">indexes/{{ project.id }}.db</code>
+            <code class="detail-value db-path">indexes/project-{{ project.id }}.db</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Root:</span>
+            <span class="detail-value">{{ project.config?.rootPath || '—' }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Created:</span>
@@ -275,7 +367,7 @@ onMounted(() => {
         <!-- Actions -->
         <div class="project-actions">
           <button
-            @click="navigateTo('indexing')"
+            @click="goToIndexing(project)"
             class="btn btn-primary btn-sm"
           >
             Go to Indexing
@@ -312,6 +404,50 @@ onMounted(() => {
               class="form-input"
               :disabled="isSavingProject"
             />
+          </div>
+
+          <!-- Show ID/slug field (editable in create mode, read-only in edit mode) -->
+          <div class="form-group">
+            <label for="project-slug">{{ isEditMode ? 'ID (immutable)' : 'ID / Slug' }}</label>
+            <input
+              id="project-slug"
+              v-model="projectSlug"
+              type="text"
+              :placeholder="isEditMode ? '' : 'Auto-generated from project name'"
+              class="form-input"
+              :disabled="isSavingProject || isEditMode"
+              :title="isEditMode ? 'The ID is immutable and cannot be changed after creation' : 'URL-safe identifier for database filename. Auto-generated from project name, but you can customize it.'"
+            />
+            <small class="form-help">
+              {{ isEditMode
+                ? `Used for database filename: project-${projectToEdit?.id}.db`
+                : 'Used for database filename: project-{id}.db. Auto-generated from project name, but you can edit it before saving.'
+              }}
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label for="project-root">Project Root Folder *</label>
+            <div class="root-selector">
+              <input
+                id="project-root"
+                v-model="projectRootFolder"
+                type="text"
+                class="form-input"
+                placeholder="/path/to/project"
+                readonly
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click.stop="chooseProjectRoot"
+              >
+                Browse
+              </button>
+            </div>
+            <small class="form-help">
+              This directory becomes the project's root. Include paths are stored relative to it.
+            </small>
           </div>
 
           <div class="form-group">
@@ -426,6 +562,12 @@ onMounted(() => {
 }
 
 .project-card.active {
+  border-color: #007acc;
+  background: #1a2533;
+  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.2);
+}
+
+.project-card.indexing {
   border-color: #28a745;
   background: #1a2e1a;
   box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
@@ -723,6 +865,14 @@ onMounted(() => {
 .form-textarea {
   resize: vertical;
   min-height: 80px;
+}
+
+.form-help {
+  display: block;
+  margin-top: 0.5rem;
+  color: #858585;
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 /* Warning message */

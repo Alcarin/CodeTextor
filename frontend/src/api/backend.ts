@@ -14,13 +14,14 @@ import { models } from '../../wailsjs/go/models'
  */
 export const backend = {
   /**
-   * Creates a new project with the given name and description.
+   * Creates a new project with the given name, description, and optional slug.
    * @param name - Project name
    * @param description - Project description
+   * @param slug - Optional slug (leave empty to auto-generate from name)
    * @returns Promise resolving to the created project
    */
-  async createProject(name: string, description: string): Promise<models.Project> {
-    return App.CreateProject(name, description)
+  async createProject(name: string, description: string, slug: string = '', rootPath: string): Promise<models.Project> {
+    return App.CreateProject(name, description, slug, rootPath)
   },
 
   /**
@@ -112,6 +113,73 @@ export const backend = {
    */
   async clearSelectedProject(): Promise<void> {
     return App.ClearSelectedProject()
+  },
+
+  /**
+   * Enables or disables continuous indexing for a project.
+   * @param projectId - Project identifier
+   * @param enabled - true to enable indexing, false to disable
+   * @returns Promise that resolves when indexing state is updated
+   */
+  async setProjectIndexing(projectId: string, enabled: boolean): Promise<void> {
+    return App.SetProjectIndexing(projectId, enabled)
+  },
+
+  /**
+   * Retrieves a preview of files to be indexed based on project configuration.
+   * @param projectId - Project identifier
+   * @param config - Indexing configuration
+   * @returns Promise resolving to an array of file previews
+   */
+  async getFilePreviews(
+    projectId: string,
+    config: models.ProjectConfig
+  ): Promise<models.FilePreview[]> {
+    return App.GetFilePreviews(projectId, config)
+  },
+
+  /**
+   * Reads glob patterns from the project's .gitignore (if present).
+   */
+  async getGitignorePatterns(projectId: string): Promise<string[]> {
+    return App.GetGitignorePatterns(projectId)
+  },
+
+  /**
+   * Opens a directory selection dialog.
+   * @param title - Dialog title
+   * @param defaultDirectory - Starting directory
+   * @returns Promise resolving to the selected directory path
+   */
+  async selectDirectory(title: string, defaultDirectory: string): Promise<string> {
+    return App.SelectDirectory(title, defaultDirectory)
+  },
+
+  /**
+   * Starts the indexing process for a project.
+   * @param projectId - Project identifier
+   * @returns Promise that resolves when indexing has started
+   */
+  async startIndexing(projectId: string): Promise<void> {
+    return App.StartIndexing(projectId)
+  },
+
+  /**
+   * Stops the indexing process for a project.
+   * @param projectId - Project identifier
+   * @returns Promise that resolves when indexing has stopped
+   */
+  async stopIndexing(projectId: string): Promise<void> {
+    return App.StopIndexing(projectId)
+  },
+
+  /**
+   * Gets the current indexing progress for a project.
+   * @param projectId - Project identifier
+   * @returns Promise resolving to the indexing progress
+   */
+  async getIndexingProgress(projectId: string): Promise<models.IndexingProgress> {
+    return App.GetIndexingProgress(projectId)
   },
 }
 

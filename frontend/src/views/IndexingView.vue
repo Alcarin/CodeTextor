@@ -1,32 +1,12 @@
-<!--
-  File: views/IndexingView.vue
-  Purpose: View for project indexing with progress tracking.
-  Author: CodeTextor project
-  Notes: Allows users to monitor indexing progress for a selected project.
-         TODO: Update to use real backend API
--->
-
 <script setup lang="ts">
-// @ts-nocheck - Temporary: needs backend integration
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
-import { mockBackend } from '../services/mockBackend';
-import type { IndexingProgress } from '../types';
-
-type FilePreview = {
-  relativePath: string;
-  extension: string;
-  size: string;
-  hidden: boolean;
-};
-
-type ResolvedFile = FilePreview & {
-  absolutePath: string;
-};
+import { backend } from '../api/backend';
+import type { IndexingProgress, FilePreview, Project } from '../types';
 
 // Get current project and navigation
-const { currentProject } = useCurrentProject();
+const { currentProject, refreshCurrentProject } = useCurrentProject();
 const { navigateTo } = useNavigation();
 
 // Indexing state
@@ -39,7 +19,6 @@ const progress = ref<IndexingProgress>({
 const indexingEnabled = ref(false);
 
 let progressTimer: ReturnType<typeof setInterval> | null = null;
-let awaitingRestart = false;
 
 // Computed properties
 const isIndexing = computed(() => progress.value.status === 'indexing');
@@ -54,33 +33,50 @@ const defaultExcludePatterns = ['**/.git', '**/.cache', '**/node_modules'];
 const includePaths = ref<string[]>([]);
 const excludePaths = ref<string[]>([...defaultExcludePatterns]);
 const autoExcludeHidden = ref(true);
+const projectRootPath = ref<string>('/');
+const gitignorePatterns = ref<string[]>([]);
 
-const mockFiles = ref<FilePreview[]>([
-  { relativePath: 'src/main.go', extension: '.go', size: '8 KB', hidden: false },
-  { relativePath: 'backend/api/server.go', extension: '.go', size: '21 KB', hidden: false },
-  { relativePath: 'frontend/App.vue', extension: '.vue', size: '14 KB', hidden: false },
-  { relativePath: 'frontend/components/ProjectSidebar.vue', extension: '.vue', size: '9 KB', hidden: false },
-  { relativePath: 'frontend/components/IndexingProgress.vue', extension: '.vue', size: '6 KB', hidden: false },
-  { relativePath: 'tests/indexing/indexer_test.go', extension: '.go', size: '11 KB', hidden: false },
-  { relativePath: 'tests/frontend/indexing.spec.ts', extension: '.ts', size: '5 KB', hidden: false },
-  { relativePath: 'docs/DEV_GUIDE.md', extension: '.md', size: '32 KB', hidden: false },
-  { relativePath: '.github/workflows/ci.yml', extension: '.yml', size: '3 KB', hidden: true },
-  { relativePath: 'scripts/setup.sh', extension: '.sh', size: '2 KB', hidden: false },
-  { relativePath: 'assets/.cache/index.json', extension: '.json', size: '1 KB', hidden: true },
-  { relativePath: 'vendor/lib/parser.c', extension: '.c', size: '45 KB', hidden: false },
-  { relativePath: 'frontend/styles/index.scss', extension: '.scss', size: '4 KB', hidden: false },
-  { relativePath: 'data/index.sqlite', extension: '.sqlite', size: '1200 KB', hidden: false },
-  { relativePath: 'scripts/.history/setup.sh', extension: '.sh', size: '2 KB', hidden: true }
-]);
+const files = ref<FilePreview[]>([]);
+let fetchPreviewsTimeout: ReturnType<typeof setTimeout> | null = null;
+let isInitializing = ref(false); // Flag to prevent cascading updates during mount
 
-const normalizePattern = (pattern: string) => pattern.replace(/\*\*/g, '').replace(/\*/g, '').trim();
-const matchesPattern = (filePath: string, pattern: string) => {
-  const normalized = normalizePattern(pattern);
-  if (!normalized) return false;
-  return filePath.includes(normalized);
+const fetchFilePreviews = async () => {
+  if (!currentProject.value) {
+    files.value = [];
+    return;
+  }
+
+  // Clear any pending fetch
+  if (fetchPreviewsTimeout) {
+    clearTimeout(fetchPreviewsTimeout);
+  }
+
+  // Debounce file preview fetching to avoid database locks
+  fetchPreviewsTimeout = setTimeout(async () => {
+    try {
+      const previewConfig = {
+        includePaths: includePaths.value,
+        excludePatterns: excludePaths.value,
+        rootPath: projectRootPath.value,
+        autoExcludeHidden: autoExcludeHidden.value,
+        // We intentionally do not pass selected extensions so we can still show all available chips.
+        fileExtensions: [],
+        continuousIndexing: currentProject.value!.config.continuousIndexing,
+        chunkSizeMin: currentProject.value!.config.chunkSizeMin,
+        chunkSizeMax: currentProject.value!.config.chunkSizeMax,
+        embeddingModel: currentProject.value!.config.embeddingModel,
+        maxResponseBytes: currentProject.value!.config.maxResponseBytes,
+      };
+      const result = await backend.getFilePreviews(currentProject.value!.id, previewConfig);
+      // Ensure we always have an array, never null
+      files.value = result || [];
+    } catch (error) {
+      console.error('Failed to fetch file previews:', error);
+      files.value = [];
+    }
+  }, 300); // Wait 300ms before fetching to batch rapid changes
 };
 
-const isHiddenPath = (filePath: string) => filePath.split('/').some(segment => segment.startsWith('.') && segment.length > 1);
 const normalizePathValue = (path: string) => {
   const trimmed = path.trim();
   if (trimmed === '/') {
@@ -89,40 +85,47 @@ const normalizePathValue = (path: string) => {
   return trimmed.replace(/\/+$/, '');
 };
 
-const projectRoot = computed(() => currentProject.value?.path ?? '/projects/demo');
-const resolvedFiles = computed<ResolvedFile[]>(() => {
-  const root = projectRoot.value.endsWith('/') ? projectRoot.value.slice(0, -1) : projectRoot.value;
-  return mockFiles.value.map(file => ({
-    ...file,
-    absolutePath: `${root}/${file.relativePath}`
-  }));
-});
+const normalizedProjectRoot = () => {
+  const raw = projectRootPath.value || '/';
+  const trimmed = raw.replace(/\/+$/, '');
+  return trimmed === '' ? '/' : trimmed;
+};
 
-const filteredFiles = computed(() => {
-  return resolvedFiles.value.filter(file => {
-    const pathCandidates = [file.absolutePath, file.relativePath];
+const formatFullPath = (relative: string) => {
+  const root = normalizedProjectRoot();
+  if (!relative || relative === '.') {
+    return root;
+  }
+  const normalizedRelative = relative.replace(/^\/+/, '');
+  if (root === '/') {
+    return `/${normalizedRelative}`;
+  }
+  return `${root}/${normalizedRelative}`;
+};
 
-    if (autoExcludeHidden.value && (file.hidden || isHiddenPath(file.relativePath))) {
-      return false;
-    }
+const convertAbsoluteToRelative = (absolute: string) => {
+  const root = normalizedProjectRoot();
+  const normalizedAbsolute = absolute.replace(/\/+$/, '');
+  if (root === '/') {
+    const trimmed = normalizedAbsolute.replace(/^\/+/, '');
+    return trimmed === '' ? '.' : trimmed;
+  }
+  if (normalizedAbsolute === root) {
+    return '.';
+  }
+  if (normalizedAbsolute.startsWith(root + '/')) {
+    return normalizedAbsolute.slice(root.length + 1);
+  }
+  return null;
+};
 
-    if (excludePaths.value.some(pattern => pathCandidates.some(candidate => matchesPattern(candidate, pattern)))) {
-      return false;
-    }
-
-    if (includePaths.value.length === 0) {
-      return true;
-    }
-
-    return includePaths.value.some(pattern =>
-      pathCandidates.some(candidate => matchesPattern(candidate, pattern) || candidate.startsWith(pattern))
-    );
-  });
+const projectRoot = computed(() => {
+  return projectRootPath.value || '/';
 });
 
 const availableExtensions = computed(() => {
   const extensions = new Set<string>();
-  filteredFiles.value.forEach(file => {
+  files.value.forEach((file: FilePreview) => {
     if (file.extension) {
       extensions.add(file.extension);
     }
@@ -131,26 +134,29 @@ const availableExtensions = computed(() => {
 });
 
 const selectedExtensions = ref<string[]>([]);
-const hasExtensionSelection = computed(() => selectedExtensions.value.length > 0);
+
+const allExtensionsSelected = computed(() => {
+  const extensions = availableExtensions.value;
+  if (extensions.length === 0) {
+    return false;
+  }
+  if (selectedExtensions.value.length !== extensions.length) {
+    return false;
+  }
+  const selectedSet = new Set(selectedExtensions.value);
+  return extensions.every(ext => selectedSet.has(ext));
+});
 
 const isExtensionSelected = (extension: string) => {
-  if (selectedExtensions.value.length === 0) {
-    return true;
-  }
   return selectedExtensions.value.includes(extension);
 };
 
 const displayedFiles = computed(() => {
-  if (selectedExtensions.value.length === 0 || selectedExtensions.value.length === availableExtensions.value.length) {
-    return filteredFiles.value;
+  if (selectedExtensions.value.length === 0) {
+    return files.value;
   }
-
-  return filteredFiles.value.filter(file => selectedExtensions.value.includes(file.extension));
+  return files.value.filter((file: FilePreview) => selectedExtensions.value.includes(file.extension));
 });
-
-const previewLimit = 12;
-const previewFiles = computed(() => displayedFiles.value.slice(0, previewLimit));
-const moreFileCount = computed(() => Math.max(displayedFiles.value.length - previewLimit, 0));
 
 /**
  * Adds a new include path to the indexing configuration.
@@ -186,13 +192,18 @@ const removeExcludePath = (index: number) => {
  * Opens a folder picker for include paths.
  */
 const browseIncludeFolder = async () => {
-  const selected = await mockBackend.selectDirectory({
-    prompt: 'Select a folder to include in indexing',
-    startPath: projectRoot.value
-  });
+  const selected = await backend.selectDirectory(
+    'Select a folder to include in indexing',
+    projectRoot.value
+  );
 
   if (selected) {
-    addIncludePath(selected);
+    const relative = convertAbsoluteToRelative(selected);
+    if (!relative) {
+      alert('The selected folder must live inside the project root.');
+      return;
+    }
+    addIncludePath(relative);
   }
 };
 
@@ -200,43 +211,14 @@ const browseIncludeFolder = async () => {
  * Opens a folder picker for exclude paths.
  */
 const browseExcludeFolder = async () => {
-  const selected = await mockBackend.selectDirectory({
-    prompt: 'Select a folder to exclude from indexing',
-    startPath: projectRoot.value
-  });
+  const selected = await backend.selectDirectory(
+    'Select a folder to exclude from indexing',
+    projectRoot.value
+  );
 
   if (selected) {
     addExcludePath(selected);
   }
-};
-
-/**
- * Formats a path for display relative to the current project.
- */
-const formatPathForDisplay = (path: string) => {
-  if (path.includes('*')) {
-    return path;
-  }
-
-  const root = projectRoot.value.replace(/\/+$/, '');
-
-  if (!root) {
-    return path;
-  }
-
-  const normalized = path.replace(/\/+$/, '');
-
-  if (normalized === root) {
-    return '(project root)';
-  }
-
-  const prefix = `${root}/`;
-  if (normalized.startsWith(prefix)) {
-    const relative = normalized.slice(prefix.length);
-    return relative ? `./${relative}` : '(project root)';
-  }
-
-  return normalized;
 };
 
 const stopProgressPolling = () => {
@@ -246,49 +228,58 @@ const stopProgressPolling = () => {
   }
 };
 
-const triggerIndexingRun = () => {
+const triggerIndexingRun = async () => {
   if (!currentProject.value) {
     return;
   }
 
-  mockBackend.startIndexing(currentProject.value.path);
+  try {
+    await backend.startIndexing(currentProject.value.id);
+    console.log('Triggering indexing run for', currentProject.value.id);
+  } catch (error) {
+    console.error('Failed to start indexing:', error);
+  }
 };
 
 const safeStopIndexing = async () => {
+  if (!currentProject.value) {
+    return;
+  }
+
   try {
-    await mockBackend.stopIndexing();
+    await backend.stopIndexing(currentProject.value.id);
+    console.log('Stopping indexing for', currentProject.value.id);
   } catch (error) {
     console.error('Failed to stop indexing:', error);
   }
 };
 
 const handleProgressTick = async () => {
-  const latest = await mockBackend.getIndexingProgress();
-  progress.value = latest;
-
-  if (latest.status === 'error') {
-    indexingEnabled.value = false;
-    awaitingRestart = false;
-    stopProgressPolling();
+  if (!currentProject.value) {
     return;
   }
 
-  if (latest.status === 'indexing') {
-    awaitingRestart = false;
-  }
+  try {
+    const latest = await backend.getIndexingProgress(currentProject.value.id);
+progress.value = latest;
 
-  if (latest.status === 'completed' && indexingEnabled.value && !awaitingRestart) {
-    if (currentProject.value) {
-      await mockBackend.updateProject(currentProject.value.id, {
-        lastIndexed: new Date()
-      });
+    if (latest.status === 'error') {
+      indexingEnabled.value = false;
+      stopProgressPolling();
+      return;
     }
 
-    awaitingRestart = true;
-    triggerIndexingRun();
-  }
+    if (latest.status === 'completed' && indexingEnabled.value) {
+      // TODO: This should be handled by the backend
+      triggerIndexingRun();
+    }
 
-  if (!indexingEnabled.value && latest.status === 'idle') {
+    if (!indexingEnabled.value && latest.status === 'idle') {
+      stopProgressPolling();
+    }
+  } catch (error) {
+    console.error('Failed to get indexing progress:', error);
+    indexingEnabled.value = false;
     stopProgressPolling();
   }
 };
@@ -318,27 +309,106 @@ const enableContinuousIndexing = async () => {
     return;
   }
 
-  indexingEnabled.value = true;
-  awaitingRestart = false;
-  triggerIndexingRun();
-  beginProgressPolling();
+  try {
+    // Update database state
+    await backend.setProjectIndexing(currentProject.value.id, true);
+
+    // Refresh current project to get updated isIndexing state
+    await refreshCurrentProject();
+
+    indexingEnabled.value = true;
+    triggerIndexingRun();
+    beginProgressPolling();
+  } catch (error) {
+    console.error('Failed to enable indexing:', error);
+    alert('Failed to enable indexing: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    indexingEnabled.value = false;
+  }
 };
 
 /**
  * Disables continuous indexing and resets progress polling.
  */
 const disableContinuousIndexing = async () => {
-  indexingEnabled.value = false;
-  awaitingRestart = false;
-  stopProgressPolling();
+  if (!currentProject.value) {
+    return;
+  }
 
-  await safeStopIndexing();
-  progress.value = await mockBackend.getIndexingProgress();
+  try {
+    // Update database state
+    await backend.setProjectIndexing(currentProject.value.id, false);
+
+    // Refresh current project to get updated isIndexing state
+    await refreshCurrentProject();
+
+    indexingEnabled.value = false;
+    stopProgressPolling();
+
+    await safeStopIndexing();
+    // TODO: Get progress from backend
+    progress.value = {
+      totalFiles: 0,
+      processedFiles: 0,
+      currentFile: '',
+      status: 'idle'
+    };
+  } catch (error) {
+    console.error('Failed to disable indexing:', error);
+    alert('Failed to disable indexing: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
 };
 
 const indexingToggleLabel = computed(() =>
   indexingEnabled.value ? 'Disable continuous indexing' : 'Enable continuous indexing'
 );
+
+const getDefaultExcludePatterns = () => {
+	return gitignorePatterns.value.length > 0
+		? [...gitignorePatterns.value]
+		: [...defaultExcludePatterns];
+};
+
+const isLegacyDefaultExclude = (patterns: string[]) => {
+	if (!patterns || patterns.length !== defaultExcludePatterns.length) {
+		return false;
+	}
+	const a = [...patterns].sort();
+	const b = [...defaultExcludePatterns].sort();
+	return a.every((value, index) => value === b[index]);
+};
+
+const loadGitignorePatterns = async (project: Project) => {
+	try {
+		const patterns = await backend.getGitignorePatterns(project.id);
+		gitignorePatterns.value = patterns?.length ? patterns : [];
+	} catch (error) {
+		console.warn('Failed to load .gitignore patterns:', error);
+		gitignorePatterns.value = [];
+	}
+};
+
+const applyProjectConfigValues = async (project: Project) => {
+	projectRootPath.value = project.config?.rootPath ?? '/';
+	await loadGitignorePatterns(project);
+	includePaths.value = project.config?.includePaths?.length > 0
+		? project.config.includePaths
+		: ['.'];
+	const hasCustomExclude = project.config?.excludePatterns?.length > 0
+		&& !isLegacyDefaultExclude(project.config.excludePatterns);
+	if (hasCustomExclude) {
+		excludePaths.value = project.config!.excludePatterns;
+	} else {
+		excludePaths.value = getDefaultExcludePatterns();
+	}
+	selectedExtensions.value = project.config?.fileExtensions ?? [];
+	autoExcludeHidden.value = project.config?.autoExcludeHidden ?? true;
+};
+
+const getFileName = (relativePath: string) => {
+	const normalized = relativePath || '';
+	const parts = normalized.split('/');
+	return parts[parts.length - 1] || normalized;
+};
 
 /** 
  * Toggles selection state for a given file extension.
@@ -355,27 +425,17 @@ const toggleExtension = (extension: string) => {
  * Selects or clears all extensions at once.
  */
 const toggleAllExtensions = () => {
-  if (hasExtensionSelection.value) {
+  if (availableExtensions.value.length === 0) {
     selectedExtensions.value = [];
-  } else {
-    selectedExtensions.value = [...availableExtensions.value];
-  }
-};
-
-const onToggleChanged = async (event: Event) => {
-  const target = event.target as HTMLInputElement | null;
-  if (!target) {
     return;
   }
 
-  if (target.checked) {
-    await enableContinuousIndexing();
-  } else {
-    await disableContinuousIndexing();
+  if (allExtensionsSelected.value) {
+    selectedExtensions.value = [];
+    return;
   }
 
-  // Ensure the checkbox reflects the authoritative state after async work
-  target.checked = indexingEnabled.value;
+  selectedExtensions.value = [...availableExtensions.value];
 };
 
 onMounted(async () => {
@@ -383,12 +443,31 @@ onMounted(async () => {
     return;
   }
 
-  const latest = await mockBackend.getIndexingProgress();
-  progress.value = latest;
+  isInitializing.value = true; // Prevent watch triggers during initialization
 
-  if (latest.status === 'indexing') {
-    indexingEnabled.value = true;
-    beginProgressPolling();
+  try {
+    // Refresh project to ensure we have the latest state from database
+    await refreshCurrentProject();
+
+    if (!currentProject.value) {
+      return;
+    }
+
+    // Apply saved configuration
+    await applyProjectConfigValues(currentProject.value);
+    // Initialize indexing state from project
+    indexingEnabled.value = currentProject.value.isIndexing;
+
+    const latest = await backend.getIndexingProgress(currentProject.value.id);
+    progress.value = latest;
+
+    if (indexingEnabled.value || latest.status === 'indexing') {
+      beginProgressPolling();
+    }
+
+    await fetchFilePreviews();
+  } finally {
+    isInitializing.value = false; // Re-enable watchers
   }
 });
 
@@ -397,30 +476,52 @@ onBeforeUnmount(() => {
 });
 
 watch(currentProject, async (project, previous) => {
+  // Skip if this is initial mount (handled by onMounted)
+  if (isInitializing.value) {
+    return;
+  }
+
   if (project) {
+    // Only process if project actually changed
     if (!previous || project.id !== previous.id) {
-      includePaths.value = [normalizePathValue(project.path)];
-      excludePaths.value = [...defaultExcludePatterns];
-      selectedExtensions.value = [];
-      autoExcludeHidden.value = true;
-      indexingEnabled.value = false;
-      awaitingRestart = false;
-      stopProgressPolling();
-      await safeStopIndexing();
-      progress.value = {
-        totalFiles: 0,
-        processedFiles: 0,
-        currentFile: '',
-        status: 'idle'
-      };
+      isInitializing.value = true; // Prevent recursive triggers
+
+      try {
+        // Refresh project to get latest state from database
+        await refreshCurrentProject();
+
+        // Use the refreshed project state
+        const refreshedProject = currentProject.value;
+        if (!refreshedProject) return;
+
+        await applyProjectConfigValues(refreshedProject);
+        indexingEnabled.value = refreshedProject.isIndexing;
+        stopProgressPolling();
+        await safeStopIndexing();
+        progress.value = {
+          totalFiles: 0,
+          processedFiles: 0,
+          currentFile: '',
+          status: 'idle'
+        };
+
+        // If indexing is enabled, start polling
+        if (indexingEnabled.value) {
+          beginProgressPolling();
+        }
+        await fetchFilePreviews();
+      } finally {
+        isInitializing.value = false;
+      }
     }
   } else {
     includePaths.value = [];
-    excludePaths.value = [...defaultExcludePatterns];
+    excludePaths.value = getDefaultExcludePatterns();
     selectedExtensions.value = [];
     autoExcludeHidden.value = true;
+    projectRootPath.value = '/';
+    gitignorePatterns.value = [];
     indexingEnabled.value = false;
-    awaitingRestart = false;
     stopProgressPolling();
     await safeStopIndexing();
     progress.value = {
@@ -429,8 +530,66 @@ watch(currentProject, async (project, previous) => {
       currentFile: '',
       status: 'idle'
     };
+    files.value = []; // Don't call fetchFilePreviews when no project
   }
-}, { immediate: true });
+});
+
+let saveConfigTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const saveProjectConfig = async () => {
+  // Skip if initializing to prevent save during mount
+  if (!currentProject.value || isInitializing.value) {
+    return;
+  }
+
+  // Clear any pending save
+  if (saveConfigTimeout) {
+    clearTimeout(saveConfigTimeout);
+  }
+
+  // Debounce config saving to avoid database locks
+  saveConfigTimeout = setTimeout(async () => {
+    if (!currentProject.value || isInitializing.value) {
+      return;
+    }
+
+      try {
+        const config = {
+          includePaths: includePaths.value,
+          excludePatterns: excludePaths.value,
+          rootPath: projectRootPath.value,
+          fileExtensions: selectedExtensions.value,
+        autoExcludeHidden: autoExcludeHidden.value,
+        // Other config properties will be loaded from the project and not changed here
+        continuousIndexing: currentProject.value.config.continuousIndexing,
+        chunkSizeMin: currentProject.value.config.chunkSizeMin,
+        chunkSizeMax: currentProject.value.config.chunkSizeMax,
+        embeddingModel: currentProject.value.config.embeddingModel,
+        maxResponseBytes: currentProject.value.config.maxResponseBytes,
+      };
+      await backend.updateProjectConfig(currentProject.value.id, config);
+      // DON'T call refreshCurrentProject here - it causes cascading updates
+    } catch (error) {
+      console.error('Failed to save project config:', error);
+    }
+  }, 500); // Wait 500ms before saving to batch rapid changes
+};
+
+  watch([includePaths, excludePaths, autoExcludeHidden], () => {
+    // Skip during initialization
+    if (isInitializing.value) {
+      return;
+    }
+    saveProjectConfig();
+    fetchFilePreviews();
+  }, { deep: true });
+
+  watch(selectedExtensions, () => {
+    if (isInitializing.value) {
+      return;
+    }
+    saveProjectConfig();
+  }, { deep: true });
 
 watch(availableExtensions, extensions => {
   if (extensions.length === 0) {
@@ -459,7 +618,7 @@ watch(availableExtensions, extensions => {
             <input
               type="checkbox"
               :checked="indexingEnabled"
-              @change="onToggleChanged"
+              @click="indexingEnabled ? disableContinuousIndexing() : enableContinuousIndexing()"
               aria-label="Toggle continuous indexing"
             />
             <span class="toggle-track">
@@ -496,6 +655,7 @@ watch(availableExtensions, extensions => {
           <div class="path-column">
             <h4>Include folders</h4>
             <p class="helper-text">Files must live under at least one include rule.</p>
+            <p class="helper-text">Project root: {{ projectRoot }}</p>
             <div class="path-pill-list">
               <div v-if="includePaths.length === 0" class="empty-pill">No include folders yet</div>
               <div
@@ -504,7 +664,7 @@ watch(availableExtensions, extensions => {
                 class="path-pill"
                 :title="folder"
               >
-                <span>{{ formatPathForDisplay(folder) }}</span>
+                <span>{{ formatFullPath(folder) }}</span>
                 <button
                   type="button"
                   class="pill-remove"
@@ -537,7 +697,7 @@ watch(availableExtensions, extensions => {
                 class="path-pill"
                 :title="folder"
               >
-                <span>{{ formatPathForDisplay(folder) }}</span>
+                <span>{{ folder }}</span>
                 <button
                   type="button"
                   class="pill-remove"
@@ -559,15 +719,15 @@ watch(availableExtensions, extensions => {
 
       <div class="section preview-section">
         <div class="section-header">
-          <h3>File Preview</h3>
-          <p>Inspect which files are currently part of the index scope.</p>
+          <h3>File Type Filter</h3>
+          <p>Configure which file extensions should be included in the index scope; in the future we may add single-file exclusion controls.</p>
         </div>
 
         <div class="extensions">
           <div class="extensions-header">
             <h4>File types</h4>
             <button type="button" class="chip chip-action" @click="toggleAllExtensions">
-              {{ hasExtensionSelection ? 'Clear filter' : 'Select all' }}
+              {{ allExtensionsSelected ? 'Unselect all' : 'Select all' }}
             </button>
           </div>
           <div class="extension-chips">
@@ -588,19 +748,19 @@ watch(availableExtensions, extensions => {
         </div>
 
         <div class="file-preview">
-          <table v-if="previewFiles.length > 0" class="file-table">
+          <table v-if="displayedFiles.length > 0" class="file-table">
             <thead>
               <tr>
-                <th>Relative path</th>
+                <th>File</th>
                 <th>Extension</th>
                 <th>Size</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="file in previewFiles" :key="file.absolutePath">
+              <tr v-for="file in displayedFiles" :key="file.absolutePath">
                 <td>
-                  <div class="file-name">{{ file.relativePath }}</div>
-                  <div class="file-path">{{ file.absolutePath }}</div>
+                  <div class="file-name">{{ getFileName(file.relativePath) }}</div>
+                  <div class="file-path">{{ file.relativePath }}</div>
                 </td>
                 <td>{{ file.extension || '—' }}</td>
                 <td>{{ file.size }}</td>
@@ -613,9 +773,6 @@ watch(availableExtensions, extensions => {
             <p>No files are currently selected for indexing.</p>
           </div>
 
-          <div v-if="moreFileCount > 0" class="more-files">
-            +{{ moreFileCount }} additional files match your filters
-          </div>
         </div>
       </div>
     </div>

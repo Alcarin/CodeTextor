@@ -1,5 +1,45 @@
 export namespace models {
 	
+	export class FilePreview {
+	    absolutePath: string;
+	    relativePath: string;
+	    extension: string;
+	    size: string;
+	    hidden: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FilePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.absolutePath = source["absolutePath"];
+	        this.relativePath = source["relativePath"];
+	        this.extension = source["extension"];
+	        this.size = source["size"];
+	        this.hidden = source["hidden"];
+	    }
+	}
+	export class IndexingProgress {
+	    totalFiles: number;
+	    processedFiles: number;
+	    currentFile: string;
+	    status: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IndexingProgress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalFiles = source["totalFiles"];
+	        this.processedFiles = source["processedFiles"];
+	        this.currentFile = source["currentFile"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	    }
+	}
 	export class ProjectStats {
 	    totalFiles: number;
 	    totalChunks: number;
@@ -47,6 +87,7 @@ export namespace models {
 	    includePaths: string[];
 	    excludePatterns: string[];
 	    fileExtensions: string[];
+	    rootPath: string;
 	    autoExcludeHidden: boolean;
 	    continuousIndexing: boolean;
 	    chunkSizeMin: number;
@@ -63,6 +104,7 @@ export namespace models {
 	        this.includePaths = source["includePaths"];
 	        this.excludePatterns = source["excludePatterns"];
 	        this.fileExtensions = source["fileExtensions"];
+	        this.rootPath = source["rootPath"];
 	        this.autoExcludeHidden = source["autoExcludeHidden"];
 	        this.continuousIndexing = source["continuousIndexing"];
 	        this.chunkSizeMin = source["chunkSizeMin"];
@@ -75,11 +117,10 @@ export namespace models {
 	    id: string;
 	    name: string;
 	    description: string;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
+	    createdAt: number;
+	    updatedAt: number;
 	    config: ProjectConfig;
+	    isIndexing: boolean;
 	    stats?: ProjectStats;
 	
 	    static createFrom(source: any = {}) {
@@ -91,9 +132,10 @@ export namespace models {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.description = source["description"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
 	        this.config = this.convertValues(source["config"], ProjectConfig);
+	        this.isIndexing = source["isIndexing"];
 	        this.stats = this.convertValues(source["stats"], ProjectStats);
 	    }
 	

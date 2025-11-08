@@ -63,19 +63,31 @@ CodeTextor is designed around core principles that guide all architectural decis
 ```
 Configuration Storage:
   ~/.local/share/codetextor/config/projects.db
-  └── Shared metadata: project names, IDs, settings
+  └── Tables: app_config
+      └── Contains: general app metadata such as the currently selected project
 
-Index Storage (per project):
+Project Storage (per-project):
   ~/.local/share/codetextor/indexes/
-  ├── project-abc123.db  ← Isolated vector DB for project abc123
-  ├── project-def456.db  ← Isolated vector DB for project def456
+  ├── project-codetextor.db  ← Isolated vector DB for project "codetextor" (slug-based naming)
+  │   ├── Tables: chunks, files, symbols, project_meta
+  │   └── Contains: embeddings, parsed code, AST symbols, and the project-specific configuration
+  ├── project-my-app.db      ← Isolated vector DB for project "my-app"
   └── ...
 ```
+
+**Implementation Details:**
+- Each per-project database is created automatically on project creation
+- Migrations for per-project DBs are embedded in `backend/internal/store/vector_migrations/`
+- Global config DB only stores app-level metadata (selected project, future global settings)
+- **IMPORTANT:** No `project_id` columns in per-project tables - isolation via separate database files
+- Vector stores use WAL mode for concurrent access, single connection pool for ACID guarantees
+- `.gitignore` files under each project root are parsed into glob patterns and used as the default exclude list unless the user overrides it.
 
 **Benefits:**
 - Projects are portable (copy `.db` + config entry)
 - No risk of cross-contamination
 - Each project can have different indexing parameters
+- Simpler queries (no filtering by `project_id` needed)
 - Simpler to reason about data boundaries
 
 ---
@@ -89,13 +101,14 @@ Index Storage (per project):
 **Key Concepts:**
 - Projects are configuration containers, not tied to single directory
 - Each project defines its own include/exclude paths (can span multiple directories)
-- Selection state managed in database (not localStorage) for consistency
+- Selection state and indexing state managed in database (not localStorage) for consistency
 - Auto-selection fallback when current project deleted
 
-**Why database-based selection?**
+**Why database-based state?**
 - Single source of truth accessible from frontend and backend
 - Survives project deletion (auto-selects next available)
 - Transactional consistency (only one selected at a time)
+- Persistent indexing state survives app restarts
 - No desync between UI and backend state
 
 ### 2. Semantic Chunking Engine
@@ -328,8 +341,9 @@ Return chunks with metadata
 ### Composition Over Inheritance
 
 - Go's interface-based design
-- Small, focused interfaces (e.g., `ProjectStore`, `ChunkExtractor`)
+- Small, focused interfaces (e.g., per-project metadata reader, `ChunkExtractor`)
 - Easy to mock for testing, swap implementations
+  - Project configuration lives inside each project's SQLite-vec database (`project_meta` table), so the same metadata travels with the vector data.
 
 ### Explicit Over Implicit
 

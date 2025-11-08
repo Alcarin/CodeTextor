@@ -150,17 +150,22 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
    - **Note**: Projects do NOT have a single root path. Instead, users configure flexible indexing scope.
 2. **Initialization**: Create `indexes/<projectId>.db` and project config entry
 3. **Indexing Configuration**:
-   - User selects multiple folders to include (can be from different file system locations)
+   - User selects a root folder that anchors the project; include paths are stored relative to that root
+   - User adds relative include folders (root is always included by default)
    - User defines exclude patterns (e.g., `node_modules`, `.git`, `.cache`)
    - User optionally filters by file extensions
    - Auto-exclude hidden directories option
-4. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
+
+   All of those settings are persisted inside the project's own vector database (`indexes/project-<id>.db`), so moving a project to a new machine is as simple as copying that single file while include paths stay relative to the configured root.
+
+   The Indexing view now exposes a **"File Type Filter"** card: it lists the files that match the include/exclude configuration and lets you pin which extensions should end up in the index. Selection is saved immediately into the project configuration (`fileExtensions`) and is reloaded every time the view opens, so the filter stays persistent. In the future the panel can evolve to exclude single files in addition to extensions.
+  4. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
 5. **Querying**: All MCP tools receive `projectId` and query the correct DB
 6. **Deletion**: Remove `indexes/<projectId>.db` and config entry
 
 ### 🔹 Indexing Status & Active Project
 
-* **Active Project**: The project currently selected in the UI for configuration/viewing (stored in localStorage)
+   * **Active Project**: The project currently selected in the UI for configuration/viewing (stored in the global `projects.db` under `app_config`)
 * **Indexing Status**: Indicates which projects are currently being indexed by the backend
   - **Multiple projects can be indexed concurrently** using separate goroutines/watchers per project
   - Each project has its own file system watcher and indexing queue to avoid interference
@@ -244,9 +249,13 @@ CodeTextor uses **[golang-migrate/migrate](https://github.com/golang-migrate/mig
 - Add `DEFAULT` values for new columns
 - Test on both empty and existing databases
 
-Migrations are embedded in the binary and run automatically at startup.
+### Handling Data in Migrations
 
-**See [DATABASE_MIGRATIONS.md](DATABASE_MIGRATIONS.md) for details.**
+When a migration alters the schema in a way that adds new constraints (e.g., `UNIQUE`, `NOT NULL`), it is **critical** that the migration also handles any pre-existing data to make it conform to the new schema. A failure to do so will result in a "dirty" database state if the migration is run on a database with existing data.
+
+**Key Takeaway:** A migration is not just about schema changes; it's about safely transitioning **both the schema and the data** to a new state. Always assume the database is not empty.
+
+Migrations are embedded in the binary and run automatically at startup.
 
 ---
 

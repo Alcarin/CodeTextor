@@ -8,12 +8,18 @@
 
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Project represents a CodeTextor project with its configuration and metadata.
 // Each project maintains its own isolated index database and settings.
 type Project struct {
-	// ID is the unique identifier for the project (e.g., "project-abc123")
+	// ID is the unique, immutable, URL-safe identifier for the project.
+	// This is the slug - derived from the project name at creation time.
+	// Example: "my-awesome-project" from name "My Awesome Project!"
+	// It's used as the primary key in the database and for the database filename.
 	ID string `json:"id"`
 
 	// Name is the human-readable project name
@@ -23,13 +29,17 @@ type Project struct {
 	Description string `json:"description"`
 
 	// CreatedAt is the timestamp when the project was created
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt int64 `json:"createdAt"`
 
 	// UpdatedAt is the timestamp of the last modification
-	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedAt int64 `json:"updatedAt"`
 
 	// Config contains all indexing and processing settings
 	Config ProjectConfig `json:"config"`
+
+	// IsIndexing indicates whether continuous indexing is enabled for this project
+	// This state is persisted in the database
+	IsIndexing bool `json:"isIndexing"`
 
 	// Stats contains current project statistics (not persisted in config DB)
 	Stats *ProjectStats `json:"stats,omitempty"`
@@ -50,6 +60,10 @@ type ProjectConfig struct {
 	// If empty, all supported file types are indexed.
 	// Examples: [".go", ".ts", ".js", ".py"]
 	FileExtensions []string `json:"fileExtensions"`
+
+	// RootPath is the absolute path that serves as the base for the project.
+	// IncludePaths are resolved relative to this directory.
+	RootPath string `json:"rootPath"`
 
 	// AutoExcludeHidden determines whether to automatically exclude hidden files/directories.
 	AutoExcludeHidden bool `json:"autoExcludeHidden"`
@@ -72,6 +86,39 @@ type ProjectConfig struct {
 	// MaxResponseBytes is the maximum byte size for MCP API responses.
 	// Default: 100000 (100KB)
 	MaxResponseBytes int `json:"maxResponseBytes"`
+}
+
+// FilePreview represents a file with its metadata for display in the frontend.
+type FilePreview struct {
+	AbsolutePath string `json:"absolutePath"`
+	RelativePath string `json:"relativePath"`
+	Extension    string `json:"extension"`
+	Size         string `json:"size"` // Human-readable size (e.g., "10 KB")
+	Hidden       bool   `json:"hidden"`
+}
+
+// IndexingStatus defines the possible states of the indexing process.
+// By using a custom type, Wails will generate a TypeScript union type.
+type IndexingStatus string
+
+const (
+	// IndexingStatusIdle indicates the indexer is not running.
+	IndexingStatusIdle IndexingStatus = "idle"
+	// IndexingStatusIndexing indicates the indexer is actively processing files.
+	IndexingStatusIndexing IndexingStatus = "indexing"
+	// IndexingStatusCompleted indicates the indexer has finished a run.
+	IndexingStatusCompleted IndexingStatus = "completed"
+	// IndexingStatusError indicates the indexer stopped due to an error.
+	IndexingStatusError IndexingStatus = "error"
+)
+
+// IndexingProgress represents the current state of an indexing operation.
+type IndexingProgress struct {
+	TotalFiles     int            `json:"totalFiles"`
+	ProcessedFiles int            `json:"processedFiles"`
+	CurrentFile    string         `json:"currentFile"`
+	Status         IndexingStatus `json:"status"` // e.g., "idle", "indexing", "completed", "error"
+	Error          string         `json:"error,omitempty"`
 }
 
 // ProjectStats contains current statistics about a project's index.
@@ -99,6 +146,46 @@ type ProjectStats struct {
 	IndexingProgress float64 `json:"indexingProgress"`
 }
 
+// Chunk represents a piece of text from a file, along with its embedding.
+type Chunk struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"projectId"`
+	FilePath  string    `json:"filePath"`
+	Content   string    `json:"content"`
+	Embedding []float32 `json:"embedding"`
+	LineStart int       `json:"lineStart"`
+	LineEnd   int       `json:"lineEnd"`
+	CharStart int       `json:"charStart"`
+	CharEnd   int       `json:"charEnd"`
+	CreatedAt int64     `json:"createdAt"`
+	UpdatedAt int64     `json:"updatedAt"`
+}
+
+// File represents a file that has been indexed.
+type File struct {
+	ID           string `json:"id"`
+	ProjectID    string `json:"projectId"`
+	Path         string `json:"path"`
+	Hash         string `json:"hash"`
+	LastModified int64  `json:"lastModified"`
+	ChunkCount   int    `json:"chunkCount"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+}
+
+// Symbol represents a code symbol extracted from a file.
+type Symbol struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"projectId"`
+	FilePath  string `json:"filePath"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"` // e.g., "function", "class", "variable"
+	Line      int    `json:"line"`
+	Character int    `json:"character"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
 // NewProject creates a new Project instance with default configuration.
 // Parameters:
 //   - id: unique project identifier
@@ -107,7 +194,7 @@ type ProjectStats struct {
 //
 // Returns a Project with sensible defaults for all configuration options.
 func NewProject(id, name, description string) *Project {
-	now := time.Now()
+	now := time.Now().Unix()
 	return &Project{
 		ID:          id,
 		Name:        name,
@@ -115,9 +202,10 @@ func NewProject(id, name, description string) *Project {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Config: ProjectConfig{
-			IncludePaths:       []string{},
+			IncludePaths:       []string{"."},
 			ExcludePatterns:    []string{"node_modules", ".git", ".cache", "dist", "build"},
 			FileExtensions:     []string{},
+			RootPath:           "",
 			AutoExcludeHidden:  true,
 			ContinuousIndexing: false,
 			ChunkSizeMin:       100,
@@ -133,7 +221,7 @@ func NewProject(id, name, description string) *Project {
 // Returns an error if any required field is missing or invalid.
 func (p *Project) Validate() error {
 	if p.ID == "" {
-		return &ValidationError{Field: "id", Message: "project ID cannot be empty"}
+		return &ValidationError{Field: "id", Message: "project ID (slug) cannot be empty"}
 	}
 	if p.Name == "" {
 		return &ValidationError{Field: "name", Message: "project name cannot be empty"}
@@ -146,6 +234,9 @@ func (p *Project) Validate() error {
 	}
 	if p.Config.MaxResponseBytes < 1000 {
 		return &ValidationError{Field: "maxResponseBytes", Message: "max response bytes must be at least 1000"}
+	}
+	if strings.TrimSpace(p.Config.RootPath) == "" {
+		return &ValidationError{Field: "rootPath", Message: "project root path cannot be empty"}
 	}
 	return nil
 }

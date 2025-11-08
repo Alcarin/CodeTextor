@@ -6,12 +6,24 @@ export function ClearSelectedProject() {
   return window['go']['main']['App']['ClearSelectedProject']();
 }
 
-export function CreateProject(arg1, arg2) {
-  return window['go']['main']['App']['CreateProject'](arg1, arg2);
+export function CreateProject(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateProject'](arg1, arg2, arg3, arg4);
 }
 
 export function DeleteProject(arg1) {
   return window['go']['main']['App']['DeleteProject'](arg1);
+}
+
+export function GetFilePreviews(arg1, arg2) {
+  return window['go']['main']['App']['GetFilePreviews'](arg1, arg2);
+}
+
+export function GetGitignorePatterns(arg1) {
+  return window['go']['main']['App']['GetGitignorePatterns'](arg1);
+}
+
+export function GetIndexingProgress(arg1) {
+  return window['go']['main']['App']['GetIndexingProgress'](arg1);
 }
 
 export function GetProject(arg1) {
@@ -34,8 +46,24 @@ export function ProjectExists(arg1) {
   return window['go']['main']['App']['ProjectExists'](arg1);
 }
 
+export function SelectDirectory(arg1, arg2) {
+  return window['go']['main']['App']['SelectDirectory'](arg1, arg2);
+}
+
+export function SetProjectIndexing(arg1, arg2) {
+  return window['go']['main']['App']['SetProjectIndexing'](arg1, arg2);
+}
+
 export function SetSelectedProject(arg1) {
   return window['go']['main']['App']['SetSelectedProject'](arg1);
+}
+
+export function StartIndexing(arg1) {
+  return window['go']['main']['App']['StartIndexing'](arg1);
+}
+
+export function StopIndexing(arg1) {
+  return window['go']['main']['App']['StopIndexing'](arg1);
 }
 
 export function UpdateProject(arg1, arg2, arg3) {
