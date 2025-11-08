@@ -8,11 +8,15 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
+import { useNavigation } from '../composables/useNavigation';
 import { backend } from '../api/backend';
 import type { Project } from '../types';
 
 // Get current project composable
 const { currentProject, setCurrentProject } = useCurrentProject();
+
+// Get navigation composable
+const { navigateTo } = useNavigation();
 
 // Local state
 const projects = ref<Project[]>([]);
@@ -47,6 +51,14 @@ const handleSelectProject = async (project: Project) => {
 };
 
 /**
+ * Handles "View All" selection to navigate to projects page.
+ */
+const handleViewAll = () => {
+  showDropdown.value = false;
+  navigateTo('projects');
+};
+
+/**
  * Toggles dropdown visibility.
  */
 const toggleDropdown = () => {
@@ -71,23 +83,32 @@ onMounted(() => {
 
 <template>
   <div class="project-selector" @blur="closeDropdown">
-    <button class="selector-button" @click="toggleDropdown">
-      <span class="project-icon">📁</span>
-      <div class="project-info">
-        <span v-if="currentProject" class="project-name">{{ currentProject.name }}</span>
-        <span v-else class="no-project">No Project</span>
-      </div>
+    <h1 class="selector-title" @click="toggleDropdown">
+      <span v-if="currentProject" class="project-name">{{ currentProject.name }}</span>
+      <span v-else class="no-project">No Project Selected</span>
       <span class="dropdown-icon">{{ showDropdown ? '▲' : '▼' }}</span>
-    </button>
+    </h1>
 
     <div v-if="showDropdown" class="dropdown-menu">
       <div v-if="loading" class="dropdown-loading">
         Loading projects...
       </div>
-      <div v-else-if="projects.length === 0" class="dropdown-empty">
-        No projects found. Go to Projects to create one.
-      </div>
       <div v-else class="dropdown-list">
+        <!-- View All option as first item -->
+        <button class="dropdown-item view-all" @click="handleViewAll">
+          <div class="item-header">
+            <span class="item-icon">📂</span>
+            <span class="item-name">View All Projects</span>
+          </div>
+        </button>
+
+        <!-- Divider -->
+        <div v-if="projects.length > 0" class="dropdown-divider"></div>
+
+        <!-- Project list -->
+        <div v-if="projects.length === 0" class="dropdown-empty">
+          No projects found. Click "View All Projects" to create one.
+        </div>
         <button
           v-for="project in projects"
           :key="project.id"
@@ -113,69 +134,58 @@ onMounted(() => {
   position: relative;
 }
 
-.selector-button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
+.selector-title {
+  margin: 0;
+  padding: 0.5rem 1.5rem;
+  font-size: 1.8rem;
+  font-weight: 700;
   color: white;
   cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 200px;
-}
-
-.selector-button:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-.project-icon {
-  font-size: 1.2rem;
-}
-
-.project-info {
-  flex: 1;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  gap: 1rem;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.selector-title:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 
 .project-name {
-  font-weight: 500;
-  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .no-project {
-  font-size: 0.9rem;
   color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
 }
 
 .dropdown-icon {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-left: 0.5rem;
 }
 
 .dropdown-menu {
   position: absolute;
   top: calc(100% + 0.5rem);
-  left: 0;
-  min-width: 300px;
+  right: 0;
+  min-width: 350px;
   max-width: 500px;
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   background: #2d2d30;
   border: 1px solid #3e3e42;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 1000;
 }
 
 .dropdown-loading,
 .dropdown-empty {
-  padding: 1rem;
+  padding: 1.5rem;
   text-align: center;
   color: #858585;
   font-size: 0.9rem;
@@ -185,25 +195,43 @@ onMounted(() => {
   padding: 0.5rem;
 }
 
+.dropdown-divider {
+  height: 1px;
+  background: #3e3e42;
+  margin: 0.5rem 0.75rem;
+}
+
 .dropdown-item {
   width: 100%;
-  padding: 0.75rem;
+  padding: 0.875rem 1rem;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #d4d4d4;
   cursor: pointer;
   text-align: left;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
   margin-bottom: 0.25rem;
 }
 
 .dropdown-item:hover {
   background: #3e3e42;
+  transform: translateX(2px);
 }
 
 .dropdown-item.active {
   background: #007acc;
+}
+
+.dropdown-item.view-all {
+  background: rgba(102, 126, 234, 0.15);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  font-weight: 600;
+}
+
+.dropdown-item.view-all:hover {
+  background: rgba(102, 126, 234, 0.25);
+  border-color: rgba(102, 126, 234, 0.5);
 }
 
 .item-header {

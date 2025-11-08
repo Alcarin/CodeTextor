@@ -71,13 +71,9 @@ describe('App.vue', () => {
 
   it('disables navigation when no project is selected', async () => {
     const wrapper = mountComponent();
-    const searchButton = wrapper.findAll('button').find(b => b.text().includes('Search'));
-    expect(searchButton).toBeDefined();
-    expect(searchButton!.attributes('disabled')).toBeDefined();
-
-    const indexingButton = wrapper.findAll('button').find(b => b.text().includes('Indexing'));
-    expect(indexingButton).toBeDefined();
-    expect(indexingButton!.attributes('disabled')).toBeDefined();
+    // Navigation tabs should not be visible when no project is selected
+    const navTabs = wrapper.find('.nav-tabs');
+    expect(navTabs.exists()).toBe(false);
   });
 
   it('enables navigation when a project is selected', async () => {

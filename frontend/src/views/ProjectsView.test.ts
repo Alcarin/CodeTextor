@@ -1,92 +1,157 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import ProjectsView from './ProjectsView.vue';
-import { mockBackend } from '../services/mockBackend';
+import ProjectFormModal from '../components/ProjectFormModal.vue';
+import ProjectCard from '../components/ProjectCard.vue';
+import ProjectTable from '../components/ProjectTable.vue';
+import { backend } from '../api/backend';
 
-// Mock the navigation composable
+// Mock the composables
 vi.mock('../composables/useNavigation', () => ({
   useNavigation: () => ({
     navigateTo: vi.fn(),
   }),
 }));
 
+vi.mock('../composables/useCurrentProject', () => ({
+  useCurrentProject: () => ({
+    currentProject: { value: null },
+    setCurrentProject: vi.fn(),
+    clearCurrentProject: vi.fn(),
+  }),
+}));
+
+// Mock backend
+vi.mock('../api/backend', () => ({
+  backend: {
+    listProjects: vi.fn(),
+    createProject: vi.fn(),
+    updateProject: vi.fn(),
+    updateProjectConfig: vi.fn(),
+    deleteProject: vi.fn(),
+    selectDirectory: vi.fn(),
+  },
+}));
+
+// Helper to create mock project config
+const createMockConfig = (rootPath: string = '/test/path') => ({
+  rootPath,
+  includePaths: [],
+  excludePatterns: [],
+  fileExtensions: ['.ts', '.js', '.vue'],
+  autoExcludeHidden: true,
+  continuousIndexing: false,
+  chunkSizeMin: 100,
+  chunkSizeMax: 500,
+  embeddingModel: 'default',
+  maxResponseBytes: 1000000,
+});
+
 describe('ProjectsView.vue', () => {
-  it('renders the component', () => {
-    const wrapper = mount(ProjectsView);
-    expect(wrapper.find('button').text()).toContain('Create New Project');
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(backend.listProjects).mockResolvedValue([]);
   });
 
-  it('opens the create project form', async () => {
+  it('renders the component with create button', async () => {
     const wrapper = mount(ProjectsView);
+    await flushPromises();
+    expect(wrapper.find('button.btn-primary').text()).toContain('Create New Project');
+  });
+
+  it('shows ProjectFormModal when create button is clicked', async () => {
+    const wrapper = mount(ProjectsView);
+    await flushPromises();
+
+    expect(wrapper.findComponent(ProjectFormModal).exists()).toBe(false);
+
     await wrapper.find('button.btn-primary').trigger('click');
-    expect(wrapper.html()).toContain('Create New Project');
+    await flushPromises();
+
+    expect(wrapper.findComponent(ProjectFormModal).exists()).toBe(true);
   });
 
-  it('slugifies the project name to generate project ID on create mode', async () => {
-    const wrapper = mount(ProjectsView);
-    await wrapper.find('button.btn-primary').trigger('click');
-
-    const nameInput = wrapper.find('#project-name');
-    await nameInput.setValue('My Awesome Project');
-
-    const idInput = wrapper.find('#project-id');
-    expect((idInput.element as HTMLInputElement).value).toBe('my-awesome-project');
-  });
-
-  it('does not slugify project name when editing', async () => {
-    // Mock listProjects to return a project
-    const project = { id: 'existing-project', name: 'Existing Project', path: '', createdAt: new Date() };
-    vi.spyOn(mockBackend, 'listProjects').mockResolvedValue({ projects: [project] });
+  it('renders projects in grid view by default', async () => {
+    const projects = [
+      { id: 'p1', name: 'Project 1', description: '', createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, isIndexing: false, config: createMockConfig('/path1'), convertValues: () => {} },
+      { id: 'p2', name: 'Project 2', description: '', createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, isIndexing: false, config: createMockConfig('/path2'), convertValues: () => {} },
+    ];
+    vi.mocked(backend.listProjects).mockResolvedValue(projects);
 
     const wrapper = mount(ProjectsView);
     await flushPromises();
 
-    await wrapper.find('[data-testid="edit-project-button"]').trigger('click'); // Click Edit
-
-    const nameInput = wrapper.find('#project-name');
-    await nameInput.setValue('A New Name');
-
-    const idInput = wrapper.find('#project-id');
-    expect((idInput.element as HTMLInputElement).value).toBe('existing-project');
+    expect(wrapper.findAllComponents(ProjectCard).length).toBe(2);
+    expect(wrapper.findComponent(ProjectTable).exists()).toBe(false);
   });
 
-  it('creates a new project', async () => {
-    const createProjectSpy = vi.spyOn(mockBackend, 'createProject');
-    const wrapper = mount(ProjectsView);
-
-    await wrapper.find('button.btn-primary').trigger('click');
-
-    await wrapper.find('#project-name').setValue('Test Project');
-    await wrapper.find('#project-description').setValue('A test description');
-
-    await wrapper.find('button.btn-success').trigger('click');
-
-    expect(createProjectSpy).toHaveBeenCalledWith({
-      id: 'test-project',
-      name: 'Test Project',
-      path: '/path/to/test-project',
-      description: 'A test description',
-    });
-  });
-
-  it('updates an existing project', async () => {
-    const project = { id: 'p1', name: 'Project 1', path: '', createdAt: new Date(), description: '' };
-    vi.spyOn(mockBackend, 'listProjects').mockResolvedValue({ projects: [project] });
-    const updateProjectSpy = vi.spyOn(mockBackend, 'updateProject');
+  it('switches to table view when toggle is clicked', async () => {
+    const projects = [
+      { id: 'p1', name: 'Project 1', description: '', createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, isIndexing: false, config: createMockConfig('/path1'), convertValues: () => {} },
+    ];
+    vi.mocked(backend.listProjects).mockResolvedValue(projects);
 
     const wrapper = mount(ProjectsView);
     await flushPromises();
 
-    await wrapper.find('[data-testid="edit-project-button"]').trigger('click'); // Edit button
+    // Find table view toggle button (second toggle button)
+    const toggleButtons = wrapper.findAll('.toggle-btn');
+    await toggleButtons[1].trigger('click');
+    await flushPromises();
 
-    await wrapper.find('#project-name').setValue('Updated Name');
-    await wrapper.find('#project-description').setValue('Updated description');
+    expect(wrapper.findComponent(ProjectTable).exists()).toBe(true);
+    expect(wrapper.findAllComponents(ProjectCard).length).toBe(0);
+  });
 
-    await wrapper.find('button.btn-success').trigger('click');
+  it('opens edit form when edit is triggered from ProjectCard', async () => {
+    const projects = [
+      { id: 'p1', name: 'Project 1', description: '', createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, isIndexing: false, config: createMockConfig('/path1'), convertValues: () => {} },
+    ];
+    vi.mocked(backend.listProjects).mockResolvedValue(projects);
 
-    expect(updateProjectSpy).toHaveBeenCalledWith('p1', {
-      name: 'Updated Name',
-      description: 'Updated description',
-    });
+    const wrapper = mount(ProjectsView);
+    await flushPromises();
+
+    const projectCard = wrapper.findComponent(ProjectCard);
+    projectCard.vm.$emit('edit', projects[0]);
+    await flushPromises();
+
+    expect(wrapper.findComponent(ProjectFormModal).exists()).toBe(true);
+    expect(wrapper.findComponent(ProjectFormModal).props('project')).toEqual(projects[0]);
+  });
+
+  it('handles project save from modal', async () => {
+    const newProject = {
+      id: 'new-p',
+      name: 'New Project',
+      description: '',
+      createdAt: Date.now() / 1000,
+      updatedAt: Date.now() / 1000,
+      isIndexing: false,
+      config: createMockConfig('/new-path'),
+      convertValues: () => {}
+    };
+
+    const wrapper = mount(ProjectsView);
+    await flushPromises();
+
+    // Open form
+    await wrapper.find('button.btn-primary').trigger('click');
+    await flushPromises();
+
+    // Simulate save
+    const modal = wrapper.findComponent(ProjectFormModal);
+    modal.vm.$emit('save', newProject);
+    await flushPromises();
+
+    // Modal should be closed
+    expect(wrapper.findComponent(ProjectFormModal).exists()).toBe(false);
+  });
+
+  it('shows empty state when no projects exist', async () => {
+    const wrapper = mount(ProjectsView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('No Projects Yet');
   });
 });

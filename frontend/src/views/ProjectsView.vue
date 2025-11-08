@@ -6,11 +6,15 @@
 -->
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
 import { backend } from '../api/backend';
 import type { Project } from '../types';
+import ProjectCard from '../components/ProjectCard.vue';
+import ProjectTable from '../components/ProjectTable.vue';
+import DeleteConfirmModal from '../components/DeleteConfirmModal.vue';
+import ProjectFormModal from '../components/ProjectFormModal.vue';
 
 // Get composables
 const { currentProject, setCurrentProject, clearCurrentProject } = useCurrentProject();
@@ -23,44 +27,7 @@ const showProjectForm = ref<boolean>(false);
 const showDeleteConfirm = ref<boolean>(false);
 const projectToDelete = ref<Project | null>(null);
 const projectToEdit = ref<Project | null>(null);
-
-// Form state
-const projectName = ref<string>('');
-const projectSlug = ref<string>('');
-const projectDescription = ref<string>('');
-const projectRootFolder = ref<string>('');
-const isSavingProject = ref<boolean>(false);
-
-const isEditMode = computed(() => projectToEdit.value !== null);
-
-/**
- * Generates a URL-safe slug from a string.
- * Rules match the backend GenerateSlug function:
- * - Converts to lowercase
- * - Replaces spaces and underscores with hyphens
- * - Removes all non-alphanumeric characters except hyphens
- * - Collapses multiple consecutive hyphens to single hyphen
- * - Trims leading/trailing hyphens
- */
-const generateSlug = (text: string): string => {
-  return text
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-')           // Replace spaces and underscores with hyphens
-    .replace(/[^a-z0-9-]+/g, '')       // Remove non-alphanumeric except hyphens
-    .replace(/-+/g, '-')               // Collapse multiple hyphens
-    .replace(/^-+|-+$/g, '');          // Trim leading/trailing hyphens
-};
-
-/**
- * Watch projectName and auto-update slug only in create mode.
- * In edit mode, slug is immutable and shouldn't change.
- */
-watch(projectName, (newName) => {
-  // Only auto-update slug in create mode (not edit mode)
-  if (!isEditMode.value) {
-    projectSlug.value = generateSlug(newName);
-  }
-});
+const viewMode = ref<'grid' | 'table'>('grid'); // Default to grid view
 
 /**
  * Loads all projects from backend.
@@ -78,21 +45,10 @@ const loadProjects = async () => {
 };
 
 /**
- * Resets form state.
- */
-const resetForm = () => {
-  projectName.value = '';
-  projectSlug.value = '';
-  projectDescription.value = '';
-  projectRootFolder.value = '';
-  projectToEdit.value = null;
-};
-
-/**
  * Opens the create project form.
  */
 const openCreateForm = () => {
-  resetForm();
+  projectToEdit.value = null;
   showProjectForm.value = true;
 };
 
@@ -101,95 +57,37 @@ const openCreateForm = () => {
  * @param project - The project to edit.
  */
 const openEditForm = (project: Project) => {
-  resetForm();
   projectToEdit.value = project;
-  projectName.value = project.name;
-  projectSlug.value = project.id || '';
-  projectDescription.value = project.description || '';
-  projectRootFolder.value = project.config?.rootPath || '';
   showProjectForm.value = true;
 };
 
 /**
- * Cancels project creation/editing.
+ * Cancels project form.
  */
-const cancelSave = () => {
+const cancelProjectForm = () => {
   showProjectForm.value = false;
-  resetForm();
-};
-
-const chooseProjectRoot = async () => {
-  const defaultPath = projectRootFolder.value || '/';
-  try {
-    const selected = await backend.selectDirectory('Select project root folder', defaultPath);
-    if (selected) {
-      projectRootFolder.value = selected;
-    }
-  } catch (error) {
-    console.error('Failed to select project root folder:', error);
-    alert('Failed to select project root folder: ' + (error instanceof Error ? error.message : 'Unknown error'));
-  }
+  projectToEdit.value = null;
 };
 
 /**
- * Saves a project (creates or updates).
+ * Handles project save from modal.
+ * @param project - The saved project
  */
-const saveProject = async () => {
-  if (!projectName.value.trim()) {
-    alert('Please enter a project name');
-    return;
+const handleProjectSave = async (project: Project) => {
+  // Update or add to list
+  const index = projects.value.findIndex((p: Project) => p.id === project.id);
+  if (index !== -1) {
+    // Update existing
+    projects.value[index] = project;
+  } else {
+    // Add new
+    projects.value.push(project);
+    await setCurrentProject(project);
+    navigateTo('indexing');
   }
 
-  const rootPath = projectRootFolder.value.trim();
-  if (!rootPath) {
-    alert('Please select a project root folder');
-    return;
-  }
-
-  isSavingProject.value = true;
-
-  try {
-    if (isEditMode.value && projectToEdit.value) {
-      // Update existing project metadata (name/description)
-      const updatedMeta = await backend.updateProject(
-        projectToEdit.value.id,
-        projectName.value,
-        projectDescription.value || ''
-      );
-
-      // Update project configuration (root path) separately
-      const updatedProject = await backend.updateProjectConfig(projectToEdit.value.id, {
-        ...updatedMeta.config,
-        rootPath
-      });
-
-      // Update project in the list
-      const index = projects.value.findIndex((p: Project) => p.id === updatedProject.id);
-      if (index !== -1) {
-        projects.value[index] = updatedProject;
-      }
-    } else {
-      // Create new project (backend generates the ID, slug optional)
-      const newProject = await backend.createProject(
-        projectName.value,
-        projectDescription.value || '',
-        projectSlug.value || '', // Pass slug (empty for auto-generation)
-        rootPath
-      );
-
-      projects.value.push(newProject);
-      await setCurrentProject(newProject);
-      navigateTo('indexing');
-    }
-
-    showProjectForm.value = false;
-    resetForm();
-  } catch (error) {
-    console.error('Failed to save project:', error);
-    alert('Failed to save project: ' + (error instanceof Error ? error.message : 'Unknown error'));
-  } finally {
-    isSavingProject.value = false;
-  }
+  showProjectForm.value = false;
+  projectToEdit.value = null;
 };
 
 
@@ -237,38 +135,6 @@ const deleteProject = async () => {
 };
 
 /**
- * Formats date to relative time or system locale format.
- * @param date - Date to format (Unix timestamp in seconds from Go backend)
- * @returns Formatted string
- */
-const formatDate = (date?: Date | number | string): string => {
-  if (!date) return 'Never';
-
-  // Convert Unix timestamp (seconds) to milliseconds for JavaScript Date
-  // Go sends timestamps as int64 seconds, JavaScript needs milliseconds
-  const timestamp = typeof date === 'number' ? date * 1000 : date;
-
-  const now = new Date();
-  const target = new Date(timestamp);
-
-  // Check if date is valid
-  if (isNaN(target.getTime())) return 'Invalid date';
-
-  const diffMs = now.getTime() - target.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  // Use system locale for date formatting with both date and time
-  return target.toLocaleString();
-};
-
-/**
  * Selects a project and navigates to indexing view.
  * @param project - Project to select
  */
@@ -292,12 +158,32 @@ onMounted(() => {
   <div class="projects-view">
     <!-- Actions -->
     <div class="actions-bar">
-      <button @click="openCreateForm" class="btn btn-primary">
-        + Create New Project
-      </button>
-      <button @click="loadProjects" :disabled="isLoading" class="btn btn-secondary">
-        {{ isLoading ? 'Refreshing...' : '↻ Refresh' }}
-      </button>
+      <div class="actions-left">
+        <button @click="openCreateForm" class="btn btn-primary">
+          + Create New Project
+        </button>
+        <button @click="loadProjects" :disabled="isLoading" class="btn btn-secondary">
+          {{ isLoading ? 'Refreshing...' : '↻ Refresh' }}
+        </button>
+      </div>
+
+      <!-- View mode toggle -->
+      <div class="view-toggle">
+        <button
+          :class="['toggle-btn', { active: viewMode === 'grid' }]"
+          @click="viewMode = 'grid'"
+          title="Grid view"
+        >
+          <span class="toggle-icon">▦</span>
+        </button>
+        <button
+          :class="['toggle-btn', { active: viewMode === 'table' }]"
+          @click="viewMode = 'table'"
+          title="Table view"
+        >
+          <span class="toggle-icon">☰</span>
+        </button>
+      </div>
     </div>
 
     <!-- Projects list -->
@@ -315,207 +201,44 @@ onMounted(() => {
       </button>
     </div>
 
-    <div v-else class="projects-grid">
-      <div
+    <!-- Grid View -->
+    <div v-else-if="viewMode === 'grid'" class="projects-grid">
+      <ProjectCard
         v-for="project in projects"
         :key="project.id"
-        :class="['project-card', {
-          active: currentProject?.id === project.id,
-          indexing: project.isIndexing
-        }]"
-      >
-        <!-- Indexing badge -->
-        <div v-if="project.isIndexing" class="indexing-badge">
-          ● Indexing
-        </div>
-
-        <!-- Project header -->
-        <div class="project-header">
-          <span class="project-icon">📁</span>
-          <div class="project-info">
-            <h3>{{ project.name }}</h3>
-            <p v-if="project.description" class="project-description">
-              {{ project.description }}
-            </p>
-          </div>
-        </div>
-
-        <!-- Project details -->
-        <div class="project-details">
-          <div class="detail-row">
-            <span class="detail-label">ID:</span>
-            <code class="detail-value">{{ project.id }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Database:</span>
-            <code class="detail-value db-path">indexes/project-{{ project.id }}.db</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Root:</span>
-            <span class="detail-value">{{ project.config?.rootPath || '—' }}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Created:</span>
-            <span class="detail-value">{{ formatDate(project.createdAt) }}</span>
-          </div>
-          <div class="detail-row" v-if="project.stats">
-            <span class="detail-label">Last Indexed:</span>
-            <span class="detail-value">{{ formatDate(project.stats.lastIndexedAt) }}</span>
-          </div>
-        </div>
-
-        <!-- Actions -->
-        <div class="project-actions">
-          <button
-            @click="goToIndexing(project)"
-            class="btn btn-primary btn-sm"
-          >
-            Go to Indexing
-          </button>
-          <button @click="openEditForm(project)" class="btn btn-secondary btn-sm" data-testid="edit-project-button">
-            Edit
-          </button>
-          <button
-            @click="confirmDelete(project)"
-            class="btn btn-danger btn-sm"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
+        :project="project"
+        :is-active="currentProject?.id === project.id"
+        @go-to-indexing="goToIndexing"
+        @edit="openEditForm"
+        @delete="confirmDelete"
+      />
     </div>
+
+    <!-- Table View -->
+    <ProjectTable
+      v-else
+      :projects="projects"
+      :current-project-id="currentProject?.id"
+      @go-to-indexing="goToIndexing"
+      @edit="openEditForm"
+      @delete="confirmDelete"
+    />
 
     <!-- Create/Edit Project Modal -->
-    <div v-if="showProjectForm" class="modal-overlay" @click="cancelSave">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>{{ isEditMode ? 'Edit Project' : 'Create New Project' }}</h3>
-          <button class="modal-close" @click="cancelSave">&times;</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="form-group">
-            <label for="project-name">Project Name *</label>
-            <input
-              id="project-name"
-              v-model="projectName"
-              type="text"
-              placeholder="My Awesome Project"
-              class="form-input"
-              :disabled="isSavingProject"
-            />
-          </div>
-
-          <!-- Show ID/slug field (editable in create mode, read-only in edit mode) -->
-          <div class="form-group">
-            <label for="project-slug">{{ isEditMode ? 'ID (immutable)' : 'ID / Slug' }}</label>
-            <input
-              id="project-slug"
-              v-model="projectSlug"
-              type="text"
-              :placeholder="isEditMode ? '' : 'Auto-generated from project name'"
-              class="form-input"
-              :disabled="isSavingProject || isEditMode"
-              :title="isEditMode ? 'The ID is immutable and cannot be changed after creation' : 'URL-safe identifier for database filename. Auto-generated from project name, but you can customize it.'"
-            />
-            <small class="form-help">
-              {{ isEditMode
-                ? `Used for database filename: project-${projectToEdit?.id}.db`
-                : 'Used for database filename: project-{id}.db. Auto-generated from project name, but you can edit it before saving.'
-              }}
-            </small>
-          </div>
-
-          <div class="form-group">
-            <label for="project-root">Project Root Folder *</label>
-            <div class="root-selector">
-              <input
-                id="project-root"
-                v-model="projectRootFolder"
-                type="text"
-                class="form-input"
-                placeholder="/path/to/project"
-                readonly
-              />
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click.stop="chooseProjectRoot"
-              >
-                Browse
-              </button>
-            </div>
-            <small class="form-help">
-              This directory becomes the project's root. Include paths are stored relative to it.
-            </small>
-          </div>
-
-          <div class="form-group">
-            <label for="project-description">Description (optional)</label>
-            <textarea
-              id="project-description"
-              v-model="projectDescription"
-              placeholder="A brief description of this project..."
-              class="form-textarea"
-              rows="3"
-              :disabled="isSavingProject"
-            ></textarea>
-          </div>
-        </div>
-
-        <div class="modal-footer">
-          <button
-            @click="cancelSave"
-            :disabled="isSavingProject"
-            class="btn btn-secondary"
-          >
-            Cancel
-          </button>
-          <button
-            @click="saveProject"
-            :disabled="!projectName || isSavingProject"
-            class="btn btn-success"
-          >
-            {{ isSavingProject ? 'Saving...' : (isEditMode ? 'Save Changes' : 'Create Project') }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ProjectFormModal
+      v-if="showProjectForm"
+      :project="projectToEdit"
+      @save="handleProjectSave"
+      @cancel="cancelProjectForm"
+    />
 
     <!-- Delete Confirmation Modal -->
-    <div v-if="showDeleteConfirm && projectToDelete" class="modal-overlay" @click="cancelDelete">
-      <div class="modal-content modal-sm" @click.stop>
-        <div class="modal-header">
-          <h3>Delete Project?</h3>
-          <button class="modal-close" @click="cancelDelete">&times;</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="warning-message">
-            <span class="warning-icon">⚠️</span>
-            <div>
-              <p><strong>Are you sure you want to delete "{{ projectToDelete.name }}"?</strong></p>
-              <p>This will permanently remove:</p>
-              <ul>
-                <li>Database file: <code>indexes/{{ projectToDelete.id }}.db</code></li>
-                <li>All indexed chunks and embeddings</li>
-                <li>Project configuration</li>
-              </ul>
-              <p><strong>This action cannot be undone.</strong></p>
-            </div>
-          </div>
-        </div>
-
-        <div class="modal-footer">
-          <button @click="cancelDelete" class="btn btn-secondary">
-            Cancel
-          </button>
-          <button @click="deleteProject" class="btn btn-danger">
-            Delete Project
-          </button>
-        </div>
-      </div>
-    </div>
+    <DeleteConfirmModal
+      v-if="showDeleteConfirm && projectToDelete"
+      :project="projectToDelete"
+      @confirm="deleteProject"
+      @cancel="cancelDelete"
+    />
   </div>
 </template>
 
@@ -536,8 +259,53 @@ onMounted(() => {
 /* Actions bar */
 .actions-bar {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.actions-left {
+  display: flex;
+  gap: 1rem;
+}
+
+/* View toggle */
+.view-toggle {
+  display: flex;
+  gap: 0.25rem;
+  background: #1e1e1e;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  padding: 0.25rem;
+}
+
+.toggle-btn {
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #858585;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-btn:hover {
+  background: #3e3e42;
+  color: #d4d4d4;
+}
+
+.toggle-btn.active {
+  background: #007acc;
+  color: white;
+}
+
+.toggle-icon {
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
 /* Projects grid */
@@ -545,116 +313,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 1.5rem;
-}
-
-.project-card {
-  background: #252526;
-  border: 1px solid #3e3e42;
-  border-radius: 8px;
-  padding: 1.5rem;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.project-card:hover {
-  border-color: #007acc;
-  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.2);
-}
-
-.project-card.active {
-  border-color: #007acc;
-  background: #1a2533;
-  box-shadow: 0 4px 12px rgba(0, 122, 204, 0.2);
-}
-
-.project-card.indexing {
-  border-color: #28a745;
-  background: #1a2e1a;
-  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
-}
-
-.indexing-badge {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  background: #28a745;
-  color: white;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.project-header {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-  margin-bottom: 1rem;
-}
-
-.project-icon {
-  font-size: 2rem;
-}
-
-.project-info {
-  flex: 1;
-}
-
-.project-info h3 {
-  margin: 0 0 0.5rem 0;
-  color: #d4d4d4;
-  font-size: 1.2rem;
-}
-
-.project-description {
-  margin: 0;
-  color: #858585;
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.project-details {
-  background: #1e1e1e;
-  border-radius: 4px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-.detail-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.detail-row:last-child {
-  margin-bottom: 0;
-}
-
-.detail-label {
-  color: #858585;
-  font-weight: 600;
-  min-width: 100px;
-}
-
-.detail-value {
-  color: #d4d4d4;
-  font-family: 'Courier New', monospace;
-  word-break: break-all;
-}
-
-.detail-value.db-path {
-  color: #4ec9b0;
-  background: #1a1a1a;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-}
-
-.project-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
 }
 
 /* Buttons */
@@ -745,170 +403,5 @@ onMounted(() => {
 .empty-state h3 {
   margin: 0 0 0.5rem 0;
   color: #d4d4d4;
-}
-
-/* Modal styles */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-.modal-content {
-  background: #252526;
-  border: 1px solid #3e3e42;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-}
-
-.modal-content.modal-sm {
-  max-width: 500px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid #3e3e42;
-}
-
-.modal-header h3 {
-  margin: 0;
-  color: #d4d4d4;
-  font-size: 1.3rem;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  color: #858585;
-  font-size: 2rem;
-  cursor: pointer;
-  line-height: 1;
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  transition: color 0.2s ease;
-}
-
-.modal-close:hover {
-  color: #d4d4d4;
-}
-
-.modal-body {
-  padding: 1.5rem;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding: 1.5rem;
-  border-top: 1px solid #3e3e42;
-}
-
-/* Form styles */
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-group:last-child {
-  margin-bottom: 0;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  color: #d4d4d4;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.form-input,
-.form-textarea {
-  width: 100%;
-  padding: 0.75rem;
-  background: #1e1e1e;
-  border: 1px solid #3e3e42;
-  border-radius: 4px;
-  color: #d4d4d4;
-  font-size: 0.95rem;
-  font-family: inherit;
-  transition: border-color 0.2s ease;
-  box-sizing: border-box;
-}
-
-.form-input:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: #007acc;
-}
-
-.form-input:disabled,
-.form-textarea:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.form-textarea {
-  resize: vertical;
-  min-height: 80px;
-}
-
-.form-help {
-  display: block;
-  margin-top: 0.5rem;
-  color: #858585;
-  font-size: 0.85rem;
-  font-style: italic;
-}
-
-/* Warning message */
-.warning-message {
-  display: flex;
-  gap: 1rem;
-  padding: 1rem;
-  background: #5a3a1a;
-  border: 1px solid #ffc107;
-  border-radius: 4px;
-  color: #ffd966;
-}
-
-.warning-icon {
-  font-size: 2rem;
-  flex-shrink: 0;
-}
-
-.warning-message p {
-  margin: 0 0 0.75rem 0;
-}
-
-.warning-message p:last-child {
-  margin-bottom: 0;
-}
-
-.warning-message ul {
-  margin: 0.5rem 0;
-  padding-left: 1.5rem;
-}
-
-.warning-message code {
-  background: #3a2a1a;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  color: #4ec9b0;
-  font-family: 'Courier New', monospace;
 }
 </style>

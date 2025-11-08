@@ -208,6 +208,60 @@ Return chunks with metadata
 
 ---
 
+## Frontend Component Architecture
+
+**Purpose:** Provide modular, maintainable UI components following Vue 3 best practices.
+
+**Component Structure:**
+
+```
+/frontend/src/
+  /components/          ← Reusable UI components
+    ProjectCard.vue     ← Project card for grid view
+    ProjectTable.vue    ← Project table for list view
+    ProjectFormModal.vue    ← Create/edit project form
+    DeleteConfirmModal.vue  ← Deletion confirmation
+    ProjectSelector.vue     ← Project dropdown in header
+  /views/               ← Page-level components
+    ProjectsView.vue    ← Project management (orchestrator)
+    IndexingView.vue    ← File indexing interface
+    SearchView.vue      ← Semantic search interface
+    OutlineView.vue     ← Code structure browser
+    StatsView.vue       ← Project statistics
+    MCPView.vue         ← MCP server management
+  /composables/         ← Shared logic
+    useCurrentProject.ts   ← Current project state
+    useNavigation.ts       ← View routing
+```
+
+**Key Design Patterns:**
+
+1. **Component Composition**: Large views are decomposed into smaller, focused components
+   - Example: ProjectsView.vue delegates to ProjectCard, ProjectTable, ProjectFormModal
+   - Each component has a single responsibility (≤300 lines per file)
+
+2. **Props Down, Events Up**: Standard Vue pattern for parent-child communication
+   - Props: Pass data and configuration down
+   - Events: Emit user actions up for parent to handle
+
+3. **Shared State via Composables**:
+   - `useCurrentProject()`: Manages selected project across views
+   - `useNavigation()`: Handles tab/view switching
+   - Avoids global state pollution
+
+4. **Responsive Design**:
+   - Tab navigation for desktop (≥1024px)
+   - Hamburger menu for mobile (<1024px)
+   - Grid/table view toggle for project lists
+
+**Component Guidelines:**
+- Each component has JSDoc header explaining purpose
+- All functions documented with input/output types
+- CSS scoped to component to prevent leaks
+- TypeScript for type safety
+
+---
+
 ## Technology Choices
 
 ### Why Wails?

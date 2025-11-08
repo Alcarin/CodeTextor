@@ -22,11 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial UI mockups (Projects, Indexing, Stats, Search)
 - Wails-based Go↔TS bindings, Vue 3 frontend, Go backend, SQLite storage
 - Developer documentation (DEV_GUIDE, ARCHITECTURE, API reference) and automated tests for core components
+- Tab-based navigation for desktop view (Indexing, Search, Outline, Stats, MCP)
+- Responsive hamburger menu for mobile/narrow viewports (<1024px)
+- Grid/table view toggle for project list with persistent selection
+- Modular component architecture (ProjectCard, ProjectTable, ProjectFormModal, DeleteConfirmModal)
 
 ### Changed
 - Project cards now display the slug instead of the raw UUID
 - Default excluded folders now mirror `.gitignore` (user overrides still respected)
 - File preview table shows only the filename and wraps the relative path below it
+- Navigation moved from sidebar buttons to tab-style interface
+- Project selector now displayed as prominent H1 in header with "View All Projects" option
+- ProjectsView refactored into smaller, focused components (reduced from 1029 to 407 lines)
 
 ### Fixed
 - SQLite compatibility issue in slug migration (removed unsupported ALTER COLUMN DROP DEFAULT syntax)

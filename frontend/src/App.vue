@@ -31,6 +31,31 @@ const projectStats = ref<ProjectStats | null>(null);
 const mcpStatus = ref<MCPServerStatus | null>(null);
 let statsInterval: number | null = null;
 
+// Mobile menu state
+const showMobileMenu = ref(false);
+
+/**
+ * Toggles mobile menu visibility.
+ */
+const toggleMobileMenu = () => {
+  showMobileMenu.value = !showMobileMenu.value;
+};
+
+/**
+ * Closes mobile menu.
+ */
+const closeMobileMenu = () => {
+  showMobileMenu.value = false;
+};
+
+/**
+ * Handles navigation and closes mobile menu.
+ */
+const handleMobileNavigate = (view: ViewName) => {
+  handleNavigate(view);
+  closeMobileMenu();
+};
+
 // Set initial view
 navigateTo('projects');
 
@@ -132,59 +157,97 @@ onUnmounted(() => {
 
 <template>
   <div class="app-container">
-    <!-- Navigation bar with logo and tabs -->
+    <!-- Navigation bar with tabs and project selector -->
     <nav class="app-nav">
-      <div class="nav-brand">
-        <h1 class="app-title">🧩 CodeTextor</h1>
-        <span class="app-subtitle">Local-first Code Context Provider</span>
-      </div>
+      <!-- Hamburger menu button (mobile only) -->
+      <button v-if="currentProject" class="hamburger-button" @click="toggleMobileMenu">
+        <span class="hamburger-icon">☰</span>
+      </button>
 
-      <div class="nav-right">
-        <ProjectSelector />
-
-        <div class="nav-tabs">
+      <!-- Left side: Navigation tabs (only shown when a project is selected) -->
+      <div v-if="currentProject" class="nav-tabs">
         <button
-          :class="['nav-button', { active: currentView === 'projects' }]"
-          @click="handleNavigate('projects')"
-        >
-          📂 Projects
-        </button>
-        <button
-          :class="['nav-button', { active: currentView === 'indexing', disabled: !currentProject }]"
-          :disabled="!currentProject"
+          :class="['nav-tab', { active: currentView === 'indexing' }]"
           @click="handleNavigate('indexing')"
         >
           ⚡ Indexing
         </button>
         <button
-          :class="['nav-button', { active: currentView === 'search', disabled: !currentProject }]"
-          :disabled="!currentProject"
+          :class="['nav-tab', { active: currentView === 'search' }]"
           @click="handleNavigate('search')"
         >
           🔍 Search
         </button>
         <button
-          :class="['nav-button', { active: currentView === 'outline', disabled: !currentProject }]"
-          :disabled="!currentProject"
+          :class="['nav-tab', { active: currentView === 'outline' }]"
           @click="handleNavigate('outline')"
         >
           📋 Outline
         </button>
         <button
-          :class="['nav-button', { active: currentView === 'stats', disabled: !currentProject }]"
-          :disabled="!currentProject"
+          :class="['nav-tab', { active: currentView === 'stats' }]"
           @click="handleNavigate('stats')"
         >
           📊 Stats
         </button>
         <button
-          :class="['nav-button', { active: currentView === 'mcp', disabled: !currentProject }]"
-          :disabled="!currentProject"
+          :class="['nav-tab', { active: currentView === 'mcp' }]"
           @click="handleNavigate('mcp')"
         >
           🔌 MCP
         </button>
+      </div>
+
+      <!-- Mobile menu overlay -->
+      <div v-if="showMobileMenu" class="mobile-menu-overlay" @click="closeMobileMenu">
+        <div class="mobile-menu" @click.stop>
+          <div class="mobile-menu-header">
+            <h3>Navigation</h3>
+            <button class="close-button" @click="closeMobileMenu">✕</button>
+          </div>
+          <div class="mobile-menu-items">
+            <button
+              :class="['mobile-menu-item', { active: currentView === 'indexing' }]"
+              @click="handleMobileNavigate('indexing')"
+            >
+              <span class="menu-icon">⚡</span>
+              <span>Indexing</span>
+            </button>
+            <button
+              :class="['mobile-menu-item', { active: currentView === 'search' }]"
+              @click="handleMobileNavigate('search')"
+            >
+              <span class="menu-icon">🔍</span>
+              <span>Search</span>
+            </button>
+            <button
+              :class="['mobile-menu-item', { active: currentView === 'outline' }]"
+              @click="handleMobileNavigate('outline')"
+            >
+              <span class="menu-icon">📋</span>
+              <span>Outline</span>
+            </button>
+            <button
+              :class="['mobile-menu-item', { active: currentView === 'stats' }]"
+              @click="handleMobileNavigate('stats')"
+            >
+              <span class="menu-icon">📊</span>
+              <span>Stats</span>
+            </button>
+            <button
+              :class="['mobile-menu-item', { active: currentView === 'mcp' }]"
+              @click="handleMobileNavigate('mcp')"
+            >
+              <span class="menu-icon">🔌</span>
+              <span>MCP</span>
+            </button>
+          </div>
         </div>
+      </div>
+
+      <!-- Right side: Project selector as H1 -->
+      <div class="nav-right">
+        <ProjectSelector />
       </div>
     </nav>
 
@@ -240,76 +303,184 @@ onUnmounted(() => {
 
 .app-nav {
   display: flex;
-  align-items: center;
-  gap: 2rem;
-  padding: 1rem 2rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-bottom: 2px solid #3e3e42;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  min-height: 70px;
 }
 
-.nav-brand {
+.nav-tabs {
   display: flex;
-  flex-direction: column;
   gap: 0.25rem;
+  align-items: flex-end;
+  margin-bottom: -1px;
 }
 
-.app-title {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
+.nav-tab {
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  color: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  position: relative;
+}
+
+.nav-tab:hover {
+  background: rgba(255, 255, 255, 0.25);
   color: white;
 }
 
-.app-subtitle {
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.8);
+.nav-tab.active {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-weight: 600;
+  border-bottom: 2px solid #1e1e1e;
 }
 
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  margin-left: auto;
+  padding-bottom: 0.5rem;
 }
 
-.nav-tabs {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.nav-button {
-  padding: 0.6rem 1.2rem;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: white;
+/* Hamburger menu button - hidden by default, shown on mobile */
+.hamburger-button {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
   border-radius: 6px;
+  color: white;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
   transition: all 0.2s ease;
-  backdrop-filter: blur(10px);
 }
 
-.nav-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.4);
-  transform: translateY(-1px);
+.hamburger-button:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
-.nav-button.active {
-  background: white;
-  border-color: white;
-  color: #667eea;
+.hamburger-icon {
+  display: block;
+  line-height: 1;
+}
+
+/* Mobile menu overlay */
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 70px;
+}
+
+.mobile-menu {
+  width: 280px;
+  max-width: 80vw;
+  background: #2d2d30;
+  border-radius: 8px;
+  margin: 1rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.mobile-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.mobile-menu-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-.nav-button:disabled,
-.nav-button.disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
+.close-button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.close-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mobile-menu-items {
+  padding: 0.5rem;
+}
+
+.mobile-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #d4d4d4;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: left;
+  transition: all 0.2s ease;
+  margin-bottom: 0.25rem;
+}
+
+.mobile-menu-item:hover {
+  background: #3e3e42;
+}
+
+.mobile-menu-item.active {
+  background: #667eea;
+  color: white;
+}
+
+.menu-icon {
+  font-size: 1.2rem;
+}
+
+/* Responsive breakpoint */
+@media (max-width: 1023px) {
+  .hamburger-button {
+    display: flex;
+  }
+
+  .nav-tabs {
+    display: none;
+  }
 }
 
 .app-main {
