@@ -3,11 +3,21 @@ module CodeTextor
 go 1.24.0
 
 require (
+	github.com/DerekStride/tree-sitter-sql v0.3.11
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/golang-migrate/migrate/v4 v4.19.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/stretchr/testify v1.10.0
+	github.com/tree-sitter-grammars/tree-sitter-markdown v0.5.1
+	github.com/tree-sitter/go-tree-sitter v0.25.0
+	github.com/tree-sitter/tree-sitter-css v0.25.0
+	github.com/tree-sitter/tree-sitter-go v0.25.0
+	github.com/tree-sitter/tree-sitter-html v0.23.2
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0
+	github.com/tree-sitter/tree-sitter-json v0.24.8
+	github.com/tree-sitter/tree-sitter-python v0.25.0
+	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/wailsapp/wails/v2 v2.10.2
 	modernc.org/sqlite v1.40.0
 )
@@ -30,6 +40,7 @@ require (
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -54,3 +65,5 @@ require (
 )
 
 // replace github.com/wailsapp/wails/v2 v2.10.2 => /home/frubeo/go/pkg/mod
+
+replace github.com/tree-sitter/tree-sitter-sql => github.com/DerekStride/tree-sitter-sql v0.3.11

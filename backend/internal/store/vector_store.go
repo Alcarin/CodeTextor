@@ -5,10 +5,12 @@ import (
 	"CodeTextor/backend/pkg/utils"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -99,6 +101,15 @@ func RunVectorMigrations(dbPath string) error {
 	defer db.Close()
 
 	return runVectorMigrations(db)
+}
+
+func normalizeOutlinePath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", fmt.Errorf("file path cannot be empty")
+	}
+	cleaned := filepath.Clean(trimmed)
+	return filepath.ToSlash(cleaned), nil
 }
 
 // SaveProjectMetadata persists the project metadata using this vector database.
@@ -212,6 +223,122 @@ func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
 	}
 
 	return nil
+}
+
+// UpsertFileOutline saves the outline tree for a file.
+func (s *VectorStore) UpsertFileOutline(filePath string, outline []*models.OutlineNode) error {
+	pathKey, err := normalizeOutlinePath(filePath)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(outline)
+	if err != nil {
+		return fmt.Errorf("failed to marshal outline nodes: %w", err)
+	}
+
+	stmt, err := s.db.Prepare(`
+		INSERT INTO file_outlines (file_path, outline_json, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(file_path) DO UPDATE SET
+			outline_json = excluded.outline_json,
+			updated_at = excluded.updated_at
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare outline upsert: %w", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(pathKey, string(data), time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("failed to upsert outline for %s: %w", pathKey, err)
+	}
+	return nil
+}
+
+// GetFileOutline retrieves a stored outline tree.
+func (s *VectorStore) GetFileOutline(filePath string) ([]*models.OutlineNode, error) {
+	pathKey, err := normalizeOutlinePath(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	row := s.db.QueryRow(`SELECT outline_json FROM file_outlines WHERE file_path = ?`, pathKey)
+	var payload string
+	if err := row.Scan(&payload); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to fetch outline for %s: %w", filePath, err)
+	}
+
+	var nodes []*models.OutlineNode
+	if err := json.Unmarshal([]byte(payload), &nodes); err != nil {
+		return nil, fmt.Errorf("failed to decode outline for %s: %w", filePath, err)
+	}
+
+	return nodes, nil
+}
+
+// DeleteFileOutline removes a stored outline entry.
+func (s *VectorStore) DeleteFileOutline(filePath string) error {
+	pathKey, err := normalizeOutlinePath(filePath)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`DELETE FROM file_outlines WHERE file_path = ?`, pathKey)
+	if err != nil {
+		return fmt.Errorf("failed to delete outline for %s: %w", pathKey, err)
+	}
+	return nil
+}
+
+// GetFileOutlineTimestamp retrieves the last update timestamp for a file's outline.
+// Returns 0 if the file has no outline stored.
+func (s *VectorStore) GetFileOutlineTimestamp(filePath string) (int64, error) {
+	pathKey, err := normalizeOutlinePath(filePath)
+	if err != nil {
+		return 0, err
+	}
+
+	row := s.db.QueryRow(`SELECT updated_at FROM file_outlines WHERE file_path = ?`, pathKey)
+	var timestamp int64
+	if err := row.Scan(&timestamp); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to fetch outline timestamp for %s: %w", filePath, err)
+	}
+	return timestamp, nil
+}
+
+// GetAllOutlineTimestamps retrieves all file outline timestamps for the project.
+// Returns a map of file paths to their last update timestamps.
+func (s *VectorStore) GetAllOutlineTimestamps() (map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT file_path, updated_at FROM file_outlines`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch outline timestamps: %w", err)
+	}
+	defer rows.Close()
+
+	timestamps := make(map[string]int64)
+	for rows.Next() {
+		var filePath string
+		var timestamp int64
+		if err := rows.Scan(&filePath, &timestamp); err != nil {
+			return nil, fmt.Errorf("failed to scan outline timestamp: %w", err)
+		}
+		if normalized, err := normalizeOutlinePath(filePath); err == nil && normalized != "" {
+			timestamps[normalized] = timestamp
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating outline timestamps: %w", err)
+	}
+
+	return timestamps, nil
 }
 
 // Helper to convert []float32 to []byte

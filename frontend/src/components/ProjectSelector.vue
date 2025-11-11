@@ -171,7 +171,7 @@ onMounted(() => {
 .dropdown-menu {
   position: absolute;
   top: calc(100% + 0.5rem);
-  right: 0;
+  left: 0;
   min-width: 350px;
   max-width: 500px;
   max-height: 500px;

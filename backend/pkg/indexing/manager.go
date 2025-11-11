@@ -1,6 +1,7 @@
 package indexing
 
 import (
+	"CodeTextor/backend/internal/store"
 	"CodeTextor/backend/pkg/models"
 	"sync"
 )
@@ -21,7 +22,7 @@ func NewManager() *Manager {
 
 // StartIndexer starts a new indexing job for a given project.
 // If an indexer is already running for the project, it will be stopped first.
-func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview) {
+func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview, vectorStore *store.VectorStore) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -31,7 +32,7 @@ func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePrev
 	}
 
 	// Create and run a new indexer.
-	newIndexer := NewIndexer(project)
+	newIndexer := NewIndexer(project, vectorStore)
 	m.projectIndexers[project.ID] = newIndexer
 	m.progressMap.Store(project.ID, newIndexer.progress)
 

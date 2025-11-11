@@ -159,12 +159,12 @@ onUnmounted(() => {
   <div class="app-container">
     <!-- Navigation bar with tabs and project selector -->
     <nav class="app-nav">
-      <!-- Hamburger menu button (mobile only) -->
-      <button v-if="currentProject" class="hamburger-button" @click="toggleMobileMenu">
-        <span class="hamburger-icon">☰</span>
-      </button>
+      <!-- Left side: Project selector as H1 -->
+      <div class="nav-left">
+        <ProjectSelector />
+      </div>
 
-      <!-- Left side: Navigation tabs (only shown when a project is selected) -->
+      <!-- Right side: Navigation tabs (only shown when a project is selected) -->
       <div v-if="currentProject" class="nav-tabs">
         <button
           :class="['nav-tab', { active: currentView === 'indexing' }]"
@@ -197,6 +197,11 @@ onUnmounted(() => {
           🔌 MCP
         </button>
       </div>
+
+      <!-- Hamburger menu button (mobile only) -->
+      <button v-if="currentProject" class="hamburger-button" @click="toggleMobileMenu">
+        <span class="hamburger-icon">☰</span>
+      </button>
 
       <!-- Mobile menu overlay -->
       <div v-if="showMobileMenu" class="mobile-menu-overlay" @click="closeMobileMenu">
@@ -243,11 +248,6 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
-      </div>
-
-      <!-- Right side: Project selector as H1 -->
-      <div class="nav-right">
-        <ProjectSelector />
       </div>
     </nav>
 
@@ -346,7 +346,7 @@ onUnmounted(() => {
   border-bottom: 2px solid #1e1e1e;
 }
 
-.nav-right {
+.nav-left {
   display: flex;
   align-items: center;
   padding-bottom: 0.5rem;
@@ -366,6 +366,7 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
+  margin-left: 0.5rem;
   transition: all 0.2s ease;
 }
 

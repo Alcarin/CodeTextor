@@ -146,6 +146,17 @@ type ProjectStats struct {
 	IndexingProgress float64 `json:"indexingProgress"`
 }
 
+// OutlineNode represents the hierarchical structure of a file that was parsed by Tree-sitter.
+type OutlineNode struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Kind      string         `json:"kind"`
+	FilePath  string         `json:"filePath"`
+	StartLine uint32         `json:"startLine"`
+	EndLine   uint32         `json:"endLine"`
+	Children  []*OutlineNode `json:"children,omitempty"`
+}
+
 // Chunk represents a piece of text from a file, along with its embedding.
 type Chunk struct {
 	ID        string    `json:"id"`

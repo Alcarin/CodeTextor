@@ -139,6 +139,34 @@ export const backend = {
   },
 
   /**
+   * Retrieves the outline tree for a specific file.
+   */
+  async getFileOutline(
+    projectId: string,
+    path: string
+  ): Promise<models.OutlineNode[]> {
+    return App.GetFileOutline(projectId, path)
+  },
+
+  /**
+   * Retrieves update timestamps for all file outlines in a project.
+   * Returns a map of relative file paths to Unix timestamps.
+   */
+  async getOutlineTimestamps(projectId: string): Promise<Record<string, number>> {
+    return App.GetOutlineTimestamps(projectId)
+  },
+
+  /**
+   * Reads the content of a file within a project.
+   * @param projectId - Project identifier
+   * @param relativePath - File path relative to project root
+   * @returns Promise resolving to the file content as a string
+   */
+  async readFileContent(projectId: string, relativePath: string): Promise<string> {
+    return App.ReadFileContent(projectId, relativePath)
+  },
+
+  /**
    * Reads glob patterns from the project's .gitignore (if present).
    */
   async getGitignorePatterns(projectId: string): Promise<string[]> {

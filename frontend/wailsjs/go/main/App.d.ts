@@ -8,11 +8,15 @@ export function CreateProject(arg1:string,arg2:string,arg3:string,arg4:string):P
 
 export function DeleteProject(arg1:string):Promise<void>;
 
+export function GetFileOutline(arg1:string,arg2:string):Promise<Array<models.OutlineNode>>;
+
 export function GetFilePreviews(arg1:string,arg2:models.ProjectConfig):Promise<Array<models.FilePreview>>;
 
 export function GetGitignorePatterns(arg1:string):Promise<Array<string>>;
 
 export function GetIndexingProgress(arg1:string):Promise<models.IndexingProgress>;
+
+export function GetOutlineTimestamps(arg1:string):Promise<Record<string, number>>;
 
 export function GetProject(arg1:string):Promise<models.Project>;
 
@@ -23,6 +27,8 @@ export function Greet(arg1:string):Promise<string>;
 export function ListProjects():Promise<Array<models.Project>>;
 
 export function ProjectExists(arg1:string):Promise<boolean>;
+
+export function ReadFileContent(arg1:string,arg2:string):Promise<string>;
 
 export function SelectDirectory(arg1:string,arg2:string):Promise<string>;
 

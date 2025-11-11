@@ -35,6 +35,9 @@ type ProjectServiceAPI interface {
 	ClearSelectedProject() error
 	SetProjectIndexing(projectID string, enabled bool) error
 	GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetFileOutline(projectID, path string) ([]*models.OutlineNode, error)
+	GetOutlineTimestamps(projectID string) (map[string]int64, error)
+	ReadFileContent(projectID, relativePath string) (string, error)
 	StartIndexing(projectID string) error
 	StopIndexing(projectID string) error
 	GetIndexingProgress(projectID string) (models.IndexingProgress, error)
@@ -434,7 +437,12 @@ func (s *ProjectService) StartIndexing(projectID string) error {
 		return fmt.Errorf("failed to get file previews for indexing: %w", err)
 	}
 
-	s.indexerManager.StartIndexer(project, files)
+	vectorStore, err := s.GetVectorStore(project.ID)
+	if err != nil {
+		return fmt.Errorf("failed to open vector store for outlining: %w", err)
+	}
+
+	s.indexerManager.StartIndexer(project, files, vectorStore)
 	return nil
 }
 
@@ -503,6 +511,18 @@ func resolveIncludePaths(root string, includes []string) []string {
 	return resolved
 }
 
+func isPathWithinRoot(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if root == target {
+		return true
+	}
+	if !strings.HasSuffix(root, string(os.PathSeparator)) {
+		root += string(os.PathSeparator)
+	}
+	return strings.HasPrefix(target, root)
+}
+
 // GetFilePreviews returns files that match the provided configuration.
 func (s *ProjectService) GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error) {
 	project, err := s.GetProject(projectID)
@@ -537,6 +557,13 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 			relativePath, _ := filepath.Rel(includePath, path)
 			if relativePath == "." {
 				return nil
+			}
+			relativePath = filepath.ToSlash(relativePath)
+
+			if finalConfig.RootPath != "" {
+				if rootRelative, err := filepath.Rel(finalConfig.RootPath, path); err == nil {
+					relativePath = filepath.ToSlash(rootRelative)
+				}
 			}
 
 			isHidden := strings.HasPrefix(d.Name(), ".") && len(d.Name()) > 1
@@ -595,6 +622,131 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 	}
 
 	return previews, nil
+}
+
+// GetFileOutline retrieves the stored outline for a single file.
+func (s *ProjectService) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedRoot := filepath.Clean(project.Config.RootPath)
+	if normalizedRoot == "" {
+		return nil, fmt.Errorf("project root path is not configured")
+	}
+
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return nil, fmt.Errorf("file path cannot be empty")
+	}
+
+	absPath := trimmed
+	if !filepath.IsAbs(trimmed) {
+		absPath = filepath.Join(normalizedRoot, trimmed)
+	}
+	absPath = filepath.Clean(absPath)
+
+	if !isPathWithinRoot(normalizedRoot, absPath) {
+		return nil, fmt.Errorf("path %s is outside the project root", trimmed)
+	}
+
+	vectorStore, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	absSlash := filepath.ToSlash(absPath)
+	key := absSlash
+	if rel, ok := utils.RelativePathWithinRoot(normalizedRoot, absPath); ok && rel != "" {
+		key = rel
+	}
+
+	outline, err := vectorStore.GetFileOutline(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(outline) == 0 && key != absSlash {
+		outline, err = vectorStore.GetFileOutline(absSlash)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(outline) == 0 {
+		return nil, fmt.Errorf("outline is not available for %s; ensure continuous indexing has run", trimmed)
+	}
+
+	return outline, nil
+}
+
+// GetOutlineTimestamps retrieves all outline update timestamps for a project.
+// Returns a map of relative file paths to their last update timestamps (Unix time).
+func (s *ProjectService) GetOutlineTimestamps(projectID string) (map[string]int64, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	vectorStore, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	timestamps, err := vectorStore.GetAllOutlineTimestamps()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert absolute paths to relative paths
+	normalizedRoot := filepath.Clean(project.Config.RootPath)
+	relativeTimestamps := make(map[string]int64)
+
+	for storedPath, timestamp := range timestamps {
+		pathKey := filepath.ToSlash(filepath.Clean(storedPath))
+		if filepath.IsAbs(pathKey) {
+			if rel, ok := utils.RelativePathWithinRoot(normalizedRoot, pathKey); ok && rel != "" {
+				pathKey = rel
+			}
+		}
+		if existing, ok := relativeTimestamps[pathKey]; !ok || timestamp > existing {
+			relativeTimestamps[pathKey] = timestamp
+		}
+	}
+
+	return relativeTimestamps, nil
+}
+
+// ReadFileContent reads the content of a file within a project.
+// The relativePath is relative to the project root.
+func (s *ProjectService) ReadFileContent(projectID, relativePath string) (string, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return "", err
+	}
+
+	normalizedRoot := filepath.Clean(project.Config.RootPath)
+	if normalizedRoot == "" {
+		return "", fmt.Errorf("project root path is not configured")
+	}
+
+	// Resolve absolute path
+	trimmed := strings.TrimPrefix(relativePath, "/")
+	trimmed = strings.TrimPrefix(trimmed, "\\")
+	absPath := filepath.Join(normalizedRoot, trimmed)
+	absPath = filepath.Clean(absPath)
+
+	// Security check: ensure path is within project root
+	if !isPathWithinRoot(normalizedRoot, absPath) {
+		return "", fmt.Errorf("path %s is outside the project root", trimmed)
+	}
+
+	// Read file content
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file %s: %w", trimmed, err)
+	}
+
+	return string(content), nil
 }
 
 // GetGitIgnorePatterns returns glob patterns derived from the project's .gitignore.

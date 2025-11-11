@@ -25,6 +25,9 @@ type MockProjectServiceAPI struct {
 	ClearSelectedProjectFunc func() error
 	SetProjectIndexingFunc   func(projectID string, enabled bool) error
 	GetFilePreviewsFunc      func(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetFileOutlineFunc       func(projectID, path string) ([]*models.OutlineNode, error)
+	GetOutlineTimestampsFunc func(projectID string) (map[string]int64, error)
+	ReadFileContentFunc      func(projectID, relativePath string) (string, error)
 	StartIndexingFunc        func(projectID string) error
 	StopIndexingFunc         func(projectID string) error
 	GetIndexingProgressFunc  func(projectID string) (models.IndexingProgress, error)
@@ -103,6 +106,25 @@ func (m *MockProjectServiceAPI) GetFilePreviews(projectID string, config models.
 		return m.GetFilePreviewsFunc(projectID, config)
 	}
 	return nil, nil
+}
+
+func (m *MockProjectServiceAPI) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
+	if m.GetFileOutlineFunc != nil {
+		return m.GetFileOutlineFunc(projectID, path)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetOutlineTimestamps(projectID string) (map[string]int64, error) {
+	if m.GetOutlineTimestampsFunc != nil {
+		return m.GetOutlineTimestampsFunc(projectID)
+	}
+	return map[string]int64{}, nil
+}
+func (m *MockProjectServiceAPI) ReadFileContent(projectID, relativePath string) (string, error) {
+	if m.ReadFileContentFunc != nil {
+		return m.ReadFileContentFunc(projectID, relativePath)
+	}
+	return "", nil
 }
 func (m *MockProjectServiceAPI) StartIndexing(projectID string) error {
 	if m.StartIndexingFunc != nil {

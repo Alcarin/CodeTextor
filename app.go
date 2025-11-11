@@ -157,7 +157,22 @@ func (a *App) GetFilePreviews(projectID string, config models.ProjectConfig) ([]
 	return a.projectService.GetFilePreviews(projectID, config)
 }
 
+// GetFileOutline fetches the persisted outline tree for a file.
+func (a *App) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
+	return a.projectService.GetFileOutline(projectID, path)
+}
+
+// GetOutlineTimestamps fetches update timestamps for all outlines in a project.
+func (a *App) GetOutlineTimestamps(projectID string) (map[string]int64, error) {
+	return a.projectService.GetOutlineTimestamps(projectID)
+}
+
 // GetGitignorePatterns returns the glob patterns derived from a project's .gitignore file.
 func (a *App) GetGitignorePatterns(projectID string) ([]string, error) {
 	return a.projectService.GetGitIgnorePatterns(projectID)
+}
+
+// ReadFileContent reads the content of a file within a project.
+func (a *App) ReadFileContent(projectID, relativePath string) (string, error) {
+	return a.projectService.ReadFileContent(projectID, relativePath)
 }

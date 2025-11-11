@@ -14,6 +14,10 @@ export function DeleteProject(arg1) {
   return window['go']['main']['App']['DeleteProject'](arg1);
 }
 
+export function GetFileOutline(arg1, arg2) {
+  return window['go']['main']['App']['GetFileOutline'](arg1, arg2);
+}
+
 export function GetFilePreviews(arg1, arg2) {
   return window['go']['main']['App']['GetFilePreviews'](arg1, arg2);
 }
@@ -24,6 +28,10 @@ export function GetGitignorePatterns(arg1) {
 
 export function GetIndexingProgress(arg1) {
   return window['go']['main']['App']['GetIndexingProgress'](arg1);
+}
+
+export function GetOutlineTimestamps(arg1) {
+  return window['go']['main']['App']['GetOutlineTimestamps'](arg1);
 }
 
 export function GetProject(arg1) {
@@ -44,6 +52,10 @@ export function ListProjects() {
 
 export function ProjectExists(arg1) {
   return window['go']['main']['App']['ProjectExists'](arg1);
+}
+
+export function ReadFileContent(arg1, arg2) {
+  return window['go']['main']['App']['ReadFileContent'](arg1, arg2);
 }
 
 export function SelectDirectory(arg1, arg2) {

@@ -62,6 +62,20 @@ export interface SearchFilters {
   minSimilarity?: number
 }
 
+export type OutlineLoadingStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+// Directory tree node that drives the outline explorer
+export interface FileTreeNode {
+  name: string
+  path: string
+  isDirectory: boolean
+  children: FileTreeNode[]
+  expanded: boolean
+  outlineNodes?: OutlineNode[]
+  outlineStatus?: OutlineLoadingStatus
+  outlineError?: string
+}
+
 // Search request
 export interface SearchRequest {
   projectId: string

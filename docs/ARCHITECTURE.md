@@ -262,6 +262,106 @@ Return chunks with metadata
 
 ---
 
+## Outline System
+
+The **Outline System** provides hierarchical visualization of code structure for any file in the project. It uses tree-sitter parsers to extract symbols and build navigable AST representations.
+
+### Architecture
+
+```
+User Opens File → OutlineView.vue
+                      ↓
+              Backend: GetFileOutline(projectID, filePath)
+                      ↓
+              VectorStore: SELECT outline_json FROM file_outlines
+                      ↓
+              Return cached OutlineNode[] tree
+                      ↓
+              Frontend: Render hierarchical tree with expand/collapse
+```
+
+### Key Components
+
+**Backend:**
+- `backend/internal/chunker/*_parser.go`: Tree-sitter language parsers
+  - Extract symbols with parent-child relationships
+  - Support: Go, Python, TypeScript, JavaScript, Vue, HTML, CSS, Markdown
+- `backend/pkg/outline/builder.go`: Convert flat symbols to hierarchical tree
+  - Matches parents by name + line range containment
+  - Handles duplicate names (e.g., multiple `div` elements)
+- `backend/internal/store/vector_store.go`: Persist outlines in SQLite
+  - Table: `file_outlines(file_path, outline_json, updated_at)`
+
+**Frontend:**
+- `frontend/src/views/OutlineView.vue`: Main outline browser
+  - File tree navigation with outline loading
+  - No depth limit (removed in favor of expand/collapse)
+- `frontend/src/components/FileTreeNode.vue`: File tree rendering
+- `frontend/src/components/OutlineTreeNode.vue`: Recursive symbol tree
+  - Icons per symbol kind (🔹 function, 📑 heading, etc.)
+  - Line number ranges displayed
+  - Expand/collapse state management
+
+### Parser Implementations
+
+#### Markdown Parser
+- **Hierarchy**: Heading levels (h1-h6) create parent-child relationships
+  - Example: `## Section` is child of preceding `# Title`
+- **Code Blocks**: Assigned to containing heading
+- **Links**: Assigned to nearest preceding heading
+- **Line Ranges**: Fixed to include all content until next same/higher level heading
+  - Enables correct containment detection in outline builder
+
+#### Vue Parser
+- **Sections**: `<template>`, `<script>`, `<style>` as root symbols
+- **Delegation**: Each section parsed by appropriate parser (HTML/JS/CSS)
+- **Line Offset**: Adjusts child symbol line numbers to match original file
+- **Hierarchy Preservation**: Only root elements get section as parent, nested elements keep HTML/JS/CSS hierarchy
+
+#### HTML/CSS Parsers
+- **All Tags**: Extracts all HTML elements (not just semantic tags)
+- **Attributes**: Stored in `Signature` field for reference
+- **Nesting**: Full parent-child relationships preserved
+
+### Continuous Indexing Integration
+
+When **Continuous Indexing** is enabled:
+
+1. **File Watcher** (fsnotify) monitors project directories
+2. **Debouncing** (10 seconds): Coalesces rapid file changes
+   - Multiple saves within 10s → single outline rebuild
+3. **Automatic Update**: After debounce period:
+   - File parsed with tree-sitter
+   - Outline tree built
+   - Database updated (`UpsertFileOutline`)
+4. **Per-Project Isolation**: Each project has independent:
+   - Indexer goroutine
+   - File watcher
+   - Debounce timers
+   - Vector database
+
+**Implementation:**
+- `backend/pkg/indexing/indexer.go`:
+  - `debounceFileUpdate()`: 10s timer per file
+  - `storeOutlineForFile()`: Parse and persist outline
+- Thread-safe with mutex-protected timer map
+
+### Design Decisions
+
+**Q: Why cache outlines in database vs. compute on-demand?**
+- **A**: Parsing large files (1000+ lines) can take 50-100ms. Caching enables instant outline display while continuous indexing keeps it current.
+
+**Q: Why 10 second debounce instead of immediate updates?**
+- **A**: Balance between freshness and performance. 10s allows batch edits without spamming parser/database, yet feels responsive enough for typical coding workflow.
+
+**Q: Why match parents by line range instead of just name?**
+- **A**: Duplicate names are common (multiple `div`, `function`, etc.). Line containment ensures correct parent even with naming conflicts.
+
+**Q: Why separate outlining from chunking?**
+- **A**: Different purposes. Chunking creates semantic embedding units for RAG. Outlining provides navigation structure. Keeping separate allows independent evolution.
+
+---
+
 ## Technology Choices
 
 ### Why Wails?
