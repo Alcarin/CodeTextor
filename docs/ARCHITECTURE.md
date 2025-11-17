@@ -69,8 +69,8 @@ Configuration Storage:
 Project Storage (per-project):
   ~/.local/share/codetextor/indexes/
   ├── project-codetextor.db  ← Isolated vector DB for project "codetextor" (slug-based naming)
-  │   ├── Tables: chunks, files, symbols, project_meta
-  │   └── Contains: embeddings, parsed code, AST symbols, and the project-specific configuration
+  │   ├── Tables: files, chunks, symbols, chunk_symbols, outline_nodes, outline_metadata, project_meta
+  │   └── Contains: embeddings, semantic chunks with metadata, AST symbols, outlines, and project config
   ├── project-my-app.db      ← Isolated vector DB for project "my-app"
   └── ...
 ```
@@ -78,9 +78,13 @@ Project Storage (per-project):
 **Implementation Details:**
 - Each per-project database is created automatically on project creation
 - Migrations for per-project DBs are embedded in `backend/internal/store/vector_migrations/`
+  - **Migration 000004**: Extended chunks table with semantic metadata (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
+  - **Migration 000005**: Added unique constraint on chunks (file_id, line_start, line_end) to prevent duplicates
+  - **Migration 000006**: Normalized schema with integer file IDs (files.pk), foreign key relationships, chunk_symbols mapping table, and restructured outline storage (outline_nodes + outline_metadata tables)
 - Global config DB only stores app-level metadata (selected project, future global settings)
 - **IMPORTANT:** No `project_id` columns in per-project tables - isolation via separate database files
 - Vector stores use WAL mode for concurrent access, single connection pool for ACID guarantees
+- File ID caching: In-memory cache (thread-safe with RWMutex) maps file paths to integer IDs for reduced database queries
 - `.gitignore` files under each project root are parsed into glob patterns and used as the default exclude list unless the user overrides it.
 
 **Benefits:**
@@ -116,15 +120,58 @@ Project Storage (per-project):
 **Purpose:** Transform raw code into semantically meaningful retrieval units.
 
 **Design Principles:**
-- **Tree-sitter Parsing**: Language-agnostic AST extraction
+- **Tree-sitter Parsing**: Language-agnostic AST extraction with 9+ language support
 - **Semantic Boundaries**: Chunks align with code structure (functions, classes, modules)
-- **Context Enrichment**: Attach file/package info, merge comments, collapse long bodies
-- **Adaptive Sizing**: Split large chunks, merge small ones for optimal embedding
+- **Context Enrichment**: Attach file/package info, merge comments, include metadata headers
+- **Adaptive Sizing**: Split large chunks toward ~400 tokens (hard max 800), merge small ones (<100 tokens)
 
 **Why not simple line-based chunking?**
 - Semantic units preserve logical context
 - Better embedding quality (complete thoughts vs arbitrary splits)
 - Enables accurate code navigation (jump to function definition)
+
+**Implementation Details:**
+
+The semantic chunking system consists of three main components:
+
+1. **Parsers** (`backend/internal/chunker/*_parser.go`)
+   - Language-specific parsers implementing `LanguageParser` interface
+   - Extract symbols: functions, classes, methods, top-level variables/constants (local variables are intentionally skipped to reduce noise)
+   - Extract imports and documentation
+   - Supported languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON
+
+2. **Enricher** (`backend/internal/chunker/enrichment.go`)
+   - `CodeChunk`: Structure containing enriched content + raw source code
+   - `ChunkEnricher`: Transforms symbols into enriched chunks
+   - Enrichment includes:
+     - File path and language headers
+     - Symbol metadata (name, kind, parent, visibility, signature)
+     - Package name and imports
+     - Documentation/comments
+   - Token estimation (~1 token per 4 characters)
+   - Adaptive merge/split logic with enrichment overhead accounting
+
+3. **Semantic Chunker** (`backend/internal/chunker/semantic_chunker.go`)
+   - Public API for chunking: `ChunkFile(filePath, source) -> []CodeChunk`
+   - Complete pipeline: Parse → Enrich → Merge → Split
+   - Configurable via `ChunkConfig`:
+     - `MaxChunkSize`: 800 tokens (default)
+     - `MinChunkSize`: 100 tokens (default)
+     - `MergeSmallChunks`: true (default)
+     - `IncludeComments`: true (default)
+   - Fallback to line-based chunking for unsupported file types
+
+**Indexer Integration:**
+
+The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with intelligent change detection:
+- **Hash-based change detection**: Computes SHA-256 hash of file content using `utils.ComputeHash()`
+- **Skip unchanged files**: Compares current hash + mtime with database records to avoid re-indexing
+- Checks if file is supported via `semanticChunker.IsSupported()`
+- Uses semantic chunks for supported files (enriched content for embedding)
+- Falls back to simple line-based chunking for unsupported formats
+- Configuration derived from project settings (`ChunkSizeMax`, `ChunkSizeMin`)
+- **Incremental updates**: Deletes old chunks before re-indexing modified files
+- **Concurrent processing**: Semaphore-limited goroutines (10 concurrent operations) for parallel file processing
 
 ### 3. Vector Indexing
 
@@ -215,23 +262,31 @@ Return chunks with metadata
 **Component Structure:**
 
 ```
+```
 /frontend/src/
-  /components/          ← Reusable UI components
-    ProjectCard.vue     ← Project card for grid view
-    ProjectTable.vue    ← Project table for list view
+  /components/             ← Reusable UI components
+    ProjectCard.vue         ← Project card for grid view
+    ProjectTable.vue        ← Project table for list view
     ProjectFormModal.vue    ← Create/edit project form
     DeleteConfirmModal.vue  ← Deletion confirmation
     ProjectSelector.vue     ← Project dropdown in header
+    FileTreeNode.vue        ← Recursive file tree component
+    OutlineTreeNode.vue     ← Recursive symbol outline tree
+    OutlineContentViewer.vue← Outline content display with syntax highlighting
+    ChunkTreeNode.vue       ← Recursive chunk tree component with expand/collapse
+    ChunkContentViewer.vue  ← Chunk content pane (enriched + raw view)
   /views/               ← Page-level components
     ProjectsView.vue    ← Project management (orchestrator)
     IndexingView.vue    ← File indexing interface
     SearchView.vue      ← Semantic search interface
     OutlineView.vue     ← Code structure browser
-    StatsView.vue       ← Project statistics
+    ChunksView.vue      ← Semantic chunks browser
+    StatsView.vue       ← Project statistics (files, chunks, outlines)
     MCPView.vue         ← MCP server management
   /composables/         ← Shared logic
     useCurrentProject.ts   ← Current project state
     useNavigation.ts       ← View routing
+  /constants/           ← Shared constants and configuration
 ```
 
 **Key Design Patterns:**
@@ -273,7 +328,7 @@ User Opens File → OutlineView.vue
                       ↓
               Backend: GetFileOutline(projectID, filePath)
                       ↓
-              VectorStore: SELECT outline_json FROM file_outlines
+             VectorStore: SELECT ordered nodes FROM outline_nodes / outline_metadata
                       ↓
               Return cached OutlineNode[] tree
                       ↓
@@ -290,7 +345,7 @@ User Opens File → OutlineView.vue
   - Matches parents by name + line range containment
   - Handles duplicate names (e.g., multiple `div` elements)
 - `backend/internal/store/vector_store.go`: Persist outlines in SQLite
-  - Table: `file_outlines(file_path, outline_json, updated_at)`
+  - Tables: `outline_nodes(file_id, parent_id, ...)` + `outline_metadata(file_id, updated_at)`
 
 **Frontend:**
 - `frontend/src/views/OutlineView.vue`: Main outline browser
@@ -359,6 +414,94 @@ When **Continuous Indexing** is enabled:
 
 **Q: Why separate outlining from chunking?**
 - **A**: Different purposes. Chunking creates semantic embedding units for RAG. Outlining provides navigation structure. Keeping separate allows independent evolution.
+
+---
+
+## Chunks View
+
+The **Chunks View** provides visualization and inspection of semantic code chunks generated for embedding and retrieval. It enables developers to understand how their code is being chunked for RAG systems.
+
+### Architecture
+
+```
+User Selects File → ChunksView.vue
+                      ↓
+              Backend: GetFileChunks(projectID, filePath)
+                      ↓
+             VectorStore: SELECT * FROM chunks WHERE file_id = ...
+                      ↓
+              Return Chunk[] with full semantic metadata
+                      ↓
+              Frontend: Render chunk tree with enriched content preview
+```
+
+### Key Components
+
+**Backend:**
+- `backend/pkg/services/project_service.go`: `GetFileChunks()` API method
+  - Resolves file ID from path
+  - Queries chunks table with semantic metadata
+  - Returns chunks ordered by line_start
+- `backend/internal/store/vector_store.go`: Database queries for chunks
+  - Uses normalized schema with file_id foreign key
+  - Retrieves all semantic metadata fields
+
+**Frontend:**
+- `frontend/src/views/ChunksView.vue`: Main chunks browser
+  - File tree navigation with chunk loading
+  - Displays chunk count and statistics per file
+- `frontend/src/components/ChunkTreeNode.vue`: Recursive chunk tree
+  - Shows chunk metadata (symbol name, kind, line range)
+  - Token count and size information
+  - Collapse/expand functionality
+- `frontend/src/components/ChunkContentViewer.vue`: Chunk detail display
+  - Shows enriched content (what gets embedded)
+  - Shows original source code (raw code)
+  - Metadata panel: language, symbol info, visibility, package, docstring
+  - Token count and character statistics
+
+### Chunk Metadata
+
+Each chunk includes rich semantic metadata:
+- **Location**: line_start, line_end, char_start, char_end
+- **Language**: Programming language identifier
+- **Symbol**: symbol_name, symbol_kind (function, class, method, etc.)
+- **Hierarchy**: parent symbol reference
+- **Signature**: Function/method signature
+- **Visibility**: public, private, protected
+- **Package**: Module or package name
+- **Documentation**: Extracted docstring/comments
+- **Metrics**: token_count, is_collapsed flag
+- **Content**: enriched content (for embedding) + source_code (original)
+
+### Design Decisions
+
+**Q: Why show both enriched content and source code?**
+- **A**: Enriched content includes metadata headers and context for better embeddings. Source code shows the original file content. Developers need to see both to understand chunking behavior.
+
+**Q: Why store chunks in database instead of computing on-demand?**
+- **A**: Chunks are already created during indexing for embedding generation. Storing them enables inspection, debugging chunking strategies, and potential future features like chunk-level search.
+
+**Q: Why normalize with file_id foreign key (Migration 000006)?**
+- **A**: Reduces duplication (file paths stored once), enables CASCADE deletes, improves query performance, and maintains referential integrity across chunks/symbols/outlines.
+
+---
+
+## Statistics System
+
+Real-time metrics about indexed projects, available both per-project and as cumulative aggregates.
+
+**Backend:**
+- `VectorStore.GetStats()`: Queries database for counts (files, chunks, symbols), database size, last indexed timestamp
+- `ProjectService.GetProjectStats(projectID)`: Per-project stats with indexing progress
+- `ProjectService.GetAllProjectsStats()`: Aggregates stats across all projects
+- Exposed via Wails: `App.GetProjectStats()` and `App.GetAllProjectsStats()`
+
+**Frontend:**
+- Footer (`App.vue`): Shows cumulative stats across all projects (updates every 5s)
+- Stats View: Displays detailed per-project metrics with manual refresh
+
+**Design:** On-demand calculation ensures accuracy; server-side aggregation reduces data transfer. Footer provides global overview, Stats view shows per-project details.
 
 ---
 
@@ -457,8 +600,9 @@ When **Continuous Indexing** is enabled:
 
 **Parsing:**
 - Tree-sitter native parsers (C bindings)
-- Parallel file processing per project
-- Incremental updates (hash-based change detection)
+- Parallel file processing per project (semaphore-limited to 10 concurrent operations)
+- Incremental updates (SHA-256 hash-based change detection + mtime comparison)
+- File ID caching to reduce database lookups
 
 **Indexing:**
 - Batch vector insertions
@@ -527,5 +671,5 @@ These principles guide all implementation decisions and should be preserved as t
 
 ---
 
-**Last Updated:** 2025-11-07
+**Last Updated:** 2025-11-17
 **Version:** 0.1.0-dev

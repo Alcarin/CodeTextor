@@ -393,12 +393,18 @@ export class MockBackendService {
   async getProjectStats(): Promise<ProjectStats> {
     await delay(150);
 
+    const isIndexing = Math.random() > 0.5;
+    const indexingProgress = isIndexing ? Math.min(1, 0.15 + Math.random() * 0.7) : 0;
+    const now = Date.now();
+
     return {
-      totalFiles: 50,
-      totalChunks: 342,
-      totalSymbols: 1205,
-      indexSize: 2458624, // ~2.4 MB
-      lastIndexed: new Date()
+      totalFiles: 50 + Math.floor(Math.random() * 12),
+      totalChunks: 342 + Math.floor(Math.random() * 85),
+      totalSymbols: 1205 + Math.floor(Math.random() * 220),
+      databaseSize: 2458624 + Math.floor(Math.random() * 300000), // ~2.4 MB area
+      lastIndexedAt: new Date(now - Math.floor(Math.random() * 45 * 60 * 1000)),
+      isIndexing,
+      indexingProgress
     };
   }
 

@@ -10,18 +10,32 @@ import type { models } from '../api/backend'
 export type { Project, ProjectConfig, ProjectStats } from '../api/backend'
 export type IndexingProgress = models.IndexingProgress
 
-// Represents a semantic chunk of code
+// Represents a semantic chunk of code with metadata
 export interface Chunk {
   id: string
   projectId: string
   filePath: string
-  kind: string
-  name: string
   content: string
-  startLine: number
-  endLine: number
-  startByte: number
-  endByte: number
+  embedding: number[]
+  lineStart: number
+  lineEnd: number
+  charStart: number
+  charEnd: number
+  createdAt: number
+  updatedAt: number
+  // Semantic metadata
+  language?: string
+  symbolName?: string
+  symbolKind?: string
+  parent?: string
+  signature?: string
+  visibility?: string
+  packageName?: string
+  docString?: string
+  tokenCount?: number
+  isCollapsed?: boolean
+  sourceCode?: string
+  // For search results
   similarity?: number
 }
 
@@ -53,6 +67,7 @@ export interface FilePreview {
   extension: string
   size: string
   hidden: boolean
+  lastModified: number
 }
 
 // Search filters
@@ -74,6 +89,7 @@ export interface FileTreeNode {
   outlineNodes?: OutlineNode[]
   outlineStatus?: OutlineLoadingStatus
   outlineError?: string
+  chunks?: Chunk[]
 }
 
 // Search request

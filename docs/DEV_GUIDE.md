@@ -224,9 +224,16 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 
 CodeTextor uses **[golang-migrate/migrate](https://github.com/golang-migrate/migrate)** for database schema changes.
 
+### Migration Types
+
+CodeTextor has two types of migrations:
+
+1. **Config DB migrations** (`backend/internal/store/migrations/`): For global app configuration
+2. **Per-Project DB migrations** (`backend/internal/store/vector_migrations/`): For per-project vector databases
+
 ### Adding a Migration
 
-1. Create SQL files in `backend/internal/store/migrations/`:
+1. Create SQL files in the appropriate directory:
    ```bash
    # Format: NNNNNN_description.{up|down}.sql
    000003_add_column.up.sql    # Apply change
@@ -255,7 +262,14 @@ When a migration alters the schema in a way that adds new constraints (e.g., `UN
 
 **Key Takeaway:** A migration is not just about schema changes; it's about safely transitioning **both the schema and the data** to a new state. Always assume the database is not empty.
 
-Migrations are embedded in the binary and run automatically at startup.
+Migrations are embedded in the binary and run automatically:
+- **Config DB migrations**: Run once at app startup
+- **Per-project migrations**: Run when each project database is opened/created
+
+**Recent Per-Project Migrations:**
+- `000004_extend_chunks_metadata`: Added 11 semantic metadata fields to chunks table (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
+- `000005_unique_chunks_constraint`: Added unique constraint on chunks (file_id, line_start, line_end) to prevent duplicate chunks
+- `000006_normalize_schema`: Major schema normalization - replaced path-based references with integer file IDs, added foreign keys, created chunk_symbols mapping table, restructured outline storage
 
 ---
 
@@ -308,9 +322,10 @@ Use the native doc-comment style of each language. For example, TypeScript/Vue f
    * Prepend file, package, and symbol info.
    * Merge leading comments.
    * Collapse long blocks (`{ ... }` placeholder).
+   * Keep only semantically relevant symbols (functions, classes, top-level variables/constants) to avoid redundant chunks.
 3. **Adaptive chunk size:**
 
-   * Split large nodes (> 800 tokens).
+   * Split large nodes targeting ~400 tokens (max 800).
    * Merge small ones (< 100 tokens) with neighbors or file context.
 4. **Semantic embedding:** Generate vector representations for chunk content + metadata.
 5. **Incremental indexing:** Only update changed files (based on hash + mtime).

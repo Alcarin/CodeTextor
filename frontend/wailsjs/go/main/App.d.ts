@@ -8,6 +8,10 @@ export function CreateProject(arg1:string,arg2:string,arg3:string,arg4:string):P
 
 export function DeleteProject(arg1:string):Promise<void>;
 
+export function GetAllProjectsStats():Promise<models.ProjectStats>;
+
+export function GetFileChunks(arg1:string,arg2:string):Promise<Array<models.Chunk>>;
+
 export function GetFileOutline(arg1:string,arg2:string):Promise<Array<models.OutlineNode>>;
 
 export function GetFilePreviews(arg1:string,arg2:models.ProjectConfig):Promise<Array<models.FilePreview>>;
@@ -20,6 +24,8 @@ export function GetOutlineTimestamps(arg1:string):Promise<Record<string, number>
 
 export function GetProject(arg1:string):Promise<models.Project>;
 
+export function GetProjectStats(arg1:string):Promise<models.ProjectStats>;
+
 export function GetSelectedProject():Promise<models.Project>;
 
 export function Greet(arg1:string):Promise<string>;
@@ -29,6 +35,10 @@ export function ListProjects():Promise<Array<models.Project>>;
 export function ProjectExists(arg1:string):Promise<boolean>;
 
 export function ReadFileContent(arg1:string,arg2:string):Promise<string>;
+
+export function ReindexProject(arg1:string):Promise<void>;
+
+export function ResetProjectIndex(arg1:string):Promise<void>;
 
 export function SelectDirectory(arg1:string,arg2:string):Promise<string>;
 

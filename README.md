@@ -21,14 +21,26 @@ This enables:
 
 ## 🔍 Key Features
 
-- 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking  
-- 🧩 **Adaptive chunking strategy**  
-  - Collapses large functions/classes (`{ ... }`)  
-  - Merges small ones with comments and metadata  
-- 💾 **Embedded vector store** (SQLite-vec, no external DB)  
-- 🧠 **MCP Server mode** for use with IDEs and LLM agents  
-  - `retrieve`, `outline`, `nodeAt`, `nodeSource`, `searchSymbols`, etc.  
-- 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search  
+- 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking
+- 🧩 **Adaptive chunking strategy**
+  - Collapses large functions/classes (`{ ... }`)
+  - Merges small ones with comments and metadata
+- 💾 **Embedded vector store** (SQLite-vec, no external DB)
+- 🗂️ **Multi-project management** with complete isolation
+  - Each project has its own database
+  - Switch between projects seamlessly
+  - No data cross-contamination
+- 📊 **Real-time statistics**
+  - Per-project metrics (files, chunks, symbols)
+  - Cumulative statistics across all projects
+  - Live indexing progress tracking
+- 🌲 **Code navigation**
+  - Hierarchical outline view (functions, classes, symbols)
+  - Semantic chunks browser with metadata
+  - File tree with per-file loading
+- 🧠 **MCP Server mode** for use with IDEs and LLM agents
+  - `retrieve`, `outline`, `nodeAt`, `nodeSource`, `searchSymbols`, etc.
+- 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search
 - 🔒 100% **local & private**, no data leaves your machine
 
 ---
@@ -154,5 +166,5 @@ Built with ❤️ using:
 > *“Code should be easy to read — even for machines that read it to help us.”*
 > — *CodeTextor Manifesto*
 
-```
+---
 

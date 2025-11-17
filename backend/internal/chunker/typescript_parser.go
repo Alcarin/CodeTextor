@@ -8,6 +8,7 @@
 package chunker
 
 import (
+	"fmt"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -47,36 +48,65 @@ func (t *TypeScriptParser) ExtractSymbols(tree *sitter.Tree, source []byte) ([]S
 	rootNode := tree.RootNode()
 
 	// Walk the AST and extract symbols
-	symbols = t.walkNode(rootNode, source, "", symbols)
+	symbols = t.walkNode(rootNode, source, "", "", symbols)
 
 	return symbols, nil
 }
 
 // walkNode recursively walks the AST and extracts symbols.
-func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName string, symbols []Symbol) []Symbol {
+func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName string, scopeName string, symbols []Symbol) []Symbol {
 	nodeType := node.Kind()
 
 	switch nodeType {
 	case "function_declaration", "function":
-		symbols = append(symbols, t.extractFunction(node, source, parentName))
+		fn := t.extractFunction(node, source, parentName)
+		symbols = append(symbols, fn)
+		for i := uint(0); i < node.ChildCount(); i++ {
+			child := node.Child(i)
+			symbols = t.walkNode(child, source, parentName, fn.Name, symbols)
+		}
+		return symbols
 	case "class_declaration":
 		symbol := t.extractClass(node, source)
 		symbols = append(symbols, symbol)
 		// Process class body for methods
 		body := node.ChildByFieldName("body")
 		if body != nil {
-			symbols = t.walkNode(body, source, symbol.Name, symbols)
+			symbols = t.walkNode(body, source, symbol.Name, scopeName, symbols)
 		}
 	case "method_definition":
-		symbols = append(symbols, t.extractMethod(node, source, parentName))
+		method := t.extractMethod(node, source, parentName)
+		symbols = append(symbols, method)
+		for i := uint(0); i < node.ChildCount(); i++ {
+			child := node.Child(i)
+			symbols = t.walkNode(child, source, parentName, method.Name, symbols)
+		}
+		return symbols
 	case "lexical_declaration", "variable_declaration":
 		// Check if this is a function assigned to a variable (const foo = () => {})
-		symbols = append(symbols, t.extractVariableDeclaration(node, source, parentName)...)
+		symbols = append(symbols, t.extractVariableDeclaration(node, source, parentName, scopeName)...)
 	case "export_statement":
 		// Process exported symbols
 		for i := uint(0); i < node.ChildCount(); i++ {
 			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, symbols)
+			symbols = t.walkNode(child, source, parentName, scopeName, symbols)
+		}
+		return symbols
+	case "arrow_function":
+		parent := node.Parent()
+		if parent != nil {
+			if parent.Kind() == "variable_declarator" || parent.Kind() == "assignment_expression" {
+				break
+			}
+			if parent.Kind() == "parenthesized_expression" || parent.Kind() == "arguments" {
+				// handled below after moving to call expression
+			}
+		}
+		arrow := t.extractArrowFunction(node, source, parentName)
+		symbols = append(symbols, arrow)
+		for i := uint(0); i < node.ChildCount(); i++ {
+			child := node.Child(i)
+			symbols = t.walkNode(child, source, parentName, arrow.Name, symbols)
 		}
 		return symbols
 	}
@@ -85,7 +115,7 @@ func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName
 	if nodeType != "class_declaration" {
 		for i := uint(0); i < node.ChildCount(); i++ {
 			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, symbols)
+			symbols = t.walkNode(child, source, parentName, scopeName, symbols)
 		}
 	}
 
@@ -183,7 +213,7 @@ func (t *TypeScriptParser) extractMethod(node *sitter.Node, source []byte, paren
 
 // extractVariableDeclaration extracts variable declarations, particularly those assigned to functions.
 // Example: const add = (a, b) => a + b;
-func (t *TypeScriptParser) extractVariableDeclaration(node *sitter.Node, source []byte, parentName string) []Symbol {
+func (t *TypeScriptParser) extractVariableDeclaration(node *sitter.Node, source []byte, parentName string, scopeName string) []Symbol {
 	var symbols []Symbol
 
 	// Look for variable_declarator nodes
@@ -199,6 +229,10 @@ func (t *TypeScriptParser) extractVariableDeclaration(node *sitter.Node, source 
 					nameStr := name.Utf8Text(source)
 					signature := t.extractSignature(value, source)
 					docString := t.extractJSDoc(node, source)
+					parent := parentName
+					if scopeName != "" {
+						parent = scopeName
+					}
 
 					symbols = append(symbols, Symbol{
 						Name:       nameStr,
@@ -209,7 +243,7 @@ func (t *TypeScriptParser) extractVariableDeclaration(node *sitter.Node, source 
 						EndByte:    uint32(child.EndByte()),
 						Source:     child.Utf8Text(source),
 						Signature:  signature,
-						Parent:     parentName,
+						Parent:     parent,
 						Visibility: "public",
 						DocString:  docString,
 					})
@@ -219,6 +253,27 @@ func (t *TypeScriptParser) extractVariableDeclaration(node *sitter.Node, source 
 	}
 
 	return symbols
+}
+
+// extractArrowFunction extracts metadata for inline arrow functions (e.g. callbacks).
+func (t *TypeScriptParser) extractArrowFunction(node *sitter.Node, source []byte, parentName string) Symbol {
+	callExpr := findEnclosingCallExpression(node)
+	target := node
+	if callExpr != nil {
+		target = callExpr
+	}
+	name := t.inferArrowFunctionName(node, source, callExpr)
+	return Symbol{
+		Name:       name,
+		Kind:       SymbolFunction,
+		StartLine:  uint32(target.StartPosition().Row) + 1,
+		EndLine:    uint32(target.EndPosition().Row) + 1,
+		StartByte:  uint32(target.StartByte()),
+		EndByte:    uint32(target.EndByte()),
+		Source:     target.Utf8Text(source),
+		Parent:     parentName,
+		Visibility: "public",
+	}
 }
 
 // ExtractImports extracts all import statements.
@@ -328,6 +383,30 @@ func (t *TypeScriptParser) extractJSDoc(node *sitter.Node, source []byte) string
 	}
 
 	return strings.TrimSpace(strings.Join(docLines, "\n"))
+}
+
+func (t *TypeScriptParser) inferArrowFunctionName(node *sitter.Node, source []byte, callExpr *sitter.Node) string {
+	if callExpr != nil {
+		callee := callExpr.ChildByFieldName("function")
+		if callee != nil {
+			name := strings.TrimSpace(callee.Utf8Text(source))
+			if name != "" {
+				return fmt.Sprintf("%s callback", name)
+			}
+		}
+	}
+	return fmt.Sprintf("arrow@L%d", node.StartPosition().Row+1)
+}
+
+func findEnclosingCallExpression(node *sitter.Node) *sitter.Node {
+	parent := node.Parent()
+	for parent != nil && (parent.Kind() == "parenthesized_expression" || parent.Kind() == "arguments") {
+		parent = parent.Parent()
+	}
+	if parent != nil && parent.Kind() == "call_expression" {
+		return parent
+	}
+	return nil
 }
 
 // extractVisibility extracts visibility modifiers (TypeScript only).

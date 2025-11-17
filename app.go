@@ -27,7 +27,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Initialize project service
-	projectService, err := services.NewProjectService()
+	projectService, err := services.NewProjectService(ctx)
 	if err != nil {
 		log.Fatalf("Failed to initialize project service: %v", err)
 	}
@@ -130,6 +130,16 @@ func (a *App) StartIndexing(projectID string) error {
 	return a.projectService.StartIndexing(projectID)
 }
 
+// ResetProjectIndex removes indexed data for a project without restarting indexing.
+func (a *App) ResetProjectIndex(projectID string) error {
+	return a.projectService.ResetProjectIndex(projectID)
+}
+
+// ReindexProject clears prior index data and starts a fresh indexing run.
+func (a *App) ReindexProject(projectID string) error {
+	return a.projectService.ReindexProject(projectID)
+}
+
 // StopIndexing halts the indexing process for a given project.
 func (a *App) StopIndexing(projectID string) error {
 	return a.projectService.StopIndexing(projectID)
@@ -167,6 +177,11 @@ func (a *App) GetOutlineTimestamps(projectID string) (map[string]int64, error) {
 	return a.projectService.GetOutlineTimestamps(projectID)
 }
 
+// GetFileChunks retrieves all semantic chunks for a given file from the database.
+func (a *App) GetFileChunks(projectID, filePath string) ([]*models.Chunk, error) {
+	return a.projectService.GetFileChunks(projectID, filePath)
+}
+
 // GetGitignorePatterns returns the glob patterns derived from a project's .gitignore file.
 func (a *App) GetGitignorePatterns(projectID string) ([]string, error) {
 	return a.projectService.GetGitIgnorePatterns(projectID)
@@ -175,4 +190,16 @@ func (a *App) GetGitignorePatterns(projectID string) ([]string, error) {
 // ReadFileContent reads the content of a file within a project.
 func (a *App) ReadFileContent(projectID, relativePath string) (string, error) {
 	return a.projectService.ReadFileContent(projectID, relativePath)
+}
+
+// GetProjectStats returns statistics for a specific project.
+// Exposed to frontend as: window.go.main.App.GetProjectStats
+func (a *App) GetProjectStats(projectID string) (*models.ProjectStats, error) {
+	return a.projectService.GetProjectStats(projectID)
+}
+
+// GetAllProjectsStats returns cumulative statistics across all projects.
+// Exposed to frontend as: window.go.main.App.GetAllProjectsStats
+func (a *App) GetAllProjectsStats() (*models.ProjectStats, error) {
+	return a.projectService.GetAllProjectsStats()
 }

@@ -86,15 +86,16 @@ const getKindIcon = (kind: string): string => {
   <div class="tree-node">
     <div
       :class="['node-header', { selected: isSelected }]"
-      :style="{ paddingLeft: (level * 1.5) + 'rem' }"
       @click="handleClick"
     >
-      <span v-if="hasChildren" class="node-toggle" @click="handleToggle">
-        {{ expanded ? '▼' : '▶' }}
-      </span>
-      <span v-else class="node-toggle-placeholder"></span>
-      <span class="node-icon">{{ getKindIcon(node.kind) }}</span>
-      <span class="node-name">{{ node.name }}</span>
+      <div class="node-main" :style="{ paddingLeft: (level * 1.5) + 'rem' }">
+        <span v-if="hasChildren" class="node-toggle" @click="handleToggle">
+          {{ expanded ? '▼' : '▶' }}
+        </span>
+        <span v-else class="node-toggle-placeholder"></span>
+        <span class="node-icon">{{ getKindIcon(node.kind) }}</span>
+        <span class="node-name">{{ node.name }}</span>
+      </div>
       <div class="node-meta">
         <span class="node-kind">{{ node.kind }}</span>
         <span class="node-lines">L{{ node.startLine }}-{{ node.endLine }}</span>
@@ -125,12 +126,13 @@ const getKindIcon = (kind: string): string => {
 .node-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.2s ease;
-  min-width: fit-content;
+  width: 100%;
+  min-width: 0;
 }
 
 .node-header:hover {
@@ -160,14 +162,22 @@ const getKindIcon = (kind: string): string => {
   flex-shrink: 0;
 }
 
+.node-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
 .node-name {
   color: #d4d4d4;
   font-weight: 500;
   text-align: left;
   white-space: nowrap;
-  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
   min-width: 0;
 }
 
@@ -176,21 +186,27 @@ const getKindIcon = (kind: string): string => {
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
-}
-
-.node-kind {
-  padding: 0.125rem 0.5rem;
-  background: #007acc;
-  border-radius: 3px;
-  color: white;
-  font-size: 0.75rem;
   white-space: nowrap;
 }
 
+.node-kind {
+  padding: 0.125rem 0.6rem;
+  background: #0f66d0;
+  border-radius: 999px;
+  color: #f4f7fb;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
 .node-lines {
-  color: #858585;
-  font-size: 0.85rem;
+  color: #dcdcdc;
+  font-size: 0.75rem;
   font-family: 'Courier New', monospace;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   white-space: nowrap;
 }
 </style>

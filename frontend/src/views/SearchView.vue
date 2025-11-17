@@ -176,14 +176,14 @@ const getSimilarityColor = (similarity?: number): string => {
             @click="selectChunk(chunk)"
           >
             <div class="result-header">
-              <span class="result-name">{{ chunk.name }}</span>
+              <span class="result-name">{{ chunk.symbolName || 'unnamed' }}</span>
               <span :class="['result-similarity', getSimilarityColor(chunk.similarity)]">
                 {{ formatSimilarity(chunk.similarity) }}
               </span>
             </div>
             <div class="result-meta">
-              <span class="result-kind">{{ chunk.kind }}</span>
-              <span class="result-location">{{ chunk.filePath }}:{{ chunk.startLine }}</span>
+              <span class="result-kind">{{ chunk.symbolKind }}</span>
+              <span class="result-location">{{ chunk.filePath }}:{{ chunk.lineStart }}</span>
             </div>
           </div>
         </div>
@@ -191,12 +191,12 @@ const getSimilarityColor = (similarity?: number): string => {
         <!-- Selected chunk detail -->
         <div v-if="selectedChunk" class="chunk-detail">
           <div class="detail-header">
-            <h4>{{ selectedChunk.name }}</h4>
+            <h4>{{ selectedChunk.symbolName || 'unnamed' }}</h4>
             <button @click="selectedChunk = null" class="btn-close">×</button>
           </div>
           <div class="detail-meta">
-            <span>{{ selectedChunk.kind }}</span>
-            <span>Lines {{ selectedChunk.startLine }}-{{ selectedChunk.endLine }}</span>
+            <span>{{ selectedChunk.symbolKind }}</span>
+            <span>Lines {{ selectedChunk.lineStart }}-{{ selectedChunk.lineEnd }}</span>
           </div>
           <div class="detail-path">{{ selectedChunk.filePath }}</div>
           <pre class="detail-code"><code>{{ selectedChunk.content }}</code></pre>

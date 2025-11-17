@@ -25,13 +25,18 @@ type MockProjectServiceAPI struct {
 	ClearSelectedProjectFunc func() error
 	SetProjectIndexingFunc   func(projectID string, enabled bool) error
 	GetFilePreviewsFunc      func(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetFileChunksFunc        func(projectID, path string) ([]*models.Chunk, error)
 	GetFileOutlineFunc       func(projectID, path string) ([]*models.OutlineNode, error)
 	GetOutlineTimestampsFunc func(projectID string) (map[string]int64, error)
 	ReadFileContentFunc      func(projectID, relativePath string) (string, error)
 	StartIndexingFunc        func(projectID string) error
+	ResetProjectIndexFunc    func(projectID string) error
+	ReindexProjectFunc       func(projectID string) error
 	StopIndexingFunc         func(projectID string) error
 	GetIndexingProgressFunc  func(projectID string) (models.IndexingProgress, error)
 	GetGitIgnorePatternsFunc func(projectID string) ([]string, error)
+	GetProjectStatsFunc      func(projectID string) (*models.ProjectStats, error)
+	GetAllProjectsStatsFunc  func() (*models.ProjectStats, error)
 	CloseFunc                func() error
 }
 
@@ -107,6 +112,12 @@ func (m *MockProjectServiceAPI) GetFilePreviews(projectID string, config models.
 	}
 	return nil, nil
 }
+func (m *MockProjectServiceAPI) GetFileChunks(projectID, path string) ([]*models.Chunk, error) {
+	if m.GetFileChunksFunc != nil {
+		return m.GetFileChunksFunc(projectID, path)
+	}
+	return nil, nil
+}
 
 func (m *MockProjectServiceAPI) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
 	if m.GetFileOutlineFunc != nil {
@@ -132,6 +143,18 @@ func (m *MockProjectServiceAPI) StartIndexing(projectID string) error {
 	}
 	return nil
 }
+func (m *MockProjectServiceAPI) ResetProjectIndex(projectID string) error {
+	if m.ResetProjectIndexFunc != nil {
+		return m.ResetProjectIndexFunc(projectID)
+	}
+	return nil
+}
+func (m *MockProjectServiceAPI) ReindexProject(projectID string) error {
+	if m.ReindexProjectFunc != nil {
+		return m.ReindexProjectFunc(projectID)
+	}
+	return nil
+}
 func (m *MockProjectServiceAPI) StopIndexing(projectID string) error {
 	if m.StopIndexingFunc != nil {
 		return m.StopIndexingFunc(projectID)
@@ -149,6 +172,18 @@ func (m *MockProjectServiceAPI) GetGitIgnorePatterns(projectID string) ([]string
 		return m.GetGitIgnorePatternsFunc(projectID)
 	}
 	return []string{}, nil
+}
+func (m *MockProjectServiceAPI) GetProjectStats(projectID string) (*models.ProjectStats, error) {
+	if m.GetProjectStatsFunc != nil {
+		return m.GetProjectStatsFunc(projectID)
+	}
+	return &models.ProjectStats{}, nil
+}
+func (m *MockProjectServiceAPI) GetAllProjectsStats() (*models.ProjectStats, error) {
+	if m.GetAllProjectsStatsFunc != nil {
+		return m.GetAllProjectsStatsFunc()
+	}
+	return &models.ProjectStats{}, nil
 }
 func (m *MockProjectServiceAPI) Close() error {
 	if m.CloseFunc != nil {

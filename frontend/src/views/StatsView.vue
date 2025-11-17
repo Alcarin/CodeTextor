@@ -6,13 +6,18 @@
 -->
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
-import { mockBackend } from '../services/mockBackend';
+import { backend } from '../api/backend';
 import type { ProjectStats } from '../types';
 
 // Get current project
 const { currentProject } = useCurrentProject();
+
+type LegacyStats = ProjectStats & {
+  indexSize?: number;
+  lastIndexed?: Date | number | string;
+};
 
 // State
 const stats = ref<ProjectStats | null>(null);
@@ -30,7 +35,7 @@ const loadStats = async () => {
   isLoading.value = true;
 
   try {
-    const result = await mockBackend.getProjectStats();
+    const result = await backend.getProjectStats(currentProject.value.id);
     stats.value = result;
   } catch (error) {
     console.error('Failed to load stats:', error);
@@ -45,14 +50,16 @@ const loadStats = async () => {
  * @param bytes - Size in bytes
  * @returns Formatted string (e.g., "2.4 MB")
  */
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes';
+const formatBytes = (bytes: number = 0): string => {
+  const normalized = Math.max(bytes, 0);
+  if (normalized === 0) return '0 Bytes';
 
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(normalized) / Math.log(k)));
+  const value = normalized / Math.pow(k, i);
 
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  return `${Math.round(value * 100) / 100} ${sizes[i]}`;
 };
 
 /**
@@ -60,10 +67,27 @@ const formatBytes = (bytes: number): string => {
  * @param date - Date object or undefined
  * @returns Formatted date string
  */
-const formatDate = (date?: Date): string => {
+const formatDate = (date?: Date | number | string): string => {
   if (!date) return 'Never';
-  return new Date(date).toLocaleString();
+  const parsed = date instanceof Date ? date : new Date(date);
+  return Number.isNaN(parsed.getTime()) ? 'Invalid date' : parsed.toLocaleString();
 };
+
+const safeDatabaseSize = computed(() => {
+  const current = stats.value as LegacyStats | null;
+  if (!current) return 0;
+  return Math.max(0, current.databaseSize ?? current.indexSize ?? 0);
+});
+
+const formattedDatabaseSize = computed(() => formatBytes(safeDatabaseSize.value));
+
+const lastIndexedRaw = computed(() => {
+  const current = stats.value as LegacyStats | null;
+  if (!current) return undefined;
+  return current.lastIndexedAt ?? current.lastIndexed;
+});
+
+const formattedLastIndexed = computed(() => formatDate(lastIndexedRaw.value));
 
 // Watch for current project changes
 watch(currentProject, () => {
@@ -93,21 +117,6 @@ onMounted(() => {
 
     <!-- Stats display -->
     <div v-else-if="stats" class="stats-container">
-      <!-- Database info banner -->
-      <div class="database-info section">
-        <div class="info-banner">
-          <span class="info-icon">💾</span>
-          <div class="info-content">
-            <strong>Database Location:</strong>
-            <code>indexes/{{ currentProject.id }}.db</code>
-            <br>
-            <span class="info-detail">
-              This project's data is stored in an isolated SQLite-vec database, ensuring complete separation from other projects.
-            </span>
-          </div>
-        </div>
-      </div>
-
       <!-- Summary cards -->
       <div class="stats-grid">
         <div class="stat-card">
@@ -138,7 +147,7 @@ onMounted(() => {
           <div class="stat-icon">💾</div>
           <div class="stat-content">
             <div class="stat-label">Index Size</div>
-            <div class="stat-value">{{ formatBytes(stats.databaseSize) }}</div>
+            <div class="stat-value">{{ formattedDatabaseSize }}</div>
           </div>
         </div>
       </div>
@@ -149,7 +158,7 @@ onMounted(() => {
         <div class="info-grid">
           <div class="info-item">
             <span class="info-label">Last Indexed:</span>
-            <span class="info-value">{{ formatDate(stats.lastIndexedAt) }}</span>
+            <span class="info-value">{{ formattedLastIndexed }}</span>
           </div>
           <div class="info-item">
             <span class="info-label">Average Chunks per File:</span>
@@ -318,54 +327,5 @@ onMounted(() => {
   text-align: center;
   padding: 3rem;
   color: #858585;
-}
-
-/* Database info banner */
-.database-info {
-  margin-bottom: 1.5rem;
-}
-
-.info-banner {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: #1a3a5a;
-  border: 1px solid #007acc;
-  border-radius: 4px;
-  align-items: flex-start;
-}
-
-.info-icon {
-  font-size: 1.2rem;
-  flex-shrink: 0;
-}
-
-.info-content {
-  flex: 1;
-  color: #7fc7ff;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.info-content strong {
-  color: #a8d8ff;
-  margin-right: 0.5rem;
-}
-
-.info-content code {
-  background: #0d2438;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  color: #4ec9b0;
-  font-family: 'Courier New', monospace;
-  font-size: 0.9em;
-  border: 1px solid #1a4a6e;
-}
-
-.info-detail {
-  display: inline-block;
-  margin-top: 0.5rem;
-  color: #9ec7e0;
-  font-size: 0.85rem;
 }
 </style>

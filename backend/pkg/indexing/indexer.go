@@ -32,14 +32,26 @@ type Indexer struct {
 	embeddingClient embedding.EmbeddingClient
 	vectorStore     *store.VectorStore
 	parser          *chunker.Parser
+	semanticChunker *chunker.SemanticChunker
 	// Debounce map: tracks pending file updates
 	debounceMu     sync.Mutex
 	debounceTimers map[string]*time.Timer
+	eventEmitter   func(string, interface{})
 }
 
 // NewIndexer creates a new indexer for a project.
-func NewIndexer(project *models.Project, vectorStore *store.VectorStore) *Indexer {
+func NewIndexer(project *models.Project, vectorStore *store.VectorStore, eventEmitter func(string, interface{})) *Indexer {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create chunk config from project settings
+	chunkConfig := chunker.ChunkConfig{
+		MaxChunkSize:      project.Config.ChunkSizeMax,
+		MinChunkSize:      project.Config.ChunkSizeMin,
+		CollapseThreshold: 500, // Default threshold for collapsing
+		MergeSmallChunks:  true,
+		IncludeComments:   true,
+	}
+
 	return &Indexer{
 		project:         project,
 		progress:        &models.IndexingProgress{Status: models.IndexingStatusIdle},
@@ -49,8 +61,10 @@ func NewIndexer(project *models.Project, vectorStore *store.VectorStore) *Indexe
 		semaphore:       make(chan struct{}, 10),                // Limit to 10 concurrent operations
 		embeddingClient: embedding.NewMockEmbeddingClient(1536), // Using a common dimension size
 		vectorStore:     vectorStore,
-		parser:          chunker.NewParser(chunker.DefaultChunkConfig()),
+		parser:          chunker.NewParser(chunkConfig),
+		semanticChunker: chunker.NewSemanticChunker(chunkConfig),
 		debounceTimers:  make(map[string]*time.Timer),
+		eventEmitter:    eventEmitter,
 	}
 }
 
@@ -85,18 +99,103 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 			i.progress.CurrentFile = file.RelativePath
 
-			// Chunk the file
-			chunks, err := utils.ChunkFile(file.AbsolutePath, i.project.Config.ChunkSizeMax)
+			// Read file content
+			source, err := os.ReadFile(file.AbsolutePath)
 			if err != nil {
-				log.Printf("Failed to chunk file %s: %v", file.AbsolutePath, err)
+				log.Printf("Failed to read file %s: %v", file.AbsolutePath, err)
 				i.progress.ProcessedFiles++
 				return
 			}
-			// Generate embeddings for chunks
-			chunkContents := make([]string, len(chunks))
-			for i, chunk := range chunks {
-				chunkContents[i] = chunk.Content
+
+			// Check if file has changed since last indexing
+			fileHash := utils.ComputeHash(source)
+			existingFile, err := i.vectorStore.GetFile(file.RelativePath)
+			if err == nil && existingFile != nil {
+				// File exists in database, check if it changed
+				if existingFile.Hash == fileHash && existingFile.LastModified == file.LastModified {
+					// File hasn't changed, skip re-indexing
+					log.Printf("Skipping unchanged file %s", file.RelativePath)
+					i.progress.ProcessedFiles++
+					return
+				}
 			}
+
+			// File is new or has changed, delete existing chunks and re-index
+			if err := i.vectorStore.DeleteFileChunks(file.RelativePath); err != nil {
+				log.Printf("Failed to delete old chunks for %s: %v", file.RelativePath, err)
+			}
+
+			// Check if file is supported for semantic chunking
+			var chunkContents []string
+			var dbChunks []*models.Chunk
+
+			if i.semanticChunker.IsSupported(file.RelativePath) {
+				// Use semantic chunking for supported files
+				semanticChunks, err := i.semanticChunker.ChunkFile(file.RelativePath, source)
+				if err != nil {
+					log.Printf("Failed to semantically chunk file %s: %v", file.AbsolutePath, err)
+					i.progress.ProcessedFiles++
+					return
+				}
+
+				// Extract enriched content for embedding and prepare DB chunks
+				chunkContents = make([]string, len(semanticChunks))
+				dbChunks = make([]*models.Chunk, len(semanticChunks))
+
+				for idx, chunk := range semanticChunks {
+					chunkContents[idx] = chunk.Content // Use enriched content for embedding
+
+					// Prepare chunk for database storage
+					dbChunks[idx] = &models.Chunk{
+						FilePath:    file.RelativePath,
+						Content:     chunk.Content,
+						LineStart:   int(chunk.StartLine),
+						LineEnd:     int(chunk.EndLine),
+						CharStart:   int(chunk.StartByte),
+						CharEnd:     int(chunk.EndByte),
+						Language:    chunk.Language,
+						SymbolName:  chunk.SymbolName,
+						SymbolKind:  string(chunk.SymbolKind),
+						Parent:      chunk.Parent,
+						Signature:   chunk.Signature,
+						Visibility:  chunk.Visibility,
+						PackageName: chunk.PackageName,
+						DocString:   chunk.DocString,
+						TokenCount:  chunk.TokenCount,
+						IsCollapsed: chunk.IsCollapsed,
+						SourceCode:  chunk.SourceCode,
+					}
+				}
+				log.Printf("Created %d semantic chunks for file %s", len(semanticChunks), file.RelativePath)
+			} else {
+				// Fallback to simple line-based chunking for unsupported files
+				simpleChunks, err := utils.ChunkFile(file.AbsolutePath, i.project.Config.ChunkSizeMax)
+				if err != nil {
+					log.Printf("Failed to chunk file %s: %v", file.AbsolutePath, err)
+					i.progress.ProcessedFiles++
+					return
+				}
+
+				chunkContents = make([]string, len(simpleChunks))
+				dbChunks = make([]*models.Chunk, len(simpleChunks))
+
+				for idx, chunk := range simpleChunks {
+					chunkContents[idx] = chunk.Content
+
+					// Prepare simple chunk for database
+					dbChunks[idx] = &models.Chunk{
+						FilePath:  file.RelativePath,
+						Content:   chunk.Content,
+						LineStart: chunk.LineStart,
+						LineEnd:   chunk.LineEnd,
+						CharStart: chunk.CharacterStart,
+						CharEnd:   chunk.CharacterEnd,
+					}
+				}
+				log.Printf("Created %d simple chunks for file %s (unsupported format)", len(simpleChunks), file.RelativePath)
+			}
+
+			// Generate embeddings for chunks
 			embeddings, err := i.embeddingClient.GenerateEmbeddings(chunkContents)
 			if err != nil {
 				log.Printf("Failed to generate embeddings for file %s: %v", file.AbsolutePath, err)
@@ -105,9 +204,35 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 			}
 			log.Printf("Generated %d embeddings for file %s", len(embeddings), file.RelativePath)
 
+			// Save chunks to database with embeddings
+			for idx, dbChunk := range dbChunks {
+				if idx < len(embeddings) {
+					dbChunk.Embedding = embeddings[idx]
+				}
+
+				if err := i.vectorStore.InsertChunk(dbChunk); err != nil {
+					log.Printf("Failed to save chunk %d for file %s: %v", idx, file.RelativePath, err)
+				}
+			}
+
+			// Save file metadata
+			fileRecord := &models.File{
+				Path:         file.RelativePath,
+				Hash:         fileHash,
+				LastModified: file.LastModified,
+				ChunkCount:   len(dbChunks),
+			}
+			if err := i.vectorStore.InsertFile(fileRecord); err != nil {
+				log.Printf("Failed to save file metadata for %s: %v", file.RelativePath, err)
+			}
+
+			log.Printf("Saved %d chunks for file %s to database", len(dbChunks), file.RelativePath)
+
 			if i.project.Config.ContinuousIndexing {
 				i.storeOutlineForFile(file.AbsolutePath)
 			}
+
+			i.emitFileUpdate(file.RelativePath)
 
 			// Simulate processing time
 			time.Sleep(5 * time.Millisecond)
@@ -299,10 +424,10 @@ func (i *Indexer) Stop() {
 	i.cancel()
 }
 
-// debounceFileUpdate schedules a file outline update with debouncing.
+// debounceFileUpdate schedules a file index update (chunks + outline) with debouncing.
 // Multiple rapid changes to the same file will be coalesced into a single update.
 func (i *Indexer) debounceFileUpdate(filePath string) {
-	const debounceDelay = 10 * time.Second
+	const debounceDelay = 2 * time.Second
 
 	i.debounceMu.Lock()
 	defer i.debounceMu.Unlock()
@@ -312,16 +437,171 @@ func (i *Indexer) debounceFileUpdate(filePath string) {
 		timer.Stop()
 	}
 
-	// Create new timer that will trigger outline update
+	// Create new timer that will trigger full index update
 	i.debounceTimers[filePath] = time.AfterFunc(debounceDelay, func() {
-		log.Printf("Processing outline update for %s (after debounce)", filePath)
-		i.storeOutlineForFile(filePath)
+		log.Printf("Processing index update for %s (after debounce)", filePath)
+		i.updateFileIndex(filePath)
 
 		// Clean up the timer
 		i.debounceMu.Lock()
 		delete(i.debounceTimers, filePath)
 		i.debounceMu.Unlock()
 	})
+}
+
+// updateFileIndex re-indexes a single file (chunks + outline) when it changes.
+// This is called by the file watcher when a file is modified.
+func (i *Indexer) updateFileIndex(filePath string) {
+	if i.vectorStore == nil || i.parser == nil || i.semanticChunker == nil {
+		return
+	}
+	if filePath == "" {
+		return
+	}
+
+	absPath := filepath.Clean(filePath)
+	if !filepath.IsAbs(absPath) {
+		if resolved, err := filepath.Abs(absPath); err == nil {
+			absPath = resolved
+		}
+	}
+
+	// Get relative path for storage
+	relativePath := filepath.ToSlash(absPath)
+	if rel, ok := utils.RelativePathWithinRoot(i.project.Config.RootPath, absPath); ok && rel != "" {
+		relativePath = rel
+	}
+
+	// Read file content
+	source, err := os.ReadFile(absPath)
+	if err != nil {
+		log.Printf("Failed to read file for re-indexing %s: %v", absPath, err)
+		return
+	}
+
+	// Get file info for last modified timestamp
+	fileInfo, err := os.Stat(absPath)
+	if err != nil {
+		log.Printf("Failed to stat file %s: %v", absPath, err)
+		return
+	}
+
+	// Check if file has changed
+	fileHash := utils.ComputeHash(source)
+	existingFile, err := i.vectorStore.GetFile(relativePath)
+	if err == nil && existingFile != nil {
+		if existingFile.Hash == fileHash && existingFile.LastModified == fileInfo.ModTime().Unix() {
+			log.Printf("Skipping unchanged file %s", relativePath)
+			return
+		}
+	}
+
+	log.Printf("Re-indexing changed file: %s", relativePath)
+
+	// Delete existing chunks
+	if err := i.vectorStore.DeleteFileChunks(relativePath); err != nil {
+		log.Printf("Failed to delete old chunks for %s: %v", relativePath, err)
+	}
+
+	// Check if file is supported for semantic chunking
+	var chunkContents []string
+	var dbChunks []*models.Chunk
+
+	if i.semanticChunker.IsSupported(relativePath) {
+		// Use semantic chunking for supported files
+		semanticChunks, err := i.semanticChunker.ChunkFile(relativePath, source)
+		if err != nil {
+			log.Printf("Failed to semantically chunk file %s: %v", absPath, err)
+			return
+		}
+
+		// Extract enriched content for embedding and prepare DB chunks
+		chunkContents = make([]string, len(semanticChunks))
+		dbChunks = make([]*models.Chunk, len(semanticChunks))
+
+		for idx, chunk := range semanticChunks {
+			chunkContents[idx] = chunk.Content
+
+			dbChunks[idx] = &models.Chunk{
+				FilePath:    relativePath,
+				Content:     chunk.Content,
+				LineStart:   int(chunk.StartLine),
+				LineEnd:     int(chunk.EndLine),
+				CharStart:   int(chunk.StartByte),
+				CharEnd:     int(chunk.EndByte),
+				Language:    chunk.Language,
+				SymbolName:  chunk.SymbolName,
+				SymbolKind:  string(chunk.SymbolKind),
+				Parent:      chunk.Parent,
+				Signature:   chunk.Signature,
+				Visibility:  chunk.Visibility,
+				PackageName: chunk.PackageName,
+				DocString:   chunk.DocString,
+				TokenCount:  chunk.TokenCount,
+				IsCollapsed: chunk.IsCollapsed,
+				SourceCode:  chunk.SourceCode,
+			}
+		}
+		log.Printf("Created %d semantic chunks for file %s", len(semanticChunks), relativePath)
+	} else {
+		// Fallback to simple line-based chunking
+		simpleChunks, err := utils.ChunkFile(absPath, i.project.Config.ChunkSizeMax)
+		if err != nil {
+			log.Printf("Failed to chunk file %s: %v", absPath, err)
+			return
+		}
+
+		chunkContents = make([]string, len(simpleChunks))
+		dbChunks = make([]*models.Chunk, len(simpleChunks))
+
+		for idx, chunk := range simpleChunks {
+			chunkContents[idx] = chunk.Content
+
+			dbChunks[idx] = &models.Chunk{
+				FilePath:  relativePath,
+				Content:   chunk.Content,
+				LineStart: chunk.LineStart,
+				LineEnd:   chunk.LineEnd,
+				CharStart: chunk.CharacterStart,
+				CharEnd:   chunk.CharacterEnd,
+			}
+		}
+		log.Printf("Created %d simple chunks for file %s", len(simpleChunks), relativePath)
+	}
+
+	// Generate embeddings for chunks
+	embeddings, err := i.embeddingClient.GenerateEmbeddings(chunkContents)
+	if err != nil {
+		log.Printf("Failed to generate embeddings for file %s: %v", absPath, err)
+		return
+	}
+
+	// Save chunks to database with embeddings
+	for idx, dbChunk := range dbChunks {
+		if idx < len(embeddings) {
+			dbChunk.Embedding = embeddings[idx]
+		}
+
+		if err := i.vectorStore.InsertChunk(dbChunk); err != nil {
+			log.Printf("Failed to save chunk %d for file %s: %v", idx, relativePath, err)
+		}
+	}
+
+	// Save file metadata
+	fileRecord := &models.File{
+		Path:         relativePath,
+		Hash:         fileHash,
+		LastModified: fileInfo.ModTime().Unix(),
+		ChunkCount:   len(dbChunks),
+	}
+	if err := i.vectorStore.InsertFile(fileRecord); err != nil {
+		log.Printf("Failed to save file metadata for %s: %v", relativePath, err)
+	}
+
+	log.Printf("Updated %d chunks for file %s", len(dbChunks), relativePath)
+
+	// Also update the outline
+	i.storeOutlineForFile(absPath)
 }
 
 func (i *Indexer) storeOutlineForFile(filePath string) {
@@ -360,19 +640,59 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 		relativePath = rel
 	}
 
+	// Save outline nodes
 	nodes := outline.BuildOutlineNodes(relativePath, result.Symbols)
-	if len(nodes) == 0 {
-		return
-	}
+	if len(nodes) > 0 {
+		if err := i.vectorStore.UpsertFileOutline(relativePath, nodes); err != nil {
+			log.Printf("Failed to persist outline for %s: %v", absPath, err)
+		}
 
-	if err := i.vectorStore.UpsertFileOutline(relativePath, nodes); err != nil {
-		log.Printf("Failed to persist outline for %s: %v", absPath, err)
-	}
-
-	absKey := filepath.ToSlash(absPath)
-	if absKey != relativePath {
-		if err := i.vectorStore.DeleteFileOutline(absKey); err != nil {
-			log.Printf("Failed to remove legacy outline key %s: %v", absKey, err)
+		absKey := filepath.ToSlash(absPath)
+		if absKey != relativePath {
+			if err := i.vectorStore.DeleteFileOutline(absKey); err != nil {
+				log.Printf("Failed to remove legacy outline key %s: %v", absKey, err)
+			}
 		}
 	}
+
+	// Save individual symbols to symbols table
+	if len(result.Symbols) > 0 {
+		// Delete old symbols for this file
+		if err := i.vectorStore.DeleteFileSymbols(relativePath); err != nil {
+			log.Printf("Failed to delete old symbols for %s: %v", relativePath, err)
+		}
+
+		// Insert new symbols
+		for _, parsedSymbol := range result.Symbols {
+			symbol := &models.Symbol{
+				FilePath:  relativePath,
+				Name:      parsedSymbol.Name,
+				Kind:      string(parsedSymbol.Kind),
+				Line:      int(parsedSymbol.StartLine),
+				Character: 0, // We don't have character position from parser
+			}
+			if err := i.vectorStore.InsertSymbol(symbol); err != nil {
+				log.Printf("Failed to insert symbol %s for file %s: %v", parsedSymbol.Name, relativePath, err)
+			}
+		}
+		log.Printf("Saved %d symbols for file %s", len(result.Symbols), relativePath)
+	}
+
+	if err := i.vectorStore.RebuildChunkSymbolLinks(relativePath); err != nil {
+		log.Printf("Failed to rebuild chunk-symbol links for %s: %v", relativePath, err)
+	}
+
+	i.emitFileUpdate(relativePath)
+}
+
+func (i *Indexer) emitFileUpdate(filePath string) {
+	if i.eventEmitter == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"projectId": i.project.ID,
+		"filePath":  filePath,
+		"timestamp": time.Now().Unix(),
+	}
+	i.eventEmitter("project:fileIndexed", payload)
 }

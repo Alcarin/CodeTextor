@@ -17,6 +17,7 @@ const progress = ref<IndexingProgress>({
   status: 'idle'
 });
 const indexingEnabled = ref(false);
+const manualReindexing = ref(false);
 
 let progressTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -241,6 +242,26 @@ const triggerIndexingRun = async () => {
   }
 };
 
+const reindexNow = async () => {
+  if (!currentProject.value) {
+    alert('Please select a project first');
+    return;
+  }
+  if (isIndexing.value) {
+    alert('Indexing is already running. Please wait for it to finish.');
+    return;
+  }
+  manualReindexing.value = true;
+  try {
+    await backend.reindexProject(currentProject.value.id);
+    beginProgressPolling();
+  } catch (error) {
+    console.error('Failed to re-index project:', error);
+    alert('Failed to re-index project: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    manualReindexing.value = false;
+  }
+};
+
 const safeStopIndexing = async () => {
   if (!currentProject.value) {
     return;
@@ -267,6 +288,10 @@ progress.value = latest;
       indexingEnabled.value = false;
       stopProgressPolling();
       return;
+    }
+
+    if (manualReindexing.value && latest.status !== 'indexing') {
+      manualReindexing.value = false;
     }
 
     if (latest.status === 'completed' && indexingEnabled.value) {
@@ -614,18 +639,28 @@ watch(availableExtensions, extensions => {
             <h3>{{ currentProject.name }}</h3>
             <p class="status-line">Status: {{ progress.status.toUpperCase() }}</p>
           </div>
-          <label class="indexing-toggle" :class="{ active: indexingEnabled }">
-            <input
-              type="checkbox"
-              :checked="indexingEnabled"
-              @click="indexingEnabled ? disableContinuousIndexing() : enableContinuousIndexing()"
-              aria-label="Toggle continuous indexing"
-            />
-            <span class="toggle-track">
-              <span class="toggle-thumb"></span>
-            </span>
-            <span class="toggle-text">{{ indexingToggleLabel }}</span>
-          </label>
+          <div class="global-progress-actions">
+            <label class="indexing-toggle" :class="{ active: indexingEnabled }">
+              <input
+                type="checkbox"
+                :checked="indexingEnabled"
+                @click="indexingEnabled ? disableContinuousIndexing() : enableContinuousIndexing()"
+                aria-label="Toggle continuous indexing"
+              />
+              <span class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </span>
+              <span class="toggle-text">{{ indexingToggleLabel }}</span>
+            </label>
+            <button
+              type="button"
+              class="btn btn-secondary reindex-button"
+              @click="reindexNow"
+              :disabled="manualReindexing || !hasCurrentProject || isIndexing"
+            >
+              {{ manualReindexing ? 'Re-indexing…' : 'Re-index now' }}
+            </button>
+          </div>
         </div>
         <div class="progress-bar global">
           <div
@@ -807,6 +842,16 @@ watch(availableExtensions, extensions => {
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.global-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.reindex-button {
+  white-space: nowrap;
 }
 
 .global-progress-summary .label {

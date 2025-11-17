@@ -1,11 +1,66 @@
 export namespace models {
 	
+	export class Chunk {
+	    id: string;
+	    projectId: string;
+	    filePath: string;
+	    content: string;
+	    embedding: number[];
+	    lineStart: number;
+	    lineEnd: number;
+	    charStart: number;
+	    charEnd: number;
+	    createdAt: number;
+	    updatedAt: number;
+	    language?: string;
+	    symbolName?: string;
+	    symbolKind?: string;
+	    parent?: string;
+	    signature?: string;
+	    visibility?: string;
+	    packageName?: string;
+	    docString?: string;
+	    tokenCount?: number;
+	    isCollapsed?: boolean;
+	    sourceCode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Chunk(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.filePath = source["filePath"];
+	        this.content = source["content"];
+	        this.embedding = source["embedding"];
+	        this.lineStart = source["lineStart"];
+	        this.lineEnd = source["lineEnd"];
+	        this.charStart = source["charStart"];
+	        this.charEnd = source["charEnd"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.language = source["language"];
+	        this.symbolName = source["symbolName"];
+	        this.symbolKind = source["symbolKind"];
+	        this.parent = source["parent"];
+	        this.signature = source["signature"];
+	        this.visibility = source["visibility"];
+	        this.packageName = source["packageName"];
+	        this.docString = source["docString"];
+	        this.tokenCount = source["tokenCount"];
+	        this.isCollapsed = source["isCollapsed"];
+	        this.sourceCode = source["sourceCode"];
+	    }
+	}
 	export class FilePreview {
 	    absolutePath: string;
 	    relativePath: string;
 	    extension: string;
 	    size: string;
 	    hidden: boolean;
+	    lastModified: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new FilePreview(source);
@@ -18,6 +73,7 @@ export namespace models {
 	        this.extension = source["extension"];
 	        this.size = source["size"];
 	        this.hidden = source["hidden"];
+	        this.lastModified = source["lastModified"];
 	    }
 	}
 	export class IndexingProgress {

@@ -54,13 +54,25 @@ func (g *GoParser) walkNode(node *sitter.Node, source []byte, parentName string,
 
 	switch nodeType {
 	case "function_declaration":
-		symbols = append(symbols, g.extractFunction(node, source, parentName))
+		fnSymbol := g.extractFunction(node, source, parentName)
+		symbols = append(symbols, fnSymbol)
+		for i := uint(0); i < node.ChildCount(); i++ {
+			child := node.Child(i)
+			symbols = g.walkNode(child, source, fnSymbol.Name, symbols)
+		}
+		return symbols
 	case "method_declaration":
-		symbols = append(symbols, g.extractMethod(node, source))
+		methodSymbol := g.extractMethod(node, source)
+		symbols = append(symbols, methodSymbol)
+		for i := uint(0); i < node.ChildCount(); i++ {
+			child := node.Child(i)
+			symbols = g.walkNode(child, source, methodSymbol.Name, symbols)
+		}
+		return symbols
 	case "type_declaration":
 		symbols = append(symbols, g.extractTypeDeclaration(node, source)...)
 	case "const_declaration", "var_declaration":
-		symbols = append(symbols, g.extractVariableDeclaration(node, source, nodeType)...)
+		symbols = append(symbols, g.extractVariableDeclaration(node, source, nodeType, parentName)...)
 	}
 
 	// Recursively process child nodes
@@ -188,7 +200,7 @@ func (g *GoParser) extractTypeSpec(node *sitter.Node, source []byte) Symbol {
 
 // extractVariableDeclaration extracts constant or variable declarations.
 // Example: const MaxSize = 100 or var count int
-func (g *GoParser) extractVariableDeclaration(node *sitter.Node, source []byte, nodeType string) []Symbol {
+func (g *GoParser) extractVariableDeclaration(node *sitter.Node, source []byte, nodeType string, parentName string) []Symbol {
 	var symbols []Symbol
 
 	kind := SymbolVariable
@@ -211,6 +223,7 @@ func (g *GoParser) extractVariableDeclaration(node *sitter.Node, source []byte, 
 					StartByte:  uint32(child.StartByte()),
 					EndByte:    uint32(child.EndByte()),
 					Source:     child.Utf8Text(source),
+					Parent:     parentName,
 					Visibility: g.determineVisibility(nameStr),
 				})
 			}

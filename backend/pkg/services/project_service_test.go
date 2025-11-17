@@ -11,7 +11,7 @@ func setupTestService(t *testing.T) (*ProjectService, func()) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 
-	service, err := NewProjectService()
+    service, err := NewProjectService(nil)
 	if err != nil {
 		t.Fatalf("failed to create project service: %v", err)
 	}

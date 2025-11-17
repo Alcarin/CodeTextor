@@ -6,6 +6,7 @@ import (
 	"CodeTextor/backend/pkg/models"
 	"CodeTextor/backend/pkg/utils"
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const selectedProjectKey = "selected_project"
@@ -36,12 +38,17 @@ type ProjectServiceAPI interface {
 	SetProjectIndexing(projectID string, enabled bool) error
 	GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
 	GetFileOutline(projectID, path string) ([]*models.OutlineNode, error)
+	GetFileChunks(projectID, path string) ([]*models.Chunk, error)
 	GetOutlineTimestamps(projectID string) (map[string]int64, error)
 	ReadFileContent(projectID, relativePath string) (string, error)
 	StartIndexing(projectID string) error
+	ResetProjectIndex(projectID string) error
+	ReindexProject(projectID string) error
 	StopIndexing(projectID string) error
 	GetIndexingProgress(projectID string) (models.IndexingProgress, error)
 	GetGitIgnorePatterns(projectID string) ([]string, error)
+	GetProjectStats(projectID string) (*models.ProjectStats, error)
+	GetAllProjectsStats() (*models.ProjectStats, error)
 	Close() error
 }
 
@@ -52,6 +59,7 @@ type ProjectService struct {
 	indexerManager *indexing.Manager
 	vectorStores   map[string]*store.VectorStore
 	mu             sync.Mutex
+	eventEmitter   func(string, interface{})
 }
 
 // CreateProjectRequest contains data required to create a new project.
@@ -71,7 +79,7 @@ type UpdateProjectRequest struct {
 }
 
 // NewProjectService initializes the service.
-func NewProjectService() (*ProjectService, error) {
+func NewProjectService(ctx context.Context) (*ProjectService, error) {
 	indexesDir, err := utils.GetIndexesDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve indexes directory: %w", err)
@@ -82,12 +90,46 @@ func NewProjectService() (*ProjectService, error) {
 		return nil, fmt.Errorf("failed to open config store: %w", err)
 	}
 
-	return &ProjectService{
+	var eventEmitter func(string, interface{})
+	if ctx != nil {
+		eventEmitter = func(event string, data interface{}) {
+			runtime.EventsEmit(ctx, event, data)
+		}
+	}
+
+	service := &ProjectService{
 		indexesDir:     indexesDir,
 		configStore:    configStore,
-		indexerManager: indexing.NewManager(),
+		indexerManager: indexing.NewManager(eventEmitter),
 		vectorStores:   make(map[string]*store.VectorStore),
-	}, nil
+		eventEmitter:   eventEmitter,
+	}
+
+	// Auto-start indexing for projects with ContinuousIndexing enabled
+	if err := service.initializeAutoIndexing(); err != nil {
+		log.Printf("Warning: failed to initialize auto-indexing: %v", err)
+	}
+
+	return service, nil
+}
+
+// initializeAutoIndexing starts indexing for all projects that have ContinuousIndexing enabled.
+func (s *ProjectService) initializeAutoIndexing() error {
+	projects, err := s.ListProjects()
+	if err != nil {
+		return fmt.Errorf("failed to list projects: %w", err)
+	}
+
+	for _, project := range projects {
+		if project.Config.ContinuousIndexing {
+			log.Printf("Auto-starting indexing for project %s (%s)", project.Name, project.ID)
+			if err := s.StartIndexing(project.ID); err != nil {
+				log.Printf("Failed to auto-start indexing for project %s: %v", project.ID, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *ProjectService) projectDBPath(projectID string) string {
@@ -446,6 +488,56 @@ func (s *ProjectService) StartIndexing(projectID string) error {
 	return nil
 }
 
+// ResetProjectIndex removes all indexed data for a project without restarting indexing.
+func (s *ProjectService) ResetProjectIndex(projectID string) error {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return err
+	}
+
+	// Ensure no indexer is running while we wipe data.
+	s.indexerManager.StopIndexer(projectID)
+
+	vectorStore, err := s.GetVectorStore(project.ID)
+	if err != nil {
+		return fmt.Errorf("failed to open vector store for reset: %w", err)
+	}
+
+	if err := vectorStore.ResetProjectData(); err != nil {
+		return fmt.Errorf("failed to reset index for %s: %w", projectID, err)
+	}
+
+	return nil
+}
+
+// ReindexProject clears all indexed data and performs a fresh indexing run.
+func (s *ProjectService) ReindexProject(projectID string) error {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return err
+	}
+
+	// Ensure no indexer is running while we wipe data.
+	s.indexerManager.StopIndexer(projectID)
+
+	vectorStore, err := s.GetVectorStore(project.ID)
+	if err != nil {
+		return fmt.Errorf("failed to open vector store for reindexing: %w", err)
+	}
+
+	if err := vectorStore.ResetProjectData(); err != nil {
+		return fmt.Errorf("failed to reset index for %s: %w", projectID, err)
+	}
+
+	files, err := s.GetFilePreviews(projectID, project.Config)
+	if err != nil {
+		return fmt.Errorf("failed to get file previews for reindexing: %w", err)
+	}
+
+	s.indexerManager.StartIndexer(project, files, vectorStore)
+	return nil
+}
+
 // StopIndexing halts the project indexer.
 func (s *ProjectService) StopIndexing(projectID string) error {
 	s.indexerManager.StopIndexer(projectID)
@@ -611,6 +703,7 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 				Extension:    ext,
 				Size:         utils.FormatBytes(info.Size()),
 				Hidden:       isHidden,
+				LastModified: info.ModTime().Unix(),
 			})
 
 			return nil
@@ -677,6 +770,56 @@ func (s *ProjectService) GetFileOutline(projectID, path string) ([]*models.Outli
 	}
 
 	return outline, nil
+}
+
+// GetFileChunks retrieves all semantic chunks for a given file from the database.
+func (s *ProjectService) GetFileChunks(projectID, path string) ([]*models.Chunk, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedRoot := filepath.Clean(project.Config.RootPath)
+	if normalizedRoot == "" {
+		return nil, fmt.Errorf("project root path is not configured")
+	}
+
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return nil, fmt.Errorf("file path cannot be empty")
+	}
+
+	absPath := trimmed
+	if !filepath.IsAbs(trimmed) {
+		absPath = filepath.Join(normalizedRoot, trimmed)
+	}
+	absPath = filepath.Clean(absPath)
+
+	if !isPathWithinRoot(normalizedRoot, absPath) {
+		return nil, fmt.Errorf("path %s is outside the project root", trimmed)
+	}
+
+	vectorStore, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use relative path as the key (consistent with how we save chunks)
+	key := path
+	if rel, ok := utils.RelativePathWithinRoot(normalizedRoot, absPath); ok && rel != "" {
+		key = rel
+	}
+
+	chunks, err := vectorStore.GetFileChunks(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("no chunks found for %s; file may not have been indexed yet", trimmed)
+	}
+
+	return chunks, nil
 }
 
 // GetOutlineTimestamps retrieves all outline update timestamps for a project.
@@ -795,7 +938,102 @@ func (s *ProjectService) GetGitIgnorePatterns(projectID string) ([]string, error
 	return patterns, nil
 }
 
+// GetProjectStats returns statistics for a specific project.
+func (s *ProjectService) GetProjectStats(projectID string) (*models.ProjectStats, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project: %w", err)
+	}
+
+	vectorStore, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vector store: %w", err)
+	}
+
+	stats, err := vectorStore.GetStats()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stats: %w", err)
+	}
+
+	// Check if the project is currently indexing
+	progress, found := s.indexerManager.GetIndexingProgress(projectID)
+	if found && progress.Status == models.IndexingStatusIndexing {
+		stats.IsIndexing = true
+		if progress.TotalFiles > 0 {
+			stats.IndexingProgress = float64(progress.ProcessedFiles) / float64(progress.TotalFiles)
+		}
+	}
+
+	// Add project information
+	_ = project // Use project if needed for additional context
+
+	return stats, nil
+}
+
 // Close releases vector stores.
+// GetAllProjectsStats returns cumulative statistics across all projects.
+func (s *ProjectService) GetAllProjectsStats() (*models.ProjectStats, error) {
+	projects, err := s.ListProjects()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+
+	cumulativeStats := &models.ProjectStats{
+		TotalFiles:   0,
+		TotalChunks:  0,
+		TotalSymbols: 0,
+		DatabaseSize: 0,
+	}
+
+	var latestIndexTime *time.Time
+
+	for _, project := range projects {
+		vectorStore, err := s.GetVectorStore(project.ID)
+		if err != nil {
+			log.Printf("Warning: failed to get vector store for project %s: %v", project.ID, err)
+			continue
+		}
+
+		stats, err := vectorStore.GetStats()
+		if err != nil {
+			log.Printf("Warning: failed to get stats for project %s: %v", project.ID, err)
+			continue
+		}
+
+		// Accumulate stats
+		cumulativeStats.TotalFiles += stats.TotalFiles
+		cumulativeStats.TotalChunks += stats.TotalChunks
+		cumulativeStats.TotalSymbols += stats.TotalSymbols
+		cumulativeStats.DatabaseSize += stats.DatabaseSize
+
+		// Track the most recent indexing time across all projects
+		if stats.LastIndexedAt != nil {
+			if latestIndexTime == nil || stats.LastIndexedAt.After(*latestIndexTime) {
+				latestIndexTime = stats.LastIndexedAt
+			}
+		}
+	}
+
+	cumulativeStats.LastIndexedAt = latestIndexTime
+
+	// Check if any project is currently indexing
+	for _, project := range projects {
+		progress, found := s.indexerManager.GetIndexingProgress(project.ID)
+		if found && progress.Status == models.IndexingStatusIndexing {
+			cumulativeStats.IsIndexing = true
+			// Calculate overall indexing progress (weighted average across projects)
+			if progress.TotalFiles > 0 {
+				projectProgress := float64(progress.ProcessedFiles) / float64(progress.TotalFiles)
+				// For simplicity, we'll use the progress of the first indexing project
+				cumulativeStats.IndexingProgress = projectProgress
+				break
+			}
+		}
+	}
+
+	return cumulativeStats, nil
+}
+
 func (s *ProjectService) Close() error {
 	var firstErr error
 	s.mu.Lock()

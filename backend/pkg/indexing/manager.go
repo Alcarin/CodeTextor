@@ -11,36 +11,50 @@ type Manager struct {
 	projectIndexers map[string]*Indexer
 	progressMap     sync.Map // Safely stores map[string]*models.IndexingProgress
 	mu              sync.Mutex
+	eventEmitter    func(string, interface{})
 }
 
 // NewManager creates a new IndexerManager.
-func NewManager() *Manager {
+func NewManager(eventEmitter func(string, interface{})) *Manager {
 	return &Manager{
 		projectIndexers: make(map[string]*Indexer),
+		eventEmitter:    eventEmitter,
 	}
 }
 
 // StartIndexer starts a new indexing job for a given project.
-// If an indexer is already running for the project, it will be stopped first.
+// If an indexer is already running for the project, the existing one will be stopped first.
+// This method ensures that only one indexer runs per project at a time.
 func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview, vectorStore *store.VectorStore) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// If an indexer is already running, stop it before starting a new one.
-	if indexer, exists := m.projectIndexers[project.ID]; exists {
-		indexer.Stop()
+	// If an indexer is already running, stop it first
+	if existingIndexer, exists := m.projectIndexers[project.ID]; exists {
+		// Stop the existing indexer (this will cancel its context)
+		existingIndexer.Stop()
+		// Remove it from the map immediately to prevent race conditions
+		delete(m.projectIndexers, project.ID)
+		// Note: The goroutine will still try to delete from map when it finishes,
+		// but that's safe since we're holding the lock and it's already deleted
 	}
 
-	// Create and run a new indexer.
-	newIndexer := NewIndexer(project, vectorStore)
+	// Create and register the new indexer
+	newIndexer := NewIndexer(project, vectorStore, m.eventEmitter)
 	m.projectIndexers[project.ID] = newIndexer
 	m.progressMap.Store(project.ID, newIndexer.progress)
 
+	// Start the indexer in a goroutine
 	go func() {
 		newIndexer.Run(files)
-		// Once the indexer is finished, remove it from the active list.
+
+		// Clean up when done
 		m.mu.Lock()
-		delete(m.projectIndexers, project.ID)
+		// Only delete if this indexer is still the registered one
+		// (it might have been replaced by another StartIndexer call)
+		if currentIndexer, exists := m.projectIndexers[project.ID]; exists && currentIndexer == newIndexer {
+			delete(m.projectIndexers, project.ID)
+		}
 		m.mu.Unlock()
 	}()
 }

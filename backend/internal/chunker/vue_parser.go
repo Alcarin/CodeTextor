@@ -10,6 +10,7 @@ package chunker
 import (
 	"bytes"
 	"regexp"
+	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
@@ -25,12 +26,13 @@ type VueParser struct {
 
 // sectionInfo holds information about a Vue SFC section
 type sectionInfo struct {
-	name       string
-	content    []byte
-	startLine  uint32
-	endLine    uint32
-	startByte  uint32
-	endByte    uint32
+	name         string
+	content      []byte
+	startLine    uint32
+	endLine      uint32
+	startByte    uint32
+	endByte      uint32
+	isTypeScript bool
 }
 
 // GetLanguage returns the tree-sitter Language for HTML (used for structure).
@@ -135,7 +137,7 @@ func (v *VueParser) extractSectionsWithPosition(source []byte) map[string]sectio
 
 	// Regular expressions to match Vue SFC sections
 	templateRe := regexp.MustCompile(`(?s)<template[^>]*>(.*?)</template>`)
-	scriptRe := regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`)
+	scriptRe := regexp.MustCompile(`(?s)<script([^>]*)>(.*?)</script>`)
 	styleRe := regexp.MustCompile(`(?s)<style[^>]*>(.*?)</style>`)
 
 	// Extract template with position
@@ -156,19 +158,29 @@ func (v *VueParser) extractSectionsWithPosition(source []byte) map[string]sectio
 	}
 
 	// Extract script with position
-	if match := scriptRe.FindSubmatchIndex(source); match != nil && len(match) >= 4 {
-		contentStart := match[2]
-		contentEnd := match[3]
+	if match := scriptRe.FindSubmatchIndex(source); match != nil && len(match) >= 6 {
+		attrStart := match[2]
+		attrEnd := match[3]
+		contentStart := match[4]
+		contentEnd := match[5]
 		content := source[contentStart:contentEnd]
 		content = bytes.TrimSpace(content)
+		attrs := strings.ToLower(string(source[attrStart:attrEnd]))
+		isTS := strings.Contains(attrs, "lang=\"ts\"") ||
+			strings.Contains(attrs, "lang='ts'") ||
+			strings.Contains(attrs, "lang=\"tsx\"") ||
+			strings.Contains(attrs, "lang='tsx'") ||
+			strings.Contains(attrs, "lang=\"typescript\"") ||
+			strings.Contains(attrs, "lang='typescript'")
 
 		sections["script"] = sectionInfo{
-			name:      "script",
-			content:   content,
-			startLine: v.getLineNumber(source, match[0]),
-			endLine:   v.getLineNumber(source, match[1]),
-			startByte: uint32(match[0]),
-			endByte:   uint32(match[1]),
+			name:         "script",
+			content:      content,
+			startLine:    v.getLineNumber(source, match[0]),
+			endLine:      v.getLineNumber(source, match[1]),
+			startByte:    uint32(match[0]),
+			endByte:      uint32(match[1]),
+			isTypeScript: isTS,
 		}
 	}
 
@@ -253,7 +265,8 @@ func (v *VueParser) parseScriptSection(section sectionInfo, sectionName string) 
 	jsParser := sitter.NewParser()
 	defer jsParser.Close()
 
-	err := jsParser.SetLanguage(v.jsParser.GetLanguage())
+	parser := &TypeScriptParser{isTypeScript: section.isTypeScript}
+	err := jsParser.SetLanguage(parser.GetLanguage())
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +277,7 @@ func (v *VueParser) parseScriptSection(section sectionInfo, sectionName string) 
 	}
 	defer tree.Close()
 
-	symbols, err := v.jsParser.ExtractSymbols(tree, section.content)
+	symbols, err := parser.ExtractSymbols(tree, section.content)
 	if err != nil {
 		return nil, err
 	}
@@ -356,12 +369,13 @@ func (v *VueParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, 
 		jsParser := sitter.NewParser()
 		defer jsParser.Close()
 
-		err := jsParser.SetLanguage(v.jsParser.GetLanguage())
+		parser := &TypeScriptParser{isTypeScript: scriptSection.isTypeScript}
+		err := jsParser.SetLanguage(parser.GetLanguage())
 		if err == nil {
 			scriptTree := jsParser.Parse(scriptSection.content, nil)
 			if scriptTree != nil {
 				defer scriptTree.Close()
-				scriptImports, _ := v.jsParser.ExtractImports(scriptTree, scriptSection.content)
+				scriptImports, _ := parser.ExtractImports(scriptTree, scriptSection.content)
 				imports = append(imports, scriptImports...)
 			}
 		}

@@ -14,6 +14,14 @@ export function DeleteProject(arg1) {
   return window['go']['main']['App']['DeleteProject'](arg1);
 }
 
+export function GetAllProjectsStats() {
+  return window['go']['main']['App']['GetAllProjectsStats']();
+}
+
+export function GetFileChunks(arg1, arg2) {
+  return window['go']['main']['App']['GetFileChunks'](arg1, arg2);
+}
+
 export function GetFileOutline(arg1, arg2) {
   return window['go']['main']['App']['GetFileOutline'](arg1, arg2);
 }
@@ -38,6 +46,10 @@ export function GetProject(arg1) {
   return window['go']['main']['App']['GetProject'](arg1);
 }
 
+export function GetProjectStats(arg1) {
+  return window['go']['main']['App']['GetProjectStats'](arg1);
+}
+
 export function GetSelectedProject() {
   return window['go']['main']['App']['GetSelectedProject']();
 }
@@ -56,6 +68,14 @@ export function ProjectExists(arg1) {
 
 export function ReadFileContent(arg1, arg2) {
   return window['go']['main']['App']['ReadFileContent'](arg1, arg2);
+}
+
+export function ReindexProject(arg1) {
+  return window['go']['main']['App']['ReindexProject'](arg1);
+}
+
+export function ResetProjectIndex(arg1) {
+  return window['go']['main']['App']['ResetProjectIndex'](arg1);
 }
 
 export function SelectDirectory(arg1, arg2) {

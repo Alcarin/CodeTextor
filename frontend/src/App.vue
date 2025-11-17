@@ -9,11 +9,12 @@
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useNavigation } from './composables/useNavigation';
 import { useCurrentProject } from './composables/useCurrentProject';
-import { mockBackend } from './services/mockBackend';
+import { backend } from './api/backend';
 import ProjectsView from './views/ProjectsView.vue';
 import IndexingView from './views/IndexingView.vue';
 import SearchView from './views/SearchView.vue';
 import OutlineView from './views/OutlineView.vue';
+import ChunksView from './views/ChunksView.vue';
 import StatsView from './views/StatsView.vue';
 import MCPView from './views/MCPView.vue';
 import ProjectSelector from './components/ProjectSelector.vue';
@@ -78,6 +79,8 @@ const currentComponent = computed(() => {
       return SearchView;
     case 'outline':
       return OutlineView;
+    case 'chunks':
+      return ChunksView;
     case 'stats':
       return StatsView;
     case 'mcp':
@@ -92,10 +95,16 @@ const currentComponent = computed(() => {
  */
 const updateFooterStats = async () => {
   try {
-    [projectStats.value, mcpStatus.value] = await Promise.all([
-      mockBackend.getProjectStats(),
-      mockBackend.getMCPStatus()
-    ]);
+    // Get cumulative stats for all projects
+    projectStats.value = await backend.getAllProjectsStats();
+    // TODO: Implement MCP status retrieval when available
+    mcpStatus.value = {
+      isRunning: false,
+      uptime: 0,
+      activeConnections: 0,
+      totalRequests: 0,
+      averageResponseTime: 0
+    };
   } catch (error) {
     console.error('Failed to update footer stats:', error);
   }
@@ -185,6 +194,12 @@ onUnmounted(() => {
           📋 Outline
         </button>
         <button
+          :class="['nav-tab', { active: currentView === 'chunks' }]"
+          @click="handleNavigate('chunks')"
+        >
+          🧩 Chunks
+        </button>
+        <button
           :class="['nav-tab', { active: currentView === 'stats' }]"
           @click="handleNavigate('stats')"
         >
@@ -233,6 +248,13 @@ onUnmounted(() => {
               <span>Outline</span>
             </button>
             <button
+              :class="['mobile-menu-item', { active: currentView === 'chunks' }]"
+              @click="handleMobileNavigate('chunks')"
+            >
+              <span class="menu-icon">🧩</span>
+              <span>Chunks</span>
+            </button>
+            <button
               :class="['mobile-menu-item', { active: currentView === 'stats' }]"
               @click="handleMobileNavigate('stats')"
             >
@@ -265,7 +287,7 @@ onUnmounted(() => {
         </span>
         <span v-else class="footer-subtitle">No project selected</span>
       </div>
-      <div v-if="currentProject && projectStats" class="footer-stats">
+      <div v-if="projectStats" class="footer-stats">
         <div class="footer-stat">
           <span class="stat-icon">📁</span>
           <span class="stat-value">{{ formatNumber(projectStats.totalFiles) }}</span>

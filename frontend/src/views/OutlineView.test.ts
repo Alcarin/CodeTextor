@@ -30,7 +30,7 @@ describe('OutlineView.vue', () => {
       refreshCurrentProject: vi.fn(),
     });
     vi.spyOn(backend, 'getFilePreviews').mockResolvedValue([
-      { absolutePath: '/root/main.ts', relativePath: 'main.ts', extension: '.ts', size: '1 KB', hidden: false },
+      { absolutePath: '/root/main.ts', relativePath: 'main.ts', extension: '.ts', size: '1 KB', hidden: false, lastModified: Date.now() / 1000 },
     ]);
   });
 
@@ -73,7 +73,7 @@ describe('OutlineView.vue', () => {
     await flushPromises();
     await wrapper.find('[data-testid="file-tree-toggle"]').trigger('click');
 
-    expect(wrapper.text()).toContain('Caricamento...');
+    expect(wrapper.text()).toContain('Loading...');
   });
 
   it('shows an error message on fetch failure', async () => {

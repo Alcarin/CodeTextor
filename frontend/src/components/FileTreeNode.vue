@@ -8,25 +8,36 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import OutlineTreeNode from './OutlineTreeNode.vue'
-import type { FileTreeNode, OutlineNode } from '../types'
+import ChunkTreeNode from './ChunkTreeNode.vue'
+import type { FileTreeNode, OutlineNode, Chunk } from '../types'
 
 defineOptions({ name: 'FileTreeNode' })
 
 interface Props {
   node: FileTreeNode
   level: number
-  fetchOutline: (node: FileTreeNode) => Promise<void>
-  isOutlineNodeExpanded: (id: string) => boolean
-  toggleOutlineNode: (id: string) => void
+  fetchOutline?: (node: FileTreeNode) => Promise<void>
+  isOutlineNodeExpanded?: (id: string) => boolean
+  toggleOutlineNode?: (id: string) => void
   onNodeClick?: (filePath: string, node: OutlineNode) => void
+  onChunkClick?: (filePath: string, chunk: Chunk) => void
+  onFileClick?: (node: FileTreeNode) => void
   selectedNodeId?: string
+  simpleMode?: boolean
+  chunksMode?: boolean
 }
 
 const props = defineProps<Props>()
 
 const toggleNode = async () => {
+  // In simple mode, just call onFileClick for files
+  if (props.simpleMode && !props.node.isDirectory && props.onFileClick) {
+    props.onFileClick(props.node)
+    return
+  }
+
   props.node.expanded = !props.node.expanded
-  if (!props.node.isDirectory && props.node.expanded && props.node.outlineStatus !== 'ready') {
+  if (!props.node.isDirectory && props.node.expanded && props.node.outlineStatus !== 'ready' && props.fetchOutline) {
     await props.fetchOutline(props.node)
   }
 }
@@ -34,9 +45,9 @@ const toggleNode = async () => {
 const statusLabel = computed(() => {
   switch (props.node.outlineStatus) {
     case 'loading':
-      return 'Caricamento...'
+      return 'Loading...'
     case 'error':
-      return props.node.outlineError || 'Errore durante il caricamento'
+      return props.node.outlineError || 'Error during loading'
     default:
       return ''
   }
@@ -73,16 +84,41 @@ const statusLabel = computed(() => {
       :is-outline-node-expanded="isOutlineNodeExpanded"
       :toggle-outline-node="toggleOutlineNode"
       :on-node-click="onNodeClick"
+      :on-chunk-click="onChunkClick"
+      :on-file-click="onFileClick"
       :selected-node-id="selectedNodeId"
+      :simple-mode="simpleMode"
+      :chunks-mode="chunksMode"
     />
 
-    <div v-if="!node.isDirectory && node.outlineStatus === 'ready'" class="outline-section">
+    <!-- Render chunks in chunks mode -->
+    <div v-if="!node.isDirectory && node.outlineStatus === 'ready' && chunksMode" class="outline-section">
+      <div
+        v-if="!node.chunks || node.chunks.length === 0"
+        class="muted-helper"
+        data-testid="chunks-empty"
+      >
+        No chunks available for this file.
+      </div>
+      <ChunkTreeNode
+        v-for="chunk in node.chunks || []"
+        :key="chunk.id"
+        :chunk="chunk"
+        :file-path="node.path"
+        :level="level + 1"
+        :selected-node-id="selectedNodeId"
+        @click="onChunkClick"
+      />
+    </div>
+
+    <!-- Render outline nodes in normal mode -->
+    <div v-if="!node.isDirectory && node.outlineStatus === 'ready' && !simpleMode && !chunksMode" class="outline-section">
       <div
         v-if="!node.outlineNodes || node.outlineNodes.length === 0"
         class="muted-helper"
         data-testid="outline-empty"
       >
-        Nessun simbolo disponibile in questo file.
+        No symbols available in this file.
       </div>
       <OutlineTreeNode
         v-for="outlineNode in node.outlineNodes || []"
@@ -90,7 +126,7 @@ const statusLabel = computed(() => {
         :node="outlineNode"
         :file-path="node.path"
         :level="level + 1"
-        :expanded="isOutlineNodeExpanded(outlineNode.id)"
+        :expanded="isOutlineNodeExpanded?.(outlineNode.id) ?? false"
         :isExpanded="isOutlineNodeExpanded"
         :selected-node-id="selectedNodeId"
         @toggle="toggleOutlineNode"

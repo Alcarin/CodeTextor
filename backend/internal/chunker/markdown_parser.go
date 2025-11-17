@@ -10,8 +10,8 @@ package chunker
 import (
 	"regexp"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_markdown "github.com/tree-sitter-grammars/tree-sitter-markdown/bindings/go"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // MarkdownParser implements the LanguageParser interface for Markdown documents.
@@ -386,6 +386,8 @@ func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
 		}
 	}
 
+	lines := splitLines(source)
+
 	// Process headings in reverse order
 	for i := len(symbols) - 1; i >= 0; i-- {
 		if symbols[i].Kind != SymbolMarkdownHeading {
@@ -421,5 +423,27 @@ func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
 
 		// Set EndLine to just before the next heading (or end of document)
 		symbols[i].EndLine = nextHeadingLine
+
+		// Expand the heading's source to include the entire section content.
+		startIdx := int(symbols[i].StartLine) - 1
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		endIdx := int(symbols[i].EndLine)
+		if endIdx > len(lines) {
+			endIdx = len(lines)
+		}
+		if endIdx <= startIdx {
+			endIdx = startIdx + 1
+			if endIdx > len(lines) {
+				endIdx = len(lines)
+			}
+		}
+		if startIdx < len(lines) && endIdx > startIdx {
+			section := joinLines(lines[startIdx:endIdx])
+			if section != "" {
+				symbols[i].Source = section
+			}
+		}
 	}
 }

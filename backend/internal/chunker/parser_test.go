@@ -215,6 +215,10 @@ class Calculator {
 }
 
 export { add, multiply };
+
+watch(state, (value) => {
+    console.log(value);
+});
 `)
 
 	result, err := parser.ParseFile("test.ts", source)
@@ -251,6 +255,17 @@ export { add, multiply };
 	}
 	require.NotNil(t, multiplyFunc, "multiply arrow function should be extracted")
 	assert.Equal(t, SymbolFunction, multiplyFunc.Kind)
+
+	// Find the watch callback arrow function
+	var watchCallback *Symbol
+	for i := range symbols {
+		if symbols[i].Name == "watch callback" {
+			watchCallback = &symbols[i]
+			break
+		}
+	}
+	require.NotNil(t, watchCallback, "watch callback arrow function should be extracted")
+	assert.Equal(t, SymbolFunction, watchCallback.Kind)
 
 	// Find the Calculator class
 	var calcClass *Symbol

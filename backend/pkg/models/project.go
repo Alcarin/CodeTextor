@@ -95,6 +95,7 @@ type FilePreview struct {
 	Extension    string `json:"extension"`
 	Size         string `json:"size"` // Human-readable size (e.g., "10 KB")
 	Hidden       bool   `json:"hidden"`
+	LastModified int64  `json:"lastModified"` // Unix timestamp of last modification
 }
 
 // IndexingStatus defines the possible states of the indexing process.
@@ -158,11 +159,12 @@ type OutlineNode struct {
 }
 
 // Chunk represents a piece of text from a file, along with its embedding.
+// Extended with semantic chunking metadata for better code understanding.
 type Chunk struct {
 	ID        string    `json:"id"`
 	ProjectID string    `json:"projectId"`
 	FilePath  string    `json:"filePath"`
-	Content   string    `json:"content"`
+	Content   string    `json:"content"` // Enriched content with metadata headers
 	Embedding []float32 `json:"embedding"`
 	LineStart int       `json:"lineStart"`
 	LineEnd   int       `json:"lineEnd"`
@@ -170,6 +172,19 @@ type Chunk struct {
 	CharEnd   int       `json:"charEnd"`
 	CreatedAt int64     `json:"createdAt"`
 	UpdatedAt int64     `json:"updatedAt"`
+
+	// Semantic chunking metadata
+	Language    string `json:"language,omitempty"`    // Programming language (e.g., "go", "python")
+	SymbolName  string `json:"symbolName,omitempty"`  // Symbol name (e.g., function/class name)
+	SymbolKind  string `json:"symbolKind,omitempty"`  // Symbol type (e.g., "function", "class", "method")
+	Parent      string `json:"parent,omitempty"`      // Parent symbol (e.g., class name for methods)
+	Signature   string `json:"signature,omitempty"`   // Function/method signature
+	Visibility  string `json:"visibility,omitempty"`  // Access level (public, private, protected)
+	PackageName string `json:"packageName,omitempty"` // Package/module name
+	DocString   string `json:"docString,omitempty"`   // Documentation/comments
+	TokenCount  int    `json:"tokenCount,omitempty"`  // Estimated token count
+	IsCollapsed bool   `json:"isCollapsed,omitempty"` // Whether body was collapsed
+	SourceCode  string `json:"sourceCode,omitempty"`  // Raw source code without enrichment
 }
 
 // File represents a file that has been indexed.

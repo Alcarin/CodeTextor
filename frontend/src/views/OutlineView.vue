@@ -11,7 +11,9 @@ import { useCurrentProject } from '../composables/useCurrentProject';
 import { backend } from '../api/backend';
 import type { FilePreview, FileTreeNode as FileTreeNodeType, OutlineNode } from '../types';
 import FileTreeNode from '../components/FileTreeNode.vue';
-import FileContentViewer from '../components/FileContentViewer.vue';
+import OutlineContentViewer from '../components/OutlineContentViewer.vue';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { FILE_INDEXED_EVENT } from '../constants/events';
 
 const { currentProject } = useCurrentProject();
 
@@ -30,6 +32,7 @@ const bumpSelectedFileVersion = (hint?: number) => {
 const selectedNode = ref<OutlineNode | null>(null);
 const selectedNodeId = ref<string>('');
 const treeColumnWidth = ref<number>(400);
+const eventUnsubscribers: Array<() => void> = [];
 
 // Poll interval: check for updates every 5 seconds
 const POLL_INTERVAL_MS = 5000;
@@ -161,7 +164,7 @@ watch(
 const handleFetchOutline = async (node: FileTreeNodeType) => {
   if (!currentProject.value) {
     node.outlineStatus = 'error';
-    node.outlineError = 'Seleziona un progetto prima di caricare l\'outline';
+    node.outlineError = 'Select a project before loading the outline';
     return;
   }
 
@@ -190,7 +193,7 @@ const handleFetchOutline = async (node: FileTreeNodeType) => {
     }
   } catch (error) {
     node.outlineStatus = 'error';
-    node.outlineError = error instanceof Error ? error.message : 'Caricamento outline fallito';
+    node.outlineError = error instanceof Error ? error.message : 'Failed to load outline';
   }
 };
 
@@ -215,6 +218,22 @@ const findFileNode = (nodes: FileTreeNodeType[], path: string): FileTreeNodeType
     if (node.children.length > 0) {
       const found = findFileNode(node.children, path);
       if (found) return found;
+    }
+  }
+  return null;
+};
+
+const findOutlineNodeById = (nodes: OutlineNode[] | undefined, id: string): OutlineNode | null => {
+  if (!nodes) {
+    return null;
+  }
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node;
+    }
+    const child = findOutlineNodeById(node.children, id);
+    if (child) {
+      return child;
     }
   }
   return null;
@@ -336,6 +355,59 @@ const checkForOutlineUpdates = async () => {
   }
 };
 
+const refreshOutlineForFile = async (filePath: string, timestamp?: number) => {
+  if (!currentProject.value) return;
+  const node = findFileNode(fileTree.value, filePath);
+  if (!node) {
+    if (timestamp) {
+      outlineTimestamps.value[filePath] = timestamp;
+    }
+    return;
+  }
+
+  if (node.outlineStatus !== 'ready') {
+    if (timestamp) {
+      outlineTimestamps.value[filePath] = timestamp;
+    }
+    node.outlineStatus = 'idle';
+    return;
+  }
+
+  try {
+    const previousSelectedId = selectedFilePath.value === filePath ? selectedNodeId.value : '';
+    const result = await backend.getFileOutline(currentProject.value.id, node.path);
+    node.outlineNodes = result;
+    outlineTimestamps.value[filePath] = timestamp ?? Date.now();
+
+    if (selectedFilePath.value === filePath) {
+      if (previousSelectedId) {
+        const matching = findOutlineNodeById(result, previousSelectedId);
+        if (matching) {
+          selectedNode.value = matching;
+          selectedNodeId.value = matching.id;
+        } else {
+          selectedNode.value = null;
+          selectedNodeId.value = '';
+        }
+      }
+      bumpSelectedFileVersion(timestamp ?? Date.now());
+    }
+  } catch (error) {
+    console.error(`Failed to refresh outline for ${filePath}:`, error);
+  }
+};
+
+const handleFileIndexedEvent = (payload: any) => {
+  if (!currentProject.value) return;
+  const projectId = payload?.projectId;
+  const filePath = payload?.filePath;
+  if (projectId !== currentProject.value.id || typeof filePath !== 'string') {
+    return;
+  }
+  const timestamp = typeof payload?.timestamp === 'number' ? payload.timestamp : undefined;
+  refreshOutlineForFile(filePath, timestamp);
+};
+
 // Start polling for outline updates and file tree changes
 const startPolling = () => {
   if (pollingInterval.value !== null) return;
@@ -440,16 +512,16 @@ onMounted(() => {
 
   // Initialize resize
   const cleanupResize = initResize();
+  const offEvent = EventsOn(FILE_INDEXED_EVENT, handleFileIndexedEvent);
+  eventUnsubscribers.push(offEvent);
 
   // Store cleanup in onUnmounted
   onUnmounted(() => {
     stopPolling();
     cleanupResize();
+    eventUnsubscribers.forEach(off => off());
+    eventUnsubscribers.length = 0;
   });
-});
-
-onUnmounted(() => {
-  stopPolling();
 });
 </script>
 
@@ -459,13 +531,13 @@ onUnmounted(() => {
       <!-- Left column: File tree -->
       <div class="tree-column section" :style="{ width: treeColumnWidth + 'px' }">
         <div v-if="isLoadingTree" class="status-row">
-          Caricamento dell'albero dei file...
+          Loading file tree...
         </div>
         <div v-else-if="treeError" class="error-row">
           {{ treeError }}
         </div>
         <div v-else-if="fileTree.length === 0" class="empty-state">
-          <p>Nessun file trovato per questo progetto.</p>
+          <p>No files found for this project.</p>
         </div>
         <div v-else class="file-tree">
           <FileTreeNode
@@ -484,7 +556,7 @@ onUnmounted(() => {
 
       <!-- Right column: File content viewer -->
       <div class="content-column section">
-        <FileContentViewer
+        <OutlineContentViewer
           v-if="currentProject"
           :project-id="currentProject.id"
           :file-path="selectedFilePath"
@@ -492,7 +564,7 @@ onUnmounted(() => {
           :selected-node="selectedNode"
         />
         <div v-else class="empty-state">
-          <p>Seleziona un progetto</p>
+          <p>Select a project</p>
         </div>
       </div>
     </div>
@@ -532,7 +604,7 @@ onUnmounted(() => {
   min-width: 250px;
   max-width: 800px;
   padding: 1rem;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: auto;
   flex-shrink: 0;
 }

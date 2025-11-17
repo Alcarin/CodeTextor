@@ -10,6 +10,9 @@ func TestReadFileContent(t *testing.T) {
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
+	// Use temporary HOME to avoid polluting real database
+	t.Setenv("HOME", t.TempDir())
+
 	// Create a test file
 	testFilePath := filepath.Join(tempDir, "test.txt")
 	testContent := "Hello, World!\nThis is a test file.\n"
@@ -18,7 +21,7 @@ func TestReadFileContent(t *testing.T) {
 	}
 
 	// Create test service
-	service, err := NewProjectService()
+    service, err := NewProjectService(nil)
 	if err != nil {
 		t.Fatalf("Failed to create project service: %v", err)
 	}
@@ -50,6 +53,9 @@ func TestReadFileContent_SecurityCheck(t *testing.T) {
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
+	// Use temporary HOME to avoid polluting real database
+	t.Setenv("HOME", t.TempDir())
+
 	// Create a file outside project root
 	outsideDir := t.TempDir()
 	outsideFilePath := filepath.Join(outsideDir, "secret.txt")
@@ -58,7 +64,7 @@ func TestReadFileContent_SecurityCheck(t *testing.T) {
 	}
 
 	// Create test service
-	service, err := NewProjectService()
+    service, err := NewProjectService(nil)
 	if err != nil {
 		t.Fatalf("Failed to create project service: %v", err)
 	}
@@ -87,8 +93,11 @@ func TestReadFileContent_NonExistentFile(t *testing.T) {
 	// Create temp directory for test
 	tempDir := t.TempDir()
 
+	// Use temporary HOME to avoid polluting real database
+	t.Setenv("HOME", t.TempDir())
+
 	// Create test service
-	service, err := NewProjectService()
+    service, err := NewProjectService(nil)
 	if err != nil {
 		t.Fatalf("Failed to create project service: %v", err)
 	}

@@ -46,8 +46,8 @@ describe('SearchView.vue', () => {
 
   it('displays search results', async () => {
     const chunks = [
-      { id: 'c1', projectId: 'p1', name: 'Chunk 1', content: 'content 1', filePath: 'file1.ts', startLine: 1, endLine: 10, startByte: 0, endByte: 100, similarity: 0.9, kind: 'function' },
-      { id: 'c2', projectId: 'p1', name: 'Chunk 2', content: 'content 2', filePath: 'file2.ts', startLine: 5, endLine: 15, startByte: 50, endByte: 150, similarity: 0.8, kind: 'class' },
+      { id: 'c1', projectId: 'p1', symbolName: 'Chunk 1', content: 'content 1', filePath: 'file1.ts', embedding: [], lineStart: 1, lineEnd: 10, charStart: 0, charEnd: 100, createdAt: 0, updatedAt: 0, similarity: 0.9, symbolKind: 'function' },
+      { id: 'c2', projectId: 'p1', symbolName: 'Chunk 2', content: 'content 2', filePath: 'file2.ts', embedding: [], lineStart: 5, lineEnd: 15, charStart: 50, charEnd: 150, createdAt: 0, updatedAt: 0, similarity: 0.8, symbolKind: 'class' },
     ];
     vi.spyOn(mockBackend, 'semanticSearch').mockResolvedValue({ chunks, totalResults: 2, queryTime: 123 });
 

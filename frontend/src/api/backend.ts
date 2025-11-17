@@ -157,6 +157,16 @@ export const backend = {
   },
 
   /**
+   * Retrieves all semantic chunks for a specific file.
+   * @param projectId - Project identifier
+   * @param filePath - File path relative to project root
+   * @returns Promise resolving to an array of chunks
+   */
+  async getFileChunks(projectId: string, filePath: string): Promise<models.Chunk[]> {
+    return App.GetFileChunks(projectId, filePath)
+  },
+
+  /**
    * Reads the content of a file within a project.
    * @param projectId - Project identifier
    * @param relativePath - File path relative to project root
@@ -193,6 +203,22 @@ export const backend = {
   },
 
   /**
+   * Clears the existing index and runs a fresh indexing pass.
+   * @param projectId - Project identifier
+   */
+  async reindexProject(projectId: string): Promise<void> {
+    return App.ReindexProject(projectId)
+  },
+
+  /**
+   * Deletes all indexed artifacts for a project without starting a new run.
+   * @param projectId - Project identifier
+   */
+  async resetProjectIndex(projectId: string): Promise<void> {
+    return App.ResetProjectIndex(projectId)
+  },
+
+  /**
    * Stops the indexing process for a project.
    * @param projectId - Project identifier
    * @returns Promise that resolves when indexing has stopped
@@ -208,6 +234,23 @@ export const backend = {
    */
   async getIndexingProgress(projectId: string): Promise<models.IndexingProgress> {
     return App.GetIndexingProgress(projectId)
+  },
+
+  /**
+   * Gets statistics for a specific project.
+   * @param projectId - Project identifier
+   * @returns Promise resolving to project statistics
+   */
+  async getProjectStats(projectId: string): Promise<models.ProjectStats> {
+    return App.GetProjectStats(projectId)
+  },
+
+  /**
+   * Gets cumulative statistics across all projects.
+   * @returns Promise resolving to aggregate project statistics
+   */
+  async getAllProjectsStats(): Promise<models.ProjectStats> {
+    return App.GetAllProjectsStats()
   },
 }
 
