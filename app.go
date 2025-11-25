@@ -203,3 +203,43 @@ func (a *App) GetProjectStats(projectID string) (*models.ProjectStats, error) {
 func (a *App) GetAllProjectsStats() (*models.ProjectStats, error) {
 	return a.projectService.GetAllProjectsStats()
 }
+
+// GetEmbeddingCapabilities exposes runtime availability to the frontend.
+func (a *App) GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error) {
+	return a.projectService.GetEmbeddingCapabilities()
+}
+
+// GetONNXRuntimeSettings returns the persisted ONNX runtime configuration.
+func (a *App) GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error) {
+	return a.projectService.GetONNXRuntimeSettings()
+}
+
+// UpdateONNXRuntimeSettings saves a new ONNX runtime path (applied on restart).
+func (a *App) UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error) {
+	return a.projectService.UpdateONNXRuntimeSettings(path)
+}
+
+// TestONNXRuntimePath performs a lightweight validation of a provided ONNX path.
+func (a *App) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error) {
+	return a.projectService.TestONNXRuntimePath(path)
+}
+
+// ListEmbeddingModels returns the embedding model catalog.
+func (a *App) ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error) {
+	return a.projectService.ListEmbeddingModels()
+}
+
+// SaveEmbeddingModel creates or updates an embedding model entry.
+func (a *App) SaveEmbeddingModel(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error) {
+	return a.projectService.SaveEmbeddingModel(model)
+}
+
+// DownloadEmbeddingModel ensures a catalog entry exists locally.
+func (a *App) DownloadEmbeddingModel(modelID string) (*models.EmbeddingModelInfo, error) {
+	return a.projectService.DownloadEmbeddingModel(modelID)
+}
+
+// Search executes semantic search for a project.
+func (a *App) Search(projectID, query string, k int) (*models.SearchResponse, error) {
+	return a.projectService.Search(projectID, query, k)
+}

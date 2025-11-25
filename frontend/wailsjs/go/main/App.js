@@ -14,8 +14,16 @@ export function DeleteProject(arg1) {
   return window['go']['main']['App']['DeleteProject'](arg1);
 }
 
+export function DownloadEmbeddingModel(arg1) {
+  return window['go']['main']['App']['DownloadEmbeddingModel'](arg1);
+}
+
 export function GetAllProjectsStats() {
   return window['go']['main']['App']['GetAllProjectsStats']();
+}
+
+export function GetEmbeddingCapabilities() {
+  return window['go']['main']['App']['GetEmbeddingCapabilities']();
 }
 
 export function GetFileChunks(arg1, arg2) {
@@ -38,6 +46,10 @@ export function GetIndexingProgress(arg1) {
   return window['go']['main']['App']['GetIndexingProgress'](arg1);
 }
 
+export function GetONNXRuntimeSettings() {
+  return window['go']['main']['App']['GetONNXRuntimeSettings']();
+}
+
 export function GetOutlineTimestamps(arg1) {
   return window['go']['main']['App']['GetOutlineTimestamps'](arg1);
 }
@@ -56,6 +68,10 @@ export function GetSelectedProject() {
 
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
+}
+
+export function ListEmbeddingModels() {
+  return window['go']['main']['App']['ListEmbeddingModels']();
 }
 
 export function ListProjects() {
@@ -78,6 +94,14 @@ export function ResetProjectIndex(arg1) {
   return window['go']['main']['App']['ResetProjectIndex'](arg1);
 }
 
+export function SaveEmbeddingModel(arg1) {
+  return window['go']['main']['App']['SaveEmbeddingModel'](arg1);
+}
+
+export function Search(arg1, arg2, arg3) {
+  return window['go']['main']['App']['Search'](arg1, arg2, arg3);
+}
+
 export function SelectDirectory(arg1, arg2) {
   return window['go']['main']['App']['SelectDirectory'](arg1, arg2);
 }
@@ -96,6 +120,14 @@ export function StartIndexing(arg1) {
 
 export function StopIndexing(arg1) {
   return window['go']['main']['App']['StopIndexing'](arg1);
+}
+
+export function TestONNXRuntimePath(arg1) {
+  return window['go']['main']['App']['TestONNXRuntimePath'](arg1);
+}
+
+export function UpdateONNXRuntimeSettings(arg1) {
+  return window['go']['main']['App']['UpdateONNXRuntimeSettings'](arg1);
 }
 
 export function UpdateProject(arg1, arg2, arg3) {

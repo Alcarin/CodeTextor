@@ -2,6 +2,7 @@ package services
 
 import (
 	"CodeTextor/backend/internal/store"
+	"CodeTextor/backend/pkg/embedding"
 	"CodeTextor/backend/pkg/indexing"
 	"CodeTextor/backend/pkg/models"
 	"CodeTextor/backend/pkg/utils"
@@ -22,6 +23,42 @@ import (
 
 const selectedProjectKey = "selected_project"
 const slugCollisionLimit = 10
+const (
+	defaultFastEmbedModelID = "fastembed/bge-small-en-v1.5"
+	defaultOnnxModelID      = "baai/bge-small-en-v1.5"
+	onnxRuntimePathKey      = "onnx_runtime_path"
+)
+
+var (
+	supportedEmbeddingModelIDs = buildSupportedModelSet()
+	loggedONNXWarning          sync.Once
+)
+
+func buildSupportedModelSet() map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, entry := range models.DefaultEmbeddingModels() {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		set[strings.ToLower(entry.ID)] = struct{}{}
+	}
+	return set
+}
+
+func detectONNXRuntimeAvailability() bool {
+	available, err := embedding.CheckONNXRuntimeAvailability()
+	if err != nil {
+		log.Printf("ONNX Runtime unavailable: %v", err)
+		return false
+	}
+	if !available {
+		log.Printf("ONNX Runtime unavailable (initialization failed)")
+		return false
+	}
+
+	log.Printf("ONNX Runtime initialized successfully")
+	return true
+}
 
 // ProjectServiceAPI defines the interface for project-related operations.
 type ProjectServiceAPI interface {
@@ -49,17 +86,34 @@ type ProjectServiceAPI interface {
 	GetGitIgnorePatterns(projectID string) ([]string, error)
 	GetProjectStats(projectID string) (*models.ProjectStats, error)
 	GetAllProjectsStats() (*models.ProjectStats, error)
+	ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error)
+	SaveEmbeddingModel(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error)
+	DownloadEmbeddingModel(modelID string) (*models.EmbeddingModelInfo, error)
+	GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error)
+	GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error)
+	UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error)
+	TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error)
+	Search(projectID string, query string, k int) (*models.SearchResponse, error)
 	Close() error
 }
 
+const defaultEmbeddingModelID = defaultOnnxModelID
+const defaultFastEmbedModel = "fastembed/bge-small-en-v1.5"
+
 // ProjectService handles project lifecycle and indexing orchestration.
 type ProjectService struct {
-	indexesDir     string
-	configStore    *store.ConfigStore
-	indexerManager *indexing.Manager
-	vectorStores   map[string]*store.VectorStore
-	mu             sync.Mutex
-	eventEmitter   func(string, interface{})
+	indexesDir        string
+	configStore       *store.ConfigStore
+	indexerManager    *indexing.Manager
+	vectorStores      map[string]*store.VectorStore
+	mu                sync.Mutex
+	eventEmitter      func(string, interface{})
+	modelDownloader   *embedding.Downloader
+	embeddingClients  map[string]embedding.EmbeddingClient
+	clientsMu         sync.Mutex
+	enableONNXRuntime bool
+	onnxRuntimePath   string
+	activeONNXPath    string
 }
 
 // CreateProjectRequest contains data required to create a new project.
@@ -98,11 +152,29 @@ func NewProjectService(ctx context.Context) (*ProjectService, error) {
 	}
 
 	service := &ProjectService{
-		indexesDir:     indexesDir,
-		configStore:    configStore,
-		indexerManager: indexing.NewManager(eventEmitter),
-		vectorStores:   make(map[string]*store.VectorStore),
-		eventEmitter:   eventEmitter,
+		indexesDir:        indexesDir,
+		configStore:       configStore,
+		indexerManager:    indexing.NewManager(eventEmitter),
+		vectorStores:      make(map[string]*store.VectorStore),
+		eventEmitter:      eventEmitter,
+		modelDownloader:   embedding.NewDownloader(),
+		embeddingClients:  make(map[string]embedding.EmbeddingClient),
+		enableONNXRuntime: false,
+	}
+
+	// Load persisted ONNX runtime path before detection so initialization uses it.
+	if path, ok, err := configStore.GetValue(onnxRuntimePathKey); err == nil && ok {
+		service.onnxRuntimePath = strings.TrimSpace(path)
+	} else if err != nil {
+		log.Printf("Warning: failed to read ONNX runtime path: %v", err)
+	}
+
+	embedding.ConfigureSharedLibraryPath(service.onnxRuntimePath)
+	service.enableONNXRuntime = detectONNXRuntimeAvailability()
+	service.activeONNXPath = embedding.ActiveSharedLibraryPath()
+
+	if err := service.ensureDefaultEmbeddingModels(); err != nil {
+		log.Printf("Warning: failed to seed embedding model catalog: %v", err)
 	}
 
 	// Auto-start indexing for projects with ContinuousIndexing enabled
@@ -195,6 +267,9 @@ func (s *ProjectService) CreateProject(req CreateProjectRequest) (*models.Projec
 	project := models.NewProject(projectID, req.Name, req.Description)
 	project.Config.RootPath = root
 	project.Config.IncludePaths = []string{"."}
+	if err := s.ensureEmbeddingModelSnapshot(&project.Config); err != nil {
+		return nil, err
+	}
 
 	vs, err := store.NewVectorStore(project.ID, project.ID)
 	if err != nil {
@@ -231,6 +306,9 @@ func (s *ProjectService) GetProject(projectID string) (*models.Project, error) {
 	if len(project.Config.IncludePaths) == 0 {
 		project.Config.IncludePaths = []string{"."}
 	}
+	if err := s.ensureEmbeddingModelSnapshot(&project.Config); err != nil {
+		return nil, err
+	}
 
 	return project, nil
 }
@@ -256,6 +334,10 @@ func (s *ProjectService) ListProjects() ([]*models.Project, error) {
 		}
 		if len(project.Config.IncludePaths) == 0 {
 			project.Config.IncludePaths = []string{"."}
+		}
+		if err := s.ensureEmbeddingModelSnapshot(&project.Config); err != nil {
+			log.Printf("Failed to attach embedding model to %s: %v", project.ID, err)
+			continue
 		}
 		projects = append(projects, project)
 	}
@@ -286,6 +368,15 @@ func (s *ProjectService) applyConfig(project *models.Project, config models.Proj
 
 	if len(config.IncludePaths) == 0 {
 		config.IncludePaths = []string{"."}
+	}
+
+	if strings.TrimSpace(config.EmbeddingModel) == "" {
+		config.EmbeddingModel = project.Config.EmbeddingModel
+		config.EmbeddingModelInfo = project.Config.EmbeddingModelInfo
+	}
+
+	if err := s.ensureEmbeddingModelSnapshot(&config); err != nil {
+		return err
 	}
 
 	project.Config = config
@@ -429,6 +520,22 @@ func (s *ProjectService) SetProjectIndexing(projectID string, enabled bool) erro
 		return err
 	}
 
+	if enabled {
+		vectorStore, err := s.GetVectorStore(projectID)
+		if err != nil {
+			return err
+		}
+		match, err := s.embeddingUsageMatchesSelection(project, vectorStore)
+		if err != nil {
+			return fmt.Errorf("failed to verify embedding model consistency: %w", err)
+		}
+		if !match {
+			if err := vectorStore.ResetProjectData(); err != nil {
+				return fmt.Errorf("failed to reset index for model change: %w", err)
+			}
+		}
+	}
+
 	project.IsIndexing = enabled
 	project.Config.ContinuousIndexing = enabled
 
@@ -467,6 +574,45 @@ func (s *ProjectService) GetVectorStore(projectID string) (*store.VectorStore, e
 	return vs, nil
 }
 
+func (s *ProjectService) embeddingUsageMatchesSelection(project *models.Project, vectorStore *store.VectorStore) (bool, error) {
+	if project == nil || vectorStore == nil {
+		return true, nil
+	}
+
+	stats, err := vectorStore.GetStats()
+	if err != nil {
+		return false, err
+	}
+	if len(stats.EmbeddingModels) == 0 {
+		return true, nil
+	}
+
+	selectedID := strings.TrimSpace(project.Config.EmbeddingModel)
+	if selectedID == "" && project.Config.EmbeddingModelInfo != nil {
+		selectedID = strings.TrimSpace(project.Config.EmbeddingModelInfo.ID)
+	}
+	normalizedSelected := strings.ToLower(selectedID)
+
+	for _, usage := range stats.EmbeddingModels {
+		usageID := strings.TrimSpace(usage.ModelID)
+		if usageID == "" {
+			if normalizedSelected != "" {
+				return false, nil
+			}
+			continue
+		}
+		if normalizedSelected == "" {
+			normalizedSelected = strings.ToLower(usageID)
+			selectedID = usage.ModelID
+			continue
+		}
+		if !strings.EqualFold(usageID, selectedID) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // StartIndexing begins indexing files for a project.
 func (s *ProjectService) StartIndexing(projectID string) error {
 	project, err := s.GetProject(projectID)
@@ -484,7 +630,14 @@ func (s *ProjectService) StartIndexing(projectID string) error {
 		return fmt.Errorf("failed to open vector store for outlining: %w", err)
 	}
 
-	s.indexerManager.StartIndexer(project, files, vectorStore)
+	client, err := s.getEmbeddingClient(project)
+	if err != nil {
+		return fmt.Errorf("failed to initialize embedding model: %w", err)
+	}
+
+	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, nil); err != nil {
+		return fmt.Errorf("failed to start indexer: %w", err)
+	}
 	return nil
 }
 
@@ -534,7 +687,14 @@ func (s *ProjectService) ReindexProject(projectID string) error {
 		return fmt.Errorf("failed to get file previews for reindexing: %w", err)
 	}
 
-	s.indexerManager.StartIndexer(project, files, vectorStore)
+	client, err := s.getEmbeddingClient(project)
+	if err != nil {
+		return fmt.Errorf("failed to initialize embedding model: %w", err)
+	}
+
+	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, nil); err != nil {
+		return fmt.Errorf("failed to start indexer: %w", err)
+	}
 	return nil
 }
 
@@ -551,6 +711,393 @@ func (s *ProjectService) GetIndexingProgress(projectID string) (models.IndexingP
 		return models.IndexingProgress{Status: models.IndexingStatusIdle}, nil
 	}
 	return *progress, nil
+}
+
+func (s *ProjectService) ensureDefaultEmbeddingModels() error {
+	defaults := models.DefaultEmbeddingModels()
+	for _, entry := range defaults {
+		if entry == nil {
+			continue
+		}
+		if entry.DownloadStatus == "" {
+			entry.DownloadStatus = "unknown"
+		}
+		if err := s.configStore.UpsertEmbeddingModel(entry.Clone()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ProjectService) ensureEmbeddingModelSnapshot(config *models.ProjectConfig) error {
+	if config == nil {
+		return fmt.Errorf("project config cannot be nil")
+	}
+
+	if strings.TrimSpace(config.EmbeddingModel) == "" {
+		config.EmbeddingModel = defaultFastEmbedModelID
+	}
+
+	if _, ok := supportedEmbeddingModelIDs[strings.ToLower(config.EmbeddingModel)]; !ok {
+		log.Printf("Embedding model %s unsupported, falling back to default", config.EmbeddingModel)
+		config.EmbeddingModel = defaultFastEmbedModelID
+	}
+
+	if config.EmbeddingModelInfo != nil && config.EmbeddingModelInfo.ID == config.EmbeddingModel {
+		return nil
+	}
+
+	meta, err := s.configStore.GetEmbeddingModel(config.EmbeddingModel)
+	if err != nil {
+		if config.EmbeddingModel != defaultFastEmbedModelID {
+			config.EmbeddingModel = defaultFastEmbedModelID
+			meta, err = s.configStore.GetEmbeddingModel(config.EmbeddingModel)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to resolve embedding model %s: %w", config.EmbeddingModel, err)
+		}
+	}
+
+	if meta.Backend == "onnx" && !s.enableONNXRuntime {
+		log.Printf("ONNX Runtime unavailable: %s cannot be used, falling back to %s", meta.ID, defaultFastEmbedModelID)
+		config.EmbeddingModel = defaultFastEmbedModelID
+		return s.ensureEmbeddingModelSnapshot(config)
+	}
+
+	refreshModelLocalStatus(meta)
+	if err := s.configStore.UpsertEmbeddingModel(meta.Clone()); err != nil {
+		return err
+	}
+
+	config.EmbeddingModelInfo = meta.Clone()
+	config.EmbeddingBackend = meta.Backend
+	return nil
+}
+
+func (s *ProjectService) getEmbeddingClient(project *models.Project) (embedding.EmbeddingClient, error) {
+	if project.Config.EmbeddingModelInfo == nil {
+		if err := s.ensureEmbeddingModelSnapshot(&project.Config); err != nil {
+			return nil, err
+		}
+		if err := s.updateProjectMetadata(project); err != nil {
+			log.Printf("Failed to persist embedding metadata for %s: %v", project.ID, err)
+		}
+	}
+
+	meta := project.Config.EmbeddingModelInfo
+	if meta == nil {
+		return nil, fmt.Errorf("project %s missing embedding model", project.ID)
+	}
+
+	switch strings.ToLower(meta.Backend) {
+	case "fastembed", "":
+		if !s.enableONNXRuntime {
+			return nil, fmt.Errorf("FastEmbed models require ONNX Runtime. Install the shared library, set its path in Settings → Projects, and restart CodeTextor to enable %s.", meta.ID)
+		}
+		client, err := embedding.NewFastEmbedClient(meta)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize FastEmbed client for %s: %w", meta.ID, err)
+		}
+		return client, nil
+	case "onnx":
+		log.Printf("DEBUG: getEmbeddingClient: Backend is ONNX. enableONNXRuntime=%v", s.enableONNXRuntime)
+		if !s.enableONNXRuntime {
+			loggedONNXWarning.Do(func() {
+				log.Printf("ONNX Runtime not detected: install the onnxruntime library, configure its path in Settings → Projects, and restart CodeTextor to enable FastEmbed/ONNX models.")
+			})
+			return nil, fmt.Errorf("ONNX Runtime not detected: set the shared library path in Settings → Projects and restart CodeTextor to enable %s", meta.ID)
+		}
+
+		if strings.TrimSpace(meta.LocalPath) == "" || !strings.EqualFold(meta.DownloadStatus, "ready") {
+			updated, err := s.DownloadEmbeddingModel(meta.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to download ONNX model %s: %w", meta.ID, err)
+			}
+			meta = updated.Clone()
+			project.Config.EmbeddingModelInfo = meta.Clone()
+			if err := s.updateProjectMetadata(project); err != nil {
+				log.Printf("Failed to update embedding metadata for %s: %v", project.ID, err)
+			}
+		}
+
+		s.clientsMu.Lock()
+		client, ok := s.embeddingClients[meta.ID]
+		s.clientsMu.Unlock()
+		if ok {
+			return client, nil
+		}
+
+		newClient, err := embedding.NewONNXEmbeddingClient(meta)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize ONNX model %s: %w", meta.ID, err)
+		}
+		s.clientsMu.Lock()
+		s.embeddingClients[meta.ID] = newClient
+		s.clientsMu.Unlock()
+		return newClient, nil
+	default:
+		return nil, fmt.Errorf("embedding backend %s is not supported", meta.Backend)
+	}
+}
+
+func refreshModelLocalStatus(meta *models.EmbeddingModelInfo) {
+	if meta == nil {
+		return
+	}
+	if strings.EqualFold(meta.Backend, "fastembed") {
+		dir, err := embedding.ResolveFastEmbedDir(meta)
+		if err != nil {
+			meta.DownloadStatus = "pending"
+			return
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			meta.LocalPath = dir
+			meta.DownloadStatus = "ready"
+		} else if meta.DownloadStatus == "" {
+			meta.DownloadStatus = "pending"
+		} else {
+			meta.DownloadStatus = "missing"
+		}
+		return
+	}
+	targetPath := strings.TrimSpace(meta.LocalPath)
+	if targetPath == "" {
+		if resolved, err := embedding.ResolveModelPath(meta); err == nil {
+			targetPath = resolved
+		}
+	}
+	if targetPath == "" {
+		if meta.DownloadStatus == "" {
+			meta.DownloadStatus = "pending"
+		}
+		return
+	}
+	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
+		meta.LocalPath = targetPath
+		meta.DownloadStatus = "ready"
+	} else if meta.DownloadStatus == "" {
+		meta.DownloadStatus = "pending"
+	} else {
+		meta.DownloadStatus = "missing"
+	}
+}
+
+func (s *ProjectService) makeDownloadProgressEmitter() embedding.DownloadProgressCallback {
+	if s.eventEmitter == nil {
+		return nil
+	}
+	return func(update embedding.DownloadProgress) {
+		s.eventEmitter("embedding:download-progress", update)
+	}
+}
+
+// ListEmbeddingModels returns the catalog entries stored in the config DB.
+func (s *ProjectService) ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error) {
+	entries, err := s.configStore.ListEmbeddingModels()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*models.EmbeddingModelInfo, 0, len(entries))
+	for _, entry := range entries {
+		refreshModelLocalStatus(entry)
+		result = append(result, entry.Clone())
+	}
+	return result, nil
+}
+
+// SaveEmbeddingModel creates or updates a catalog entry (used by the frontend modal).
+func (s *ProjectService) SaveEmbeddingModel(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error) {
+	sanitized := model.Clone()
+	if sanitized == nil {
+		return nil, fmt.Errorf("embedding model payload cannot be empty")
+	}
+
+	sanitized.ID = strings.TrimSpace(sanitized.ID)
+	if sanitized.ID == "" {
+		sanitized.ID = utils.GenerateSlug(sanitized.DisplayName)
+	}
+	if sanitized.ID == "" {
+		return nil, fmt.Errorf("embedding model id cannot be empty")
+	}
+	if sanitized.Dimension <= 0 {
+		return nil, fmt.Errorf("embedding model dimension must be greater than zero")
+	}
+	if sanitized.SourceType == "" {
+		sanitized.SourceType = "custom"
+	}
+	if sanitized.DownloadStatus == "" {
+		sanitized.DownloadStatus = "unknown"
+	}
+	if sanitized.DisplayName == "" {
+		sanitized.DisplayName = sanitized.ID
+	}
+	if sanitized.DownloadStatus == "" {
+		sanitized.DownloadStatus = "pending"
+	}
+
+	if err := s.configStore.UpsertEmbeddingModel(sanitized.Clone()); err != nil {
+		return nil, err
+	}
+
+	return sanitized, nil
+}
+
+// DownloadEmbeddingModel ensures the specified model is downloaded locally.
+func (s *ProjectService) DownloadEmbeddingModel(modelID string) (*models.EmbeddingModelInfo, error) {
+	meta, err := s.configStore.GetEmbeddingModel(modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	metaClone := meta.Clone()
+	metaClone.DownloadStatus = "downloading"
+	if err := s.configStore.UpsertEmbeddingModel(metaClone); err != nil {
+		return nil, err
+	}
+
+	updated, err := s.modelDownloader.EnsureLocal(metaClone, s.makeDownloadProgressEmitter())
+	if err != nil {
+		metaClone.DownloadStatus = "error"
+		metaClone.Notes = strings.TrimSpace(fmt.Sprintf("%s\nDownload error: %v", metaClone.Notes, err))
+		_ = s.configStore.UpsertEmbeddingModel(metaClone)
+		return nil, err
+	}
+
+	cloned := updated.Clone()
+	if err := s.configStore.UpsertEmbeddingModel(cloned); err != nil {
+		return nil, err
+	}
+
+	s.clientsMu.Lock()
+	if client, ok := s.embeddingClients[modelID]; ok {
+		client.Close()
+		delete(s.embeddingClients, modelID)
+	}
+	s.clientsMu.Unlock()
+
+	return cloned, nil
+}
+
+// Search executes a semantic search over indexed chunks for a project.
+func (s *ProjectService) Search(projectID string, query string, k int) (*models.SearchResponse, error) {
+	start := time.Now()
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil, fmt.Errorf("query cannot be empty")
+	}
+
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := s.getEmbeddingClient(project)
+	if err != nil {
+		return nil, err
+	}
+
+	vecs, err := client.GenerateEmbeddings([]string{trimmed})
+	if err != nil || len(vecs) == 0 {
+		if err != nil {
+			return nil, fmt.Errorf("failed to embed query: %w", err)
+		}
+		return nil, fmt.Errorf("embedding client returned no vector")
+	}
+
+	vectorStore, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := vectorStore.SearchSimilarChunks(vecs[0], k)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range results {
+		c.ProjectID = projectID
+		c.Embedding = nil // avoid sending large payloads
+	}
+
+	resp := &models.SearchResponse{
+		Chunks:       results,
+		TotalResults: len(results),
+		QueryTimeMs:  time.Since(start).Milliseconds(),
+	}
+	return resp, nil
+}
+
+// GetEmbeddingCapabilities reports which embedding backends are currently available.
+func (s *ProjectService) GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error) {
+	return &models.EmbeddingCapabilities{OnnxRuntimeAvailable: s.enableONNXRuntime}, nil
+}
+
+// GetONNXRuntimeSettings returns the persisted runtime path plus current status.
+func (s *ProjectService) GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error) {
+	return s.buildONNXRuntimeSettings(), nil
+}
+
+// UpdateONNXRuntimeSettings saves the ONNX runtime path for future startups.
+func (s *ProjectService) UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error) {
+	sanitized := strings.TrimSpace(path)
+	if sanitized == "" {
+		if err := s.configStore.DeleteValue(onnxRuntimePathKey); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.configStore.SetValue(onnxRuntimePathKey, sanitized); err != nil {
+			return nil, err
+		}
+	}
+	s.onnxRuntimePath = sanitized
+	return s.buildONNXRuntimeSettings(), nil
+}
+
+// TestONNXRuntimePath performs a lightweight validation of the provided path.
+func (s *ProjectService) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error) {
+	sanitized := strings.TrimSpace(path)
+	if sanitized == "" {
+		return &models.ONNXRuntimeTestResult{
+			Success: false,
+			Message: "Please provide a path to the ONNX runtime library.",
+		}, nil
+	}
+	info, err := os.Stat(sanitized)
+	if err != nil {
+		return &models.ONNXRuntimeTestResult{
+			Success: false,
+			Message: "Unable to access the provided path.",
+			Error:   err.Error(),
+		}, nil
+	}
+	if info.IsDir() {
+		return &models.ONNXRuntimeTestResult{
+			Success: false,
+			Message: "The provided path points to a directory. Select the shared library file (e.g., libonnxruntime.so).",
+		}, nil
+	}
+
+	result := &models.ONNXRuntimeTestResult{
+		Success: true,
+		Message: "Library found. Save and restart CodeTextor to apply this path.",
+	}
+	// If runtime is already initialized, remind about restart.
+	if s.enableONNXRuntime && s.activeONNXPath != "" && !strings.EqualFold(s.activeONNXPath, sanitized) {
+		result.Message = "Library found. Restart CodeTextor to switch to this path."
+	}
+	return result, nil
+}
+
+func (s *ProjectService) buildONNXRuntimeSettings() *models.ONNXRuntimeSettings {
+	expected := strings.TrimSpace(s.onnxRuntimePath)
+	active := strings.TrimSpace(s.activeONNXPath)
+	return &models.ONNXRuntimeSettings{
+		SharedLibraryPath: expected,
+		ActivePath:        active,
+		RuntimeAvailable:  s.enableONNXRuntime,
+		RequiresRestart:   !strings.EqualFold(expected, active),
+	}
 }
 
 func mergeConfig(base, override models.ProjectConfig) models.ProjectConfig {
@@ -577,6 +1124,11 @@ func mergeConfig(base, override models.ProjectConfig) models.ProjectConfig {
 	}
 	if override.EmbeddingModel != "" {
 		result.EmbeddingModel = override.EmbeddingModel
+		if override.EmbeddingModelInfo != nil {
+			result.EmbeddingModelInfo = override.EmbeddingModelInfo
+		}
+	} else if override.EmbeddingModelInfo != nil {
+		result.EmbeddingModelInfo = override.EmbeddingModelInfo
 	}
 	if override.MaxResponseBytes != 0 {
 		result.MaxResponseBytes = override.MaxResponseBytes
@@ -964,8 +1516,37 @@ func (s *ProjectService) GetProjectStats(projectID string) (*models.ProjectStats
 		}
 	}
 
-	// Add project information
-	_ = project // Use project if needed for additional context
+	resolveModelInfo := func(modelID string) *models.EmbeddingModelInfo {
+		trimmed := strings.TrimSpace(modelID)
+		if trimmed == "" {
+			return nil
+		}
+		if project.Config.EmbeddingModelInfo != nil && strings.EqualFold(project.Config.EmbeddingModelInfo.ID, trimmed) {
+			return project.Config.EmbeddingModelInfo.Clone()
+		}
+		if meta, err := s.configStore.GetEmbeddingModel(trimmed); err == nil && meta != nil {
+			return meta.Clone()
+		}
+		return &models.EmbeddingModelInfo{
+			ID:          trimmed,
+			DisplayName: trimmed,
+		}
+	}
+
+	for idx := range stats.EmbeddingModels {
+		stats.EmbeddingModels[idx].ModelInfo = resolveModelInfo(stats.EmbeddingModels[idx].ModelID)
+	}
+
+	if len(stats.EmbeddingModels) > 0 {
+		if stats.EmbeddingModels[0].ModelInfo != nil {
+			stats.LastEmbeddingModel = stats.EmbeddingModels[0].ModelInfo.Clone()
+		} else if stats.EmbeddingModels[0].ModelID != "" {
+			stats.LastEmbeddingModel = &models.EmbeddingModelInfo{
+				ID:          stats.EmbeddingModels[0].ModelID,
+				DisplayName: stats.EmbeddingModels[0].ModelID,
+			}
+		}
+	}
 
 	return stats, nil
 }
@@ -1014,7 +1595,10 @@ func (s *ProjectService) GetAllProjectsStats() (*models.ProjectStats, error) {
 		}
 	}
 
-	cumulativeStats.LastIndexedAt = latestIndexTime
+	if latestIndexTime != nil {
+		cumulativeStats.LastIndexedAt = latestIndexTime
+		cumulativeStats.LastIndexedAtUnix = latestIndexTime.Unix()
+	}
 
 	// Check if any project is currently indexing
 	for _, project := range projects {
@@ -1050,5 +1634,13 @@ func (s *ProjectService) Close() error {
 			firstErr = err
 		}
 	}
+	s.clientsMu.Lock()
+	for id, client := range s.embeddingClients {
+		if err := client.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		delete(s.embeddingClients, id)
+	}
+	s.clientsMu.Unlock()
 	return firstErr
 }

@@ -122,7 +122,7 @@ const refreshFileTree = async () => {
     );
     fileTree.value = buildFileTree(previews);
   } catch (error) {
-    treeError.value = error instanceof Error ? error.message : 'Errore sconosciuto';
+    treeError.value = error instanceof Error ? error.message : 'Unknown error';
   } finally {
     isLoadingTree.value = false;
   }

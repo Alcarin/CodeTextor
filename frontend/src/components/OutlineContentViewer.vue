@@ -36,7 +36,7 @@ const loadFileContent = async () => {
   try {
     fileContent.value = await backend.readFileContent(props.projectId, props.filePath);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Errore nel caricamento del file';
+    error.value = err instanceof Error ? err.message : 'Error loading file';
     fileContent.value = '';
   } finally {
     isLoading.value = false;
@@ -109,7 +109,7 @@ const getDisplayLines = () => {
         <div class="file-path">{{ filePath }}</div>
         <div v-if="selectedNode" class="selection-info">
           <span class="node-name">{{ selectedNode.name }}</span>
-          <span class="line-range">Linee {{ selectedNode.startLine }}-{{ selectedNode.endLine }}</span>
+          <span class="line-range">Lines {{ selectedNode.startLine }}-{{ selectedNode.endLine }}</span>
         </div>
       </header>
 

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Embedding model catalog with per-project selection snapshot, custom-model modal, download manager storing artifacts under `<AppDataDir>/models/<modelId>`, and ONNX Runtime-based embedding generation (automatic tokenizer/ONNX downloads, shared sessions per model)
 - Multi-project management (create, edit, delete, select) with per-project SQLite databases
 - Human-readable project slugs and slug auto-generation/validation
 - Persistent indexing state and visual feedback in the Projects view

@@ -37,10 +37,11 @@ type Indexer struct {
 	debounceMu     sync.Mutex
 	debounceTimers map[string]*time.Timer
 	eventEmitter   func(string, interface{})
+	embeddingModelID string
 }
 
 // NewIndexer creates a new indexer for a project.
-func NewIndexer(project *models.Project, vectorStore *store.VectorStore, eventEmitter func(string, interface{})) *Indexer {
+func NewIndexer(project *models.Project, vectorStore *store.VectorStore, eventEmitter func(string, interface{}), client embedding.EmbeddingClient) (*Indexer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create chunk config from project settings
@@ -52,20 +53,34 @@ func NewIndexer(project *models.Project, vectorStore *store.VectorStore, eventEm
 		IncludeComments:   true,
 	}
 
+	if client == nil {
+		cancel()
+		return nil, fmt.Errorf("embedding client is required for project %s", project.ID)
+	}
+
+	modelID := strings.TrimSpace(project.Config.EmbeddingModel)
+	if modelID == "" && project.Config.EmbeddingModelInfo != nil {
+		modelID = project.Config.EmbeddingModelInfo.ID
+	}
+	if modelID == "" {
+		modelID = "unknown"
+	}
+
 	return &Indexer{
 		project:         project,
 		progress:        &models.IndexingProgress{Status: models.IndexingStatusIdle},
 		stopChan:        make(chan struct{}),
 		ctx:             ctx,
 		cancel:          cancel,
-		semaphore:       make(chan struct{}, 10),                // Limit to 10 concurrent operations
-		embeddingClient: embedding.NewMockEmbeddingClient(1536), // Using a common dimension size
+		semaphore:       make(chan struct{}, 10), // Limit to 10 concurrent operations
+		embeddingClient: client,
 		vectorStore:     vectorStore,
 		parser:          chunker.NewParser(chunkConfig),
 		semanticChunker: chunker.NewSemanticChunker(chunkConfig),
 		debounceTimers:  make(map[string]*time.Timer),
 		eventEmitter:    eventEmitter,
-	}
+		embeddingModelID: modelID,
+	}, nil
 }
 
 // Run starts the indexing process.
@@ -78,6 +93,9 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 	i.progress.Error = ""
 
 	log.Printf("Starting indexing for project %s: %d files to process", i.project.Name, i.progress.TotalFiles)
+
+	// Clean up artifacts for files that no longer exist.
+	i.cleanupRemovedFiles(filePreviews)
 
 	// --- Initial Indexing Pass ---
 	var wg sync.WaitGroup
@@ -164,6 +182,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 						TokenCount:  chunk.TokenCount,
 						IsCollapsed: chunk.IsCollapsed,
 						SourceCode:  chunk.SourceCode,
+						EmbeddingModelID: i.embeddingModelID,
 					}
 				}
 				log.Printf("Created %d semantic chunks for file %s", len(semanticChunks), file.RelativePath)
@@ -190,6 +209,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 						LineEnd:   chunk.LineEnd,
 						CharStart: chunk.CharacterStart,
 						CharEnd:   chunk.CharacterEnd,
+						EmbeddingModelID: i.embeddingModelID,
 					}
 				}
 				log.Printf("Created %d simple chunks for file %s (unsupported format)", len(simpleChunks), file.RelativePath)
@@ -540,6 +560,7 @@ func (i *Indexer) updateFileIndex(filePath string) {
 				TokenCount:  chunk.TokenCount,
 				IsCollapsed: chunk.IsCollapsed,
 				SourceCode:  chunk.SourceCode,
+				EmbeddingModelID: i.embeddingModelID,
 			}
 		}
 		log.Printf("Created %d semantic chunks for file %s", len(semanticChunks), relativePath)
@@ -557,15 +578,16 @@ func (i *Indexer) updateFileIndex(filePath string) {
 		for idx, chunk := range simpleChunks {
 			chunkContents[idx] = chunk.Content
 
-			dbChunks[idx] = &models.Chunk{
-				FilePath:  relativePath,
-				Content:   chunk.Content,
-				LineStart: chunk.LineStart,
-				LineEnd:   chunk.LineEnd,
-				CharStart: chunk.CharacterStart,
-				CharEnd:   chunk.CharacterEnd,
-			}
+		dbChunks[idx] = &models.Chunk{
+			FilePath:  relativePath,
+			Content:   chunk.Content,
+			LineStart: chunk.LineStart,
+			LineEnd:   chunk.LineEnd,
+			CharStart: chunk.CharacterStart,
+			CharEnd:   chunk.CharacterEnd,
+			EmbeddingModelID: i.embeddingModelID,
 		}
+	}
 		log.Printf("Created %d simple chunks for file %s", len(simpleChunks), relativePath)
 	}
 
@@ -649,7 +671,8 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 
 		absKey := filepath.ToSlash(absPath)
 		if absKey != relativePath {
-			if err := i.vectorStore.DeleteFileOutline(absKey); err != nil {
+			// Remove any legacy absolute-path outline/symbol/chunk records without touching the new relative entry.
+			if err := i.vectorStore.RemoveFileAndArtifacts(absKey); err != nil && !strings.Contains(err.Error(), "file not found") {
 				log.Printf("Failed to remove legacy outline key %s: %v", absKey, err)
 			}
 		}
@@ -683,6 +706,39 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 	}
 
 	i.emitFileUpdate(relativePath)
+}
+
+// cleanupRemovedFiles deletes stored artifacts for files missing from disk.
+func (i *Indexer) cleanupRemovedFiles(currentFiles []*models.FilePreview) {
+	if i.vectorStore == nil {
+		return
+	}
+	current := make(map[string]struct{}, len(currentFiles))
+	for _, f := range currentFiles {
+		current[filepath.ToSlash(f.RelativePath)] = struct{}{}
+	}
+
+	tracked, err := i.vectorStore.ListAllFilePaths()
+	if err != nil {
+		log.Printf("Failed to list tracked files for cleanup: %v", err)
+		return
+	}
+
+	for _, path := range tracked {
+		if _, ok := current[path]; ok {
+			continue
+		}
+		abs := filepath.Join(i.project.Config.RootPath, path)
+		if _, err := os.Stat(abs); err == nil {
+			// File still exists but not in current scope; skip removal.
+			continue
+		}
+		if err := i.vectorStore.RemoveFileAndArtifacts(path); err != nil {
+			log.Printf("Failed to remove stale artifacts for %s: %v", path, err)
+			continue
+		}
+		log.Printf("Removed stale artifacts for missing file %s", path)
+	}
 }
 
 func (i *Indexer) emitFileUpdate(filePath string) {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
 import { backend } from '../api/backend';
-import type { IndexingProgress, FilePreview, Project } from '../types';
+import type { IndexingProgress, FilePreview, Project, EmbeddingModelInfo, EmbeddingCapabilities, ProjectStats } from '../types';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { EMBEDDING_DOWNLOAD_PROGRESS_EVENT } from '../constants/events';
 
 // Get current project and navigation
 const { currentProject, refreshCurrentProject } = useCurrentProject();
@@ -20,6 +22,384 @@ const indexingEnabled = ref(false);
 const manualReindexing = ref(false);
 
 let progressTimer: ReturnType<typeof setInterval> | null = null;
+let downloadEventOff: (() => void) | null = null;
+
+// Embedding model catalog state
+const embeddingModels = ref<EmbeddingModelInfo[]>([]);
+const selectedEmbeddingModelId = ref('');
+const isLoadingEmbeddingModels = ref(false);
+const showCustomModelModal = ref(false);
+const isSavingEmbeddingModel = ref(false);
+const suppressEmbeddingWatcher = ref(false);
+const isDownloadingModel = ref(false);
+const showDownloadModal = ref(false);
+const currentDownloadModelId = ref('');
+const downloadStage = ref('');
+const downloadPercent = ref(0);
+const downloadHasTotal = ref(false);
+const embeddingCapabilities = ref<EmbeddingCapabilities | null>(null);
+const projectStats = ref<ProjectStats | null>(null);
+const statsError = ref('');
+const isLoadingStats = ref(false);
+const hasPersistedEmbeddings = computed(() => {
+  const stats = projectStats.value;
+  if (!stats) {
+    return false;
+  }
+  return (stats.totalChunks ?? 0) > 0 || (stats.totalFiles ?? 0) > 0;
+});
+
+interface CustomModelFormData {
+  id: string;
+  displayName: string;
+  description: string;
+  dimension: number;
+  diskSizeMB: number;
+  ramMB: number;
+  cpuLatencyMs: number;
+  isMultilingual: boolean;
+  codeQuality: string;
+  notes: string;
+  sourceType: string;
+  sourceUri: string;
+  license: string;
+  codeFocus: string;
+}
+
+interface EmbeddingDownloadProgressPayload {
+  modelId: string;
+  stage: string;
+  downloaded: number;
+  total: number;
+}
+
+const customModelForm = reactive<CustomModelFormData>({
+  id: '',
+  displayName: '',
+  description: '',
+  dimension: 384,
+  diskSizeMB: 0,
+  ramMB: 0,
+  cpuLatencyMs: 0,
+  isMultilingual: false,
+  codeQuality: 'good',
+  notes: '',
+  sourceType: 'custom',
+  sourceUri: '',
+  license: '',
+  codeFocus: 'general',
+});
+
+const backendGroupOrder = ['fastembed', 'onnx'];
+const backendGroupMetadata: Record<string, { label: string; description: string }> = {
+  fastembed: {
+    label: 'FastEmbed (CPU)',
+    description: 'Lightweight CPU models (uses ONNX Runtime).',
+  },
+  onnx: {
+    label: 'ONNX',
+    description: 'Larger ONNX models. Requires the onnxruntime library.',
+  },
+};
+
+const backendRequiresOnnx = () => true;
+
+const backendOrderIndex = (backend: string) => {
+  const normalized = backend.toLowerCase();
+  const idx = backendGroupOrder.indexOf(normalized);
+  if (idx === -1) {
+    return backendGroupOrder.length;
+  }
+  return idx;
+};
+
+const capabilitiesKnown = computed(() => embeddingCapabilities.value !== null);
+const onnxRuntimeAvailable = computed(() => !capabilitiesKnown.value || !!embeddingCapabilities.value?.onnxRuntimeAvailable);
+
+const getModelBackend = (model?: EmbeddingModelInfo) => {
+  if (!model?.backend) {
+    return 'onnx';
+  }
+  return model.backend.toLowerCase();
+};
+
+const selectedEmbeddingModel = computed<EmbeddingModelInfo | undefined>(() => {
+  return embeddingModels.value.find(model => model.id === selectedEmbeddingModelId.value);
+});
+
+const embeddingModelStatusLabel = computed(() => {
+  if (!selectedEmbeddingModel.value) {
+    return 'N/A';
+  }
+  const status = selectedEmbeddingModel.value.downloadStatus || 'pending';
+  switch (status) {
+    case 'ready':
+      return 'Ready';
+    case 'downloading':
+      return 'Downloading…';
+    case 'error':
+      return 'Error';
+    case 'missing':
+      return 'Missing';
+    default:
+      return 'Pending download';
+  }
+});
+
+const needsModelDownload = computed(() => {
+  return !!selectedEmbeddingModel.value && selectedEmbeddingModel.value.downloadStatus !== 'ready';
+});
+
+const formatTimestamp = (unix?: number | null) => {
+  if (!unix || unix <= 0) {
+    return 'Never indexed';
+  }
+  const date = new Date(unix * 1000);
+  return date.toLocaleString();
+};
+
+const lastIndexedText = computed(() => formatTimestamp(projectStats.value?.lastIndexedAtUnix));
+
+const lastIndexedModelInfo = computed<EmbeddingModelInfo | undefined>(() => {
+  if (projectStats.value?.lastEmbeddingModel?.id) {
+    return projectStats.value.lastEmbeddingModel;
+  }
+  return undefined;
+});
+
+const embeddingUsageSummaries = computed(() => {
+  const usage = projectStats.value?.embeddingModels ?? [];
+  if (usage.length === 0) {
+    return [];
+  }
+  const total = usage.reduce((sum, entry) => sum + (entry.chunkCount ?? 0), 0);
+  return usage.map(entry => {
+    const label = entry.modelInfo?.displayName || entry.modelId || 'Unknown model';
+    const details = entry.modelInfo ? describeModelAttributes(entry.modelInfo) : '';
+    const percent = total > 0 ? Math.round((entry.chunkCount / total) * 100) : 0;
+    return {
+      id: entry.modelId || label,
+      label,
+      details: details || 'Model metadata unavailable.',
+      chunkCount: entry.chunkCount,
+      percent,
+      modelId: entry.modelId || '',
+      modelInfo: entry.modelInfo,
+    };
+  });
+});
+
+const primaryEmbeddingUsage = computed(() => embeddingUsageSummaries.value[0]);
+
+const embeddingModelSummary = computed(() => {
+  if (embeddingUsageSummaries.value.length === 0) {
+    if (lastIndexedModelInfo.value?.displayName) {
+      return lastIndexedModelInfo.value.displayName;
+    }
+    return hasPersistedEmbeddings.value ? 'Unknown model' : 'Not indexed yet';
+  }
+  if (embeddingUsageSummaries.value.length === 1) {
+    return embeddingUsageSummaries.value[0].label;
+  }
+  return `${embeddingUsageSummaries.value[0].label} (+${embeddingUsageSummaries.value.length - 1} altri)`;
+});
+
+const storedEmbeddingModelLabel = computed(() => {
+  if (primaryEmbeddingUsage.value) {
+    return primaryEmbeddingUsage.value.label;
+  }
+  if (lastIndexedModelInfo.value?.displayName) {
+    return lastIndexedModelInfo.value.displayName;
+  }
+  if (hasPersistedEmbeddings.value) {
+    return 'Unknown model';
+  }
+  return 'Not indexed yet';
+});
+
+const storedEmbeddingModelDetails = computed(() => {
+  if (primaryEmbeddingUsage.value) {
+    const detailParts = [
+      `${primaryEmbeddingUsage.value.chunkCount} chunks`,
+    ];
+    if (primaryEmbeddingUsage.value.percent > 0) {
+      detailParts.push(`${primaryEmbeddingUsage.value.percent}%`);
+    }
+    if (primaryEmbeddingUsage.value.details) {
+      detailParts.push(primaryEmbeddingUsage.value.details);
+    }
+    return detailParts.join(' · ');
+  }
+  if (lastIndexedModelInfo.value) {
+    const attributes = describeModelAttributes(lastIndexedModelInfo.value);
+    return attributes || 'Model metadata unavailable.';
+  }
+  if (hasPersistedEmbeddings.value) {
+    return 'Embeddings exist, but their source model predates this version of CodeTextor.';
+  }
+  return 'Start an indexing run to generate embeddings with the selected model.';
+});
+
+const embeddingModelSelectionMismatch = computed(() => {
+  if (!selectedEmbeddingModelId.value) {
+    return false;
+  }
+  const referenceId =
+    primaryEmbeddingUsage.value?.modelInfo?.id ||
+    primaryEmbeddingUsage.value?.modelId ||
+    lastIndexedModelInfo.value?.id;
+  if (!referenceId) {
+    return false;
+  }
+  return referenceId.trim().toLowerCase() !== selectedEmbeddingModelId.value.trim().toLowerCase();
+});
+
+const mismatchReferenceLabel = computed(() => {
+  if (primaryEmbeddingUsage.value) {
+    return primaryEmbeddingUsage.value.label;
+  }
+  if (lastIndexedModelInfo.value?.displayName) {
+    return lastIndexedModelInfo.value.displayName;
+  }
+  return 'stored embeddings';
+});
+
+const indexingResumeMessage = computed(() => {
+  if (isIndexing.value && progress.value.status === 'indexing') {
+    if (progress.value.totalFiles > 0) {
+      return `Indexing in progress (${progress.value.processedFiles}/${progress.value.totalFiles} files processed)`;
+    }
+    return 'Indexing started… preparing file list';
+  }
+  if (progress.value.status === 'error' && progress.value.error) {
+    return `Last run failed: ${progress.value.error}`;
+  }
+  return '';
+});
+
+const groupedEmbeddingModels = computed(() => {
+  const groups = new Map<string, { backend: string; label: string; description: string; models: EmbeddingModelInfo[]; disabled: boolean }>();
+
+  const ensureGroup = (backend: string) => {
+    const normalized = backend.toLowerCase();
+    if (!groups.has(normalized)) {
+      const meta = backendGroupMetadata[normalized] || {
+        label: normalized.toUpperCase(),
+        description: 'Modello personalizzato',
+      };
+      groups.set(normalized, {
+        backend: normalized,
+        label: meta.label,
+        description: meta.description,
+        models: [],
+        disabled: normalized === 'onnx' && !onnxRuntimeAvailable.value,
+      });
+    }
+    return groups.get(normalized)!;
+  };
+
+  embeddingModels.value.forEach(model => {
+    const backend = getModelBackend(model) || 'onnx';
+    ensureGroup(backend).models.push(model);
+  });
+
+  const sorted = Array.from(groups.values());
+  sorted.forEach(group => {
+    group.models.sort((a, b) => a.displayName.localeCompare(b.displayName));
+    group.disabled = backendRequiresOnnx() && !onnxRuntimeAvailable.value;
+  });
+  sorted.sort((a, b) => {
+    const orderDiff = backendOrderIndex(a.backend) - backendOrderIndex(b.backend);
+    if (orderDiff !== 0) {
+      return orderDiff;
+    }
+    return a.label.localeCompare(b.label);
+  });
+  return sorted;
+});
+
+const hasModelsRequiringOnnx = computed(() => groupedEmbeddingModels.value.some(group => backendRequiresOnnx() && group.models.length > 0));
+
+const formatBytesToMB = (bytes?: number) => {
+  if (!bytes || bytes <= 0) {
+    return '0';
+  }
+  return (bytes / (1024 * 1024)).toFixed(bytes >= 200 * 1024 * 1024 ? 0 : 1);
+};
+
+const describeModelAttributes = (model: EmbeddingModelInfo) => {
+  const parts: string[] = [];
+  if (model.dimension) {
+    parts.push(`${model.dimension} dims`);
+  }
+  if (model.diskSizeBytes) {
+    parts.push(`Disk ~${formatBytesToMB(model.diskSizeBytes)} MB`);
+  }
+  if (model.ramRequirementBytes) {
+    parts.push(`RAM ~${formatBytesToMB(model.ramRequirementBytes)} MB`);
+  }
+  if (model.cpuLatencyMs) {
+    parts.push(`~${model.cpuLatencyMs} ms`);
+  }
+  parts.push(model.isMultilingual ? 'Multilingual' : 'English only');
+  if (model.codeQuality) {
+    parts.push(model.codeQuality);
+  }
+  if (model.codeFocus) {
+    parts.push(model.codeFocus);
+  }
+  return parts.join(' · ');
+};
+
+const describeModelOption = (model: EmbeddingModelInfo) => {
+  const attributes = describeModelAttributes(model);
+  if (attributes) {
+    return `${model.displayName} · ${attributes}`;
+  }
+  return model.displayName;
+};
+
+const selectedModelLabel = computed(() => {
+  if (selectedEmbeddingModel.value) {
+    return describeModelOption(selectedEmbeddingModel.value);
+  }
+  if (embeddingModels.value.length === 0) {
+    return isLoadingEmbeddingModels.value ? 'Loading models…' : 'No models available';
+  }
+  return 'Select an embedding model';
+});
+
+const isEmbeddingDropdownOpen = ref(false);
+const embeddingSelectRef = ref<HTMLElement | null>(null);
+
+const toggleEmbeddingDropdown = () => {
+  if (isLoadingEmbeddingModels.value || embeddingModels.value.length === 0) {
+    return;
+  }
+  isEmbeddingDropdownOpen.value = !isEmbeddingDropdownOpen.value;
+};
+
+const closeEmbeddingDropdown = () => {
+  isEmbeddingDropdownOpen.value = false;
+};
+
+const handleSelectModelFromDropdown = (model: EmbeddingModelInfo, disabled: boolean) => {
+  if (disabled) {
+    return;
+  }
+  selectedEmbeddingModelId.value = model.id;
+  closeEmbeddingDropdown();
+};
+
+const handleWindowClick = (event: MouseEvent) => {
+  if (!isEmbeddingDropdownOpen.value) {
+    return;
+  }
+  const target = event.target as Node;
+  if (embeddingSelectRef.value && !embeddingSelectRef.value.contains(target)) {
+    closeEmbeddingDropdown();
+  }
+};
 
 // Computed properties
 const isIndexing = computed(() => progress.value.status === 'indexing');
@@ -66,6 +446,7 @@ const fetchFilePreviews = async () => {
         chunkSizeMin: currentProject.value!.config.chunkSizeMin,
         chunkSizeMax: currentProject.value!.config.chunkSizeMax,
         embeddingModel: currentProject.value!.config.embeddingModel,
+        embeddingModelInfo: currentProject.value!.config.embeddingModelInfo,
         maxResponseBytes: currentProject.value!.config.maxResponseBytes,
       };
       const result = await backend.getFilePreviews(currentProject.value!.id, previewConfig);
@@ -76,6 +457,213 @@ const fetchFilePreviews = async () => {
       files.value = [];
     }
   }, 300); // Wait 300ms before fetching to batch rapid changes
+};
+
+// ===== Embedding model helpers =====
+
+const cloneModelInfo = (model?: EmbeddingModelInfo) => {
+  if (!model) {
+    return undefined;
+  }
+  return JSON.parse(JSON.stringify(model)) as EmbeddingModelInfo;
+};
+
+const updateProjectEmbeddingSelection = async (modelId: string, options?: { skipSave?: boolean }) => {
+  if (!currentProject.value) {
+    return;
+  }
+  currentProject.value.config.embeddingModel = modelId;
+  const match = embeddingModels.value.find(model => model.id === modelId);
+  currentProject.value.config.embeddingModelInfo = cloneModelInfo(match);
+
+  if (!options?.skipSave) {
+    await saveProjectConfig({ immediate: true });
+  }
+};
+
+const syncEmbeddingSelectionFromProject = (project?: Project | null, options?: { skipSave?: boolean }) => {
+  if (!project) {
+    return;
+  }
+  let targetId = project.config?.embeddingModel;
+  if (!targetId && embeddingModels.value.length > 0) {
+    targetId = embeddingModels.value[0].id;
+  }
+  suppressEmbeddingWatcher.value = true;
+  selectedEmbeddingModelId.value = targetId || '';
+  nextTick(() => {
+    suppressEmbeddingWatcher.value = false;
+  });
+  if (targetId) {
+    void updateProjectEmbeddingSelection(targetId, { skipSave: options?.skipSave ?? true });
+  }
+};
+
+const loadEmbeddingCapabilities = async () => {
+  try {
+    const capabilities = await backend.getEmbeddingCapabilities();
+    embeddingCapabilities.value = capabilities || null;
+  } catch (error) {
+    console.error('Failed to load embedding capabilities:', error);
+    embeddingCapabilities.value = null;
+  }
+};
+
+const loadEmbeddingCatalog = async () => {
+  try {
+    isLoadingEmbeddingModels.value = true;
+    const catalog = await backend.listEmbeddingModels();
+    embeddingModels.value = catalog || [];
+    syncEmbeddingSelectionFromProject(currentProject.value, { skipSave: true });
+  } catch (error) {
+    console.error('Failed to load embedding models:', error);
+    embeddingModels.value = [];
+  } finally {
+    isLoadingEmbeddingModels.value = false;
+  }
+};
+
+const loadProjectStats = async () => {
+  if (!currentProject.value) {
+    projectStats.value = null;
+    statsError.value = '';
+    return;
+  }
+  isLoadingStats.value = true;
+  try {
+    const stats = await backend.getProjectStats(currentProject.value.id);
+    projectStats.value = stats || null;
+    statsError.value = '';
+  } catch (error) {
+    console.error('Failed to load project stats:', error);
+    statsError.value = error instanceof Error ? error.message : 'Unknown error';
+    projectStats.value = null;
+  } finally {
+    isLoadingStats.value = false;
+  }
+};
+
+const resetCustomModelForm = () => {
+  customModelForm.id = '';
+  customModelForm.displayName = '';
+  customModelForm.description = '';
+  customModelForm.dimension = selectedEmbeddingModel.value?.dimension || 384;
+  customModelForm.diskSizeMB = 0;
+  customModelForm.ramMB = 0;
+  customModelForm.cpuLatencyMs = 0;
+  customModelForm.isMultilingual = false;
+  customModelForm.codeQuality = 'good';
+  customModelForm.notes = '';
+  customModelForm.sourceType = 'custom';
+  customModelForm.sourceUri = '';
+  customModelForm.license = '';
+  customModelForm.codeFocus = 'general';
+};
+
+const openCustomModelModal = () => {
+  resetCustomModelForm();
+  showCustomModelModal.value = true;
+};
+
+const closeCustomModelModal = () => {
+  if (isSavingEmbeddingModel.value) {
+    return;
+  }
+  showCustomModelModal.value = false;
+};
+
+const saveCustomModel = async () => {
+  if (!customModelForm.displayName.trim()) {
+    alert('Please provide a name for the model.');
+    return;
+  }
+  if (!customModelForm.dimension || customModelForm.dimension <= 0) {
+    alert('Dimension must be greater than zero.');
+    return;
+  }
+
+  isSavingEmbeddingModel.value = true;
+  try {
+    const payload = {
+      id: customModelForm.id.trim(),
+      displayName: customModelForm.displayName.trim(),
+      description: customModelForm.description.trim(),
+      dimension: customModelForm.dimension,
+      diskSizeBytes: Math.round((customModelForm.diskSizeMB || 0) * 1024 * 1024),
+      ramRequirementBytes: Math.round((customModelForm.ramMB || 0) * 1024 * 1024),
+      cpuLatencyMs: customModelForm.cpuLatencyMs || undefined,
+      isMultilingual: customModelForm.isMultilingual,
+      codeQuality: customModelForm.codeQuality,
+      notes: customModelForm.notes.trim(),
+      sourceType: customModelForm.sourceType || 'custom',
+      sourceUri: customModelForm.sourceUri.trim(),
+      license: customModelForm.license.trim(),
+      downloadStatus: 'pending',
+      codeFocus: customModelForm.codeFocus,
+    } as EmbeddingModelInfo;
+
+    const saved = await backend.saveEmbeddingModel(payload);
+    await loadEmbeddingCatalog();
+    suppressEmbeddingWatcher.value = true;
+    selectedEmbeddingModelId.value = saved.id;
+    nextTick(() => {
+      suppressEmbeddingWatcher.value = false;
+    });
+    await updateProjectEmbeddingSelection(saved.id);
+    showCustomModelModal.value = false;
+  } catch (error) {
+    console.error('Failed to save embedding model:', error);
+    alert('Failed to save embedding model. Please check the console for details.');
+  } finally {
+    isSavingEmbeddingModel.value = false;
+  }
+};
+
+const handleDownloadEvent = (payload: EmbeddingDownloadProgressPayload) => {
+  if (!payload || payload.modelId !== currentDownloadModelId.value || !showDownloadModal.value) {
+    return;
+  }
+  downloadStage.value = payload.stage || 'Downloading…';
+  if (typeof payload.total === 'number' && payload.total > 0) {
+    downloadHasTotal.value = true;
+    const ratio = Math.min(Math.max(payload.downloaded / payload.total, 0), 1);
+    downloadPercent.value = Math.round(ratio * 100);
+  } else {
+    downloadHasTotal.value = false;
+    downloadPercent.value = 0;
+  }
+};
+
+const downloadSelectedModel = async () => {
+  if (!selectedEmbeddingModelId.value) {
+    return;
+  }
+  currentDownloadModelId.value = selectedEmbeddingModelId.value;
+  downloadStage.value = 'Starting…';
+  downloadPercent.value = 0;
+  downloadHasTotal.value = false;
+  showDownloadModal.value = true;
+  isDownloadingModel.value = true;
+  try {
+    const updated = await backend.downloadEmbeddingModel(selectedEmbeddingModelId.value);
+    await loadEmbeddingCatalog();
+    // Ensure selected metadata reflects the freshly downloaded model
+    if (currentProject.value) {
+      currentProject.value.config.embeddingModelInfo = cloneModelInfo(updated);
+    }
+    syncEmbeddingSelectionFromProject(currentProject.value, { skipSave: true });
+  } catch (error) {
+    console.error('Failed to download embedding model:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    alert(`Failed to download model: ${message}`);
+  } finally {
+    isDownloadingModel.value = false;
+    showDownloadModal.value = false;
+    currentDownloadModelId.value = '';
+    downloadStage.value = '';
+    downloadPercent.value = 0;
+    downloadHasTotal.value = false;
+  }
 };
 
 const normalizePathValue = (path: string) => {
@@ -229,16 +817,21 @@ const stopProgressPolling = () => {
   }
 };
 
-const triggerIndexingRun = async () => {
+const triggerIndexingRun = async (): Promise<boolean> => {
   if (!currentProject.value) {
-    return;
+    return false;
   }
 
   try {
     await backend.startIndexing(currentProject.value.id);
     console.log('Triggering indexing run for', currentProject.value.id);
+    await loadProjectStats();
+    return true;
   } catch (error) {
     console.error('Failed to start indexing:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    alert(`Failed to start indexing: ${message}`);
+    return false;
   }
 };
 
@@ -255,6 +848,7 @@ const reindexNow = async () => {
   try {
     await backend.reindexProject(currentProject.value.id);
     beginProgressPolling();
+    await loadProjectStats();
   } catch (error) {
     console.error('Failed to re-index project:', error);
     alert('Failed to re-index project: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -282,7 +876,11 @@ const handleProgressTick = async () => {
 
   try {
     const latest = await backend.getIndexingProgress(currentProject.value.id);
-progress.value = latest;
+    const previousStatus = progress.value.status;
+    progress.value = latest;
+    if (latest.status === 'completed' && previousStatus !== 'completed') {
+      await loadProjectStats();
+    }
 
     if (latest.status === 'error') {
       indexingEnabled.value = false;
@@ -296,7 +894,12 @@ progress.value = latest;
 
     if (latest.status === 'completed' && indexingEnabled.value) {
       // TODO: This should be handled by the backend
-      triggerIndexingRun();
+      const started = await triggerIndexingRun();
+      if (!started) {
+        indexingEnabled.value = false;
+        await backend.setProjectIndexing(currentProject.value.id, false);
+        stopProgressPolling();
+      }
     }
 
     if (!indexingEnabled.value && latest.status === 'idle') {
@@ -341,8 +944,16 @@ const enableContinuousIndexing = async () => {
     // Refresh current project to get updated isIndexing state
     await refreshCurrentProject();
 
+    const started = await triggerIndexingRun();
+    if (!started) {
+      await backend.setProjectIndexing(currentProject.value.id, false);
+      await refreshCurrentProject();
+      indexingEnabled.value = false;
+      stopProgressPolling();
+      return;
+    }
+
     indexingEnabled.value = true;
-    triggerIndexingRun();
     beginProgressPolling();
   } catch (error) {
     console.error('Failed to enable indexing:', error);
@@ -365,17 +976,16 @@ const disableContinuousIndexing = async () => {
 
     // Refresh current project to get updated isIndexing state
     await refreshCurrentProject();
-
-    indexingEnabled.value = false;
-    stopProgressPolling();
+    await loadProjectStats();
 
     await safeStopIndexing();
-    // TODO: Get progress from backend
+    indexingEnabled.value = false;
+    stopProgressPolling();
     progress.value = {
-      totalFiles: 0,
-      processedFiles: 0,
+      ...progress.value,
+      status: 'idle',
       currentFile: '',
-      status: 'idle'
+      error: ''
     };
   } catch (error) {
     console.error('Failed to disable indexing:', error);
@@ -427,6 +1037,7 @@ const applyProjectConfigValues = async (project: Project) => {
 	}
 	selectedExtensions.value = project.config?.fileExtensions ?? [];
 	autoExcludeHidden.value = project.config?.autoExcludeHidden ?? true;
+	syncEmbeddingSelectionFromProject(project, { skipSave: true });
 };
 
 const getFileName = (relativePath: string) => {
@@ -464,7 +1075,18 @@ const toggleAllExtensions = () => {
 };
 
 onMounted(async () => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('click', handleWindowClick);
+  }
+
+  downloadEventOff = EventsOn(EMBEDDING_DOWNLOAD_PROGRESS_EVENT, (payload: EmbeddingDownloadProgressPayload) => {
+    handleDownloadEvent(payload);
+  });
+
+  await loadEmbeddingCapabilities();
+
   if (!currentProject.value) {
+    await loadEmbeddingCatalog();
     return;
   }
 
@@ -473,6 +1095,8 @@ onMounted(async () => {
   try {
     // Refresh project to ensure we have the latest state from database
     await refreshCurrentProject();
+    await loadProjectStats();
+    await loadEmbeddingCatalog();
 
     if (!currentProject.value) {
       return;
@@ -491,13 +1115,21 @@ onMounted(async () => {
     }
 
     await fetchFilePreviews();
+    await loadProjectStats();
   } finally {
     isInitializing.value = false; // Re-enable watchers
   }
 });
 
 onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('click', handleWindowClick);
+  }
   stopProgressPolling();
+  if (downloadEventOff) {
+    downloadEventOff();
+    downloadEventOff = null;
+  }
 });
 
 watch(currentProject, async (project, previous) => {
@@ -514,6 +1146,8 @@ watch(currentProject, async (project, previous) => {
       try {
         // Refresh project to get latest state from database
         await refreshCurrentProject();
+        await loadEmbeddingCatalog();
+        await loadProjectStats();
 
         // Use the refreshed project state
         const refreshedProject = currentProject.value;
@@ -556,12 +1190,49 @@ watch(currentProject, async (project, previous) => {
       status: 'idle'
     };
     files.value = []; // Don't call fetchFilePreviews when no project
+    suppressEmbeddingWatcher.value = true;
+    selectedEmbeddingModelId.value = '';
+    nextTick(() => {
+      suppressEmbeddingWatcher.value = false;
+    });
+    projectStats.value = null;
+    statsError.value = '';
   }
 });
 
 let saveConfigTimeout: ReturnType<typeof setTimeout> | null = null;
 
-const saveProjectConfig = async () => {
+const buildProjectConfigPayload = () => {
+  if (!currentProject.value) {
+    return null;
+  }
+  return {
+    includePaths: includePaths.value,
+    excludePatterns: excludePaths.value,
+    rootPath: projectRootPath.value,
+    fileExtensions: selectedExtensions.value,
+    autoExcludeHidden: autoExcludeHidden.value,
+    continuousIndexing: currentProject.value.config.continuousIndexing,
+    chunkSizeMin: currentProject.value.config.chunkSizeMin,
+    chunkSizeMax: currentProject.value.config.chunkSizeMax,
+    embeddingModel: currentProject.value.config.embeddingModel,
+    embeddingModelInfo: currentProject.value.config.embeddingModelInfo,
+    maxResponseBytes: currentProject.value.config.maxResponseBytes,
+  };
+};
+
+const persistProjectConfig = async () => {
+  if (!currentProject.value) {
+    return;
+  }
+  const payload = buildProjectConfigPayload();
+  if (!payload) {
+    return;
+  }
+  await backend.updateProjectConfig(currentProject.value.id, payload);
+};
+
+async function saveProjectConfig(options?: { immediate?: boolean }) {
   // Skip if initializing to prevent save during mount
   if (!currentProject.value || isInitializing.value) {
     return;
@@ -572,33 +1243,33 @@ const saveProjectConfig = async () => {
     clearTimeout(saveConfigTimeout);
   }
 
+  if (options?.immediate) {
+    if (saveConfigTimeout) {
+      clearTimeout(saveConfigTimeout);
+      saveConfigTimeout = null;
+    }
+    try {
+      await persistProjectConfig();
+    } catch (error) {
+      console.error('Failed to save project config:', error);
+    }
+    return;
+  }
+
   // Debounce config saving to avoid database locks
   saveConfigTimeout = setTimeout(async () => {
     if (!currentProject.value || isInitializing.value) {
       return;
     }
 
-      try {
-        const config = {
-          includePaths: includePaths.value,
-          excludePatterns: excludePaths.value,
-          rootPath: projectRootPath.value,
-          fileExtensions: selectedExtensions.value,
-        autoExcludeHidden: autoExcludeHidden.value,
-        // Other config properties will be loaded from the project and not changed here
-        continuousIndexing: currentProject.value.config.continuousIndexing,
-        chunkSizeMin: currentProject.value.config.chunkSizeMin,
-        chunkSizeMax: currentProject.value.config.chunkSizeMax,
-        embeddingModel: currentProject.value.config.embeddingModel,
-        maxResponseBytes: currentProject.value.config.maxResponseBytes,
-      };
-      await backend.updateProjectConfig(currentProject.value.id, config);
+    try {
+      await persistProjectConfig();
       // DON'T call refreshCurrentProject here - it causes cascading updates
     } catch (error) {
       console.error('Failed to save project config:', error);
     }
   }, 500); // Wait 500ms before saving to batch rapid changes
-};
+}
 
   watch([includePaths, excludePaths, autoExcludeHidden], () => {
     // Skip during initialization
@@ -609,12 +1280,29 @@ const saveProjectConfig = async () => {
     fetchFilePreviews();
   }, { deep: true });
 
-  watch(selectedExtensions, () => {
-    if (isInitializing.value) {
-      return;
+watch(selectedExtensions, () => {
+  if (isInitializing.value) {
+    return;
+  }
+  saveProjectConfig();
+}, { deep: true });
+
+watch(selectedEmbeddingModelId, async modelId => {
+  if (isInitializing.value || suppressEmbeddingWatcher.value) {
+    return;
+  }
+  if (!modelId) {
+    return;
+  }
+  await updateProjectEmbeddingSelection(modelId);
+  if (indexingEnabled.value) {
+    try {
+      await disableContinuousIndexing();
+    } catch (error) {
+      console.error('Failed to disable continuous indexing after model change:', error);
     }
-    saveProjectConfig();
-  }, { deep: true });
+  }
+});
 
 watch(availableExtensions, extensions => {
   if (extensions.length === 0) {
@@ -652,14 +1340,6 @@ watch(availableExtensions, extensions => {
               </span>
               <span class="toggle-text">{{ indexingToggleLabel }}</span>
             </label>
-            <button
-              type="button"
-              class="btn btn-secondary reindex-button"
-              @click="reindexNow"
-              :disabled="manualReindexing || !hasCurrentProject || isIndexing"
-            >
-              {{ manualReindexing ? 'Re-indexing…' : 'Re-index now' }}
-            </button>
           </div>
         </div>
         <div class="progress-bar global">
@@ -676,10 +1356,139 @@ watch(availableExtensions, extensions => {
           <span v-else>Awaiting first indexing run</span>
           <span v-if="isIndexing && progress.currentFile">Current: {{ progress.currentFile }}</span>
         </div>
+        <p v-if="indexingResumeMessage" class="resume-notice">
+          {{ indexingResumeMessage }}
+        </p>
+        <p v-if="statsError" class="stats-error">
+          {{ statsError }}
+        </p>
         <div v-if="progress.status === 'error' && progress.error" class="error-banner">
           <strong>Error:</strong> {{ progress.error }}
         </div>
       </div>
+
+      <section class="config-card embedding-model-card">
+        <header class="config-card-header">
+          <div>
+            <h3>Embedding model</h3>
+            <p>Select which embedding model generates vectors for this project.</p>
+          </div>
+          <button type="button" class="btn btn-secondary" @click="openCustomModelModal">
+            Add custom model
+          </button>
+        </header>
+        <div class="model-selector-row">
+          <label for="embeddingModelSelect">Model</label>
+          <div class="selector-column" ref="embeddingSelectRef">
+            <button
+              id="embeddingModelSelect"
+              type="button"
+              class="custom-select-trigger"
+              :class="{ open: isEmbeddingDropdownOpen, disabled: isLoadingEmbeddingModels || embeddingModels.length === 0 }"
+              :disabled="isLoadingEmbeddingModels || embeddingModels.length === 0"
+              @click.stop="toggleEmbeddingDropdown"
+            >
+              <span class="custom-select-label">{{ selectedModelLabel }}</span>
+              <span class="custom-select-chevron">▾</span>
+            </button>
+            <div v-if="isEmbeddingDropdownOpen" class="custom-select-dropdown">
+              <template v-if="groupedEmbeddingModels.length > 0">
+                <div v-for="group in groupedEmbeddingModels" :key="`group-${group.backend}`" class="custom-select-group">
+                  <div class="custom-select-group-header">
+                    <strong>{{ group.label }}</strong>
+                    <span class="group-description"> — {{ group.description }}</span>
+                    <span v-if="group.disabled" class="legend-disabled">(ONNX Runtime required)</span>
+                  </div>
+                  <button
+                    v-for="model in group.models"
+                    :key="model.id"
+                    type="button"
+                    class="custom-select-option"
+                    :class="{ disabled: group.disabled, selected: model.id === selectedEmbeddingModelId }"
+                    :disabled="group.disabled"
+                    @click.stop="handleSelectModelFromDropdown(model, group.disabled)"
+                  >
+                    {{ describeModelOption(model) }}
+                  </button>
+                </div>
+              </template>
+              <div v-else class="custom-select-empty">
+                {{ isLoadingEmbeddingModels ? 'Loading models…' : 'No models available' }}
+              </div>
+            </div>
+            <ul v-if="groupedEmbeddingModels.length > 0" class="backend-legend">
+              <li v-for="group in groupedEmbeddingModels" :key="`legend-${group.backend}`">
+                <strong>{{ group.label }}</strong>
+                <span> — {{ group.description }}</span>
+                <span v-if="group.disabled" class="legend-disabled">(ONNX Runtime required)</span>
+              </li>
+            </ul>
+            <p v-if="!onnxRuntimeAvailable && hasModelsRequiringOnnx" class="runtime-warning">
+              ONNX Runtime not detected: install version 1.22.0, set its shared library path under Projects → “ONNX runtime path”, and restart to enable FastEmbed/ONNX models. GPU builds require CUDA 12.x + cuDNN 9.x.
+            </p>
+          </div>
+          <div class="model-actions">
+            <button
+              type="button"
+              class="btn btn-secondary reindex-button"
+              @click="reindexNow"
+              :disabled="manualReindexing || !hasCurrentProject || isIndexing"
+            >
+              {{ manualReindexing ? 'Re-indexing…' : 'Re-index now' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="selectedEmbeddingModel" class="model-details">
+          <div class="model-history-row">
+            <div class="history-label">Embeddings in database</div>
+            <div class="history-content">
+              <template v-if="embeddingUsageSummaries.length > 0">
+                <div
+                  v-for="usage in embeddingUsageSummaries"
+                  :key="`usage-${usage.id}`"
+                  class="history-usage"
+                >
+                  <div class="history-usage-header">
+                    <strong>{{ usage.label }}</strong>
+                    <span class="history-count">
+                      {{ usage.chunkCount }} chunks
+                      <span v-if="usage.percent">({{ usage.percent }}%)</span>
+                    </span>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <strong>{{ storedEmbeddingModelLabel }}</strong>
+              </template>
+            </div>
+          </div>
+          <div
+            v-if="embeddingModelSelectionMismatch"
+            class="model-mismatch-warning"
+          >
+            Stored embeddings were generated with {{ mismatchReferenceLabel }}.
+            Re-index to apply {{ selectedEmbeddingModel?.displayName || 'the selected model' }}.
+          </div>
+          <div class="model-status-row">
+            <span class="status-chip" :class="selectedEmbeddingModel.downloadStatus">
+              {{ embeddingModelStatusLabel }}
+            </span>
+            <span v-if="selectedEmbeddingModel.localPath" class="model-path">
+              Saved at {{ selectedEmbeddingModel.localPath }}
+            </span>
+            <button
+              v-if="needsModelDownload"
+              type="button"
+              class="btn btn-primary"
+              :disabled="isDownloadingModel"
+              @click="downloadSelectedModel"
+            >
+              {{ isDownloadingModel ? 'Downloading…' : 'Download model' }}
+            </button>
+          </div>
+        </div>
+        <p v-else class="empty-state-text">Add a model to start indexing this project.</p>
+      </section>
 
       <div class="section scope-section">
         <div class="section-header">
@@ -821,6 +1630,113 @@ watch(availableExtensions, extensions => {
       </button>
     </div>
   </div>
+  <div v-if="showCustomModelModal" class="modal-overlay">
+    <div class="modal-card">
+      <header>
+        <h3>Add embedding model</h3>
+        <button
+          type="button"
+          class="modal-close"
+          @click="closeCustomModelModal"
+          aria-label="Close modal"
+        >
+          ×
+        </button>
+      </header>
+      <form @submit.prevent="saveCustomModel">
+        <div class="modal-body">
+          <div class="modal-grid">
+            <label>
+              Display name
+              <input v-model="customModelForm.displayName" type="text" placeholder="Model name" required />
+            </label>
+            <label>
+              Model ID / slug
+              <input v-model="customModelForm.id" type="text" placeholder="hf-org/model" />
+            </label>
+            <label>
+              Dimension
+              <input v-model.number="customModelForm.dimension" type="number" min="1" required />
+            </label>
+            <label>
+              Disk size (MB)
+              <input v-model.number="customModelForm.diskSizeMB" type="number" min="0" step="1" />
+            </label>
+            <label>
+              RAM (MB)
+              <input v-model.number="customModelForm.ramMB" type="number" min="0" step="1" />
+            </label>
+            <label>
+              Latency (ms @512 tok)
+              <input v-model.number="customModelForm.cpuLatencyMs" type="number" min="0" step="1" />
+            </label>
+            <label class="inline-checkbox">
+              <input type="checkbox" v-model="customModelForm.isMultilingual" />
+              Multilingual
+            </label>
+            <label>
+              Code quality
+              <select v-model="customModelForm.codeQuality">
+                <option value="excellent">Excellent</option>
+                <option value="great">Great</option>
+                <option value="good">Good</option>
+                <option value="fair">Fair</option>
+              </select>
+            </label>
+            <label>
+              Code focus
+              <select v-model="customModelForm.codeFocus">
+                <option value="general">General</option>
+                <option value="code">Code</option>
+                <option value="docs">Docs</option>
+              </select>
+            </label>
+            <label>
+              Source type
+              <select v-model="customModelForm.sourceType">
+                <option value="huggingface">Hugging Face</option>
+                <option value="onnx">ONNX</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>
+              Source URL / path
+              <input v-model="customModelForm.sourceUri" type="text" placeholder="https://huggingface.co/..." />
+            </label>
+            <label>
+              License
+              <input v-model="customModelForm.license" type="text" placeholder="Apache-2.0" />
+            </label>
+          </div>
+          <label>
+            Notes
+            <textarea v-model="customModelForm.notes" rows="3" placeholder="Optional notes"></textarea>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeCustomModelModal" :disabled="isSavingEmbeddingModel">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" :disabled="isSavingEmbeddingModel">
+            {{ isSavingEmbeddingModel ? 'Saving…' : 'Save model' }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div v-if="showDownloadModal" class="download-modal-backdrop">
+    <div class="download-modal">
+      <p>
+        Downloading
+        {{ selectedEmbeddingModel?.displayName || 'model' }}
+        <span v-if="downloadStage"> — {{ downloadStage }}</span>
+      </p>
+      <p v-if="downloadHasTotal" class="download-percent">{{ downloadPercent }}%</p>
+      <div class="download-progress" :class="{ indeterminate: !downloadHasTotal }">
+        <span :style="downloadHasTotal ? { width: `${downloadPercent}%` } : {}"></span>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -834,6 +1750,405 @@ watch(availableExtensions, extensions => {
   border-radius: 8px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
+}
+
+.config-card {
+  background: #252526;
+  border: 1px solid #3e3e42;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.config-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.config-card-header h3 {
+  margin: 0;
+  color: #d4d4d4;
+  font-size: 1.2rem;
+}
+
+.config-card-header p {
+  margin: 0.35rem 0 0 0;
+  color: #858585;
+  font-size: 0.9rem;
+}
+
+.embedding-model-card .model-selector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.model-actions {
+  margin-top: 0.5rem;
+}
+
+.model-actions .btn {
+  width: fit-content;
+}
+
+.embedding-model-card label {
+  color: #d4d4d4;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.embedding-model-card select {
+  background: #1b1b1b;
+  border: 1px solid #3e3e42;
+  color: #d4d4d4;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.selector-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  position: relative;
+}
+
+.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #101010;
+  border: 1px solid #3e3e42;
+  color: #e0e0e0;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.custom-select-trigger.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.custom-select-trigger.open {
+  border-color: #7c6bff;
+  box-shadow: 0 0 0 2px rgba(124, 107, 255, 0.35);
+}
+
+.custom-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 0.75rem;
+}
+
+.custom-select-chevron {
+  font-size: 0.85rem;
+}
+
+.custom-select-dropdown {
+  position: absolute;
+  margin-top: 0.35rem;
+  width: 100%;
+  background: #151515;
+  border: 1px solid #3e3e42;
+  border-radius: 8px;
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.45);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.custom-select-group {
+  padding: 0.5rem 0.75rem;
+}
+
+.custom-select-group-header {
+  color: #b8b8b8;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.group-description {
+  color: #8c8c8c;
+}
+
+.custom-select-option {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.custom-select-option:hover:not(.disabled),
+.custom-select-option.selected {
+  color: #7c6bff;
+}
+
+.custom-select-option.disabled {
+  color: #6a6a6a;
+  cursor: not-allowed;
+}
+
+.custom-select-empty {
+  padding: 0.75rem;
+  color: #9a9da3;
+  font-size: 0.9rem;
+}
+
+.backend-legend {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+}
+
+.backend-legend li {
+  margin-bottom: 0.25rem;
+}
+
+.backend-legend li:last-child {
+  margin-bottom: 0;
+}
+
+.legend-disabled {
+  color: #f39c12;
+  margin-left: 0.35rem;
+  font-weight: 500;
+}
+
+.runtime-warning {
+  color: #f39c12;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.model-details {
+  background: #1b1b1b;
+  border: 1px solid #3e3e42;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.model-history-row {
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: #202023;
+}
+
+.history-label {
+  font-size: 0.78rem;
+  color: #9ea0a6;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+
+.history-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-content strong {
+  color: #f0f0f0;
+  font-size: 1rem;
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.history-usage {
+  padding: 0.4rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.history-usage:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.history-usage-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.history-count {
+  color: #9ea0a6;
+  font-size: 0.85rem;
+}
+
+.model-mismatch-warning {
+  border: 1px solid rgba(255, 166, 0, 0.4);
+  background: rgba(255, 166, 0, 0.08);
+  color: #ffca7a;
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.model-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.status-chip {
+  padding: 0.2rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid #3e3e42;
+  background: #2d2f34;
+  color: #d4d4d4;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-chip.ready {
+  border-color: #4ec9b0;
+  color: #4ec9b0;
+}
+
+.status-chip.downloading {
+  border-color: #c5a04e;
+  color: #c5a04e;
+}
+
+.status-chip.error,
+.status-chip.missing {
+  border-color: #dc3545;
+  color: #ff9a9a;
+}
+
+.model-path {
+  color: #9a9da3;
+  font-size: 0.85rem;
+}
+
+.empty-state-text {
+  margin: 0;
+  color: #858585;
+  font-size: 0.9rem;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(700px, 95vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #1f1f1f;
+  border: 1px solid #3e3e42;
+  border-radius: 10px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-card header h3 {
+  margin: 0;
+  color: #d4d4d4;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #858585;
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.modal-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.modal-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #d4d4d4;
+  font-size: 0.88rem;
+}
+
+.modal-grid input,
+.modal-grid select,
+.modal-grid textarea {
+  background: #101010;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.modal-body textarea {
+  background: #101010;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.inline-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+}
+
+.inline-checkbox input {
+  margin-right: 0.4rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 
 .global-progress-header {
@@ -1207,6 +2522,54 @@ watch(availableExtensions, extensions => {
   transition: width 0.3s ease;
 }
 
+.project-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.metric {
+  background: #1e1e1e;
+  border: 1px solid #313131;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.metric-label {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.metric strong {
+  display: block;
+  color: #f0f0f0;
+  font-size: 1rem;
+}
+
+.metric small {
+  display: block;
+  color: #9ea1ff;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.resume-notice {
+  margin: 0.5rem 0 0;
+  color: #a0afff;
+  font-size: 0.9rem;
+}
+
+.stats-error {
+  color: #f28b82;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
 .no-project-state {
   text-align: center;
   padding: 2rem;
@@ -1216,5 +2579,68 @@ watch(availableExtensions, extensions => {
 .empty-icon {
   font-size: 4rem;
   margin-bottom: 1rem;
+}
+
+.download-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.download-modal {
+  background: #202225;
+  border: 1px solid #3e3e42;
+  border-radius: 10px;
+  padding: 1.5rem;
+  width: min(90%, 360px);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65);
+  text-align: center;
+}
+
+.download-modal p {
+  margin: 0 0 1rem 0;
+  color: #e5e7eb;
+  font-size: 1rem;
+}
+
+.download-progress {
+  width: 100%;
+  height: 6px;
+  background: #2f3136;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.download-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7c6bff, #9f95ff);
+  transition: width 0.2s ease;
+}
+
+.download-progress.indeterminate span {
+  width: 40%;
+  animation: download-progress-indeterminate 1.2s linear infinite;
+}
+
+.download-percent {
+  margin: 0 0 0.5rem 0;
+  color: #cfd2f5;
+  font-weight: 600;
+}
+
+@keyframes download-progress-indeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
 }
 </style>

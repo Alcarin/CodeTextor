@@ -61,18 +61,16 @@ CodeTextor is designed around core principles that guide all architectural decis
 ### Storage Strategy
 
 ```
-Configuration Storage:
-  ~/.local/share/codetextor/config/projects.db
-  └── Tables: app_config
-      └── Contains: general app metadata such as the currently selected project
+Configuration & Storage Root:
+  <AppDataDir>/              ← OS-specific (Linux: ~/.local/share/codetextor,
+                                macOS: ~/Library/Application Support/codetextor,
+                                Windows: %LOCALAPPDATA%\codetextor)
+    config/projects.db       ← Global config (app_config table, embedding catalog, selected project)
+    indexes/project-*.db     ← Per-project vector databases (one file per project)
 
-Project Storage (per-project):
-  ~/.local/share/codetextor/indexes/
-  ├── project-codetextor.db  ← Isolated vector DB for project "codetextor" (slug-based naming)
-  │   ├── Tables: files, chunks, symbols, chunk_symbols, outline_nodes, outline_metadata, project_meta
-  │   └── Contains: embeddings, semantic chunks with metadata, AST symbols, outlines, and project config
-  ├── project-my-app.db      ← Isolated vector DB for project "my-app"
-  └── ...
+Per-Project Database Contents:
+  tables: files, chunks, symbols, chunk_symbols, outline_nodes, outline_metadata, project_meta
+  data: embeddings, semantic chunks with metadata, AST symbols, outlines, project config snapshot
 ```
 
 **Implementation Details:**
@@ -93,6 +91,15 @@ Project Storage (per-project):
 - Each project can have different indexing parameters
 - Simpler queries (no filtering by `project_id` needed)
 - Simpler to reason about data boundaries
+
+### Embedding Model Management
+
+- **Global catalog**: The config database owns the list of embedding models (preloaded or user-defined). Each row stores the model id, label, vector dimension, size on disk, RAM/latency estimates, multilingual + code-quality capabilities, download/conversion source, download status, and final local path under `<AppDataDir>/models/<modelId>/` (same OS-specific root as above).
+- **Indexing view**: Before the "Indexing Scope" card the UI surfaces the catalog with all metadata badges plus an "Add custom model" action that opens a modal for entering a new model definition.
+- **Per-project snapshot**: When a project selects a model, the entire metadata record (including download status and local path) is serialized inside `project_meta.config_json`. Moving the `.db` to another machine guarantees the new installation can recreate the catalog entry and (re)download the required files automatically.
+- **Download orchestration**: The backend download helper streams the configured source URI (HTTP(S) or local path) into `<AppDataDir>/models/<id>/model.onnx` (or custom filenames), updating the catalog status (`pending`, `downloading`, `ready`, `missing`, `error`). Download progress events are emitted to the frontend so the UI can show a determinate modal; FastEmbed models fall back to Hugging Face mirrors when the public CDN fails. When a repository does not publish ONNX assets (e.g., `nomic-ai/nomic-embed-code`), the user can still add custom entries with manual SourceURI/Tokenizer paths.
+- **Dual backend (FastEmbed + ONNX)**: Both FastEmbed and pure ONNX entries rely on the same ONNX Runtime shared library. Every model—FastEmbed included—is downloaded explicitly via the Indexing view before it becomes available. When the runtime is missing, both sets of models are disabled in the UI and the backend falls back to the mock embedding client.
+- **ONNX runtime detection**: During startup the backend attempts to initialize the `onnxruntime` shared library using the path stored in the config database (set from the Projects view). Detection success unlocks all embedding groups and reuses a single ONNX session per model id; failure greys out the dropdown, shows a warning, and keeps indexing functional via the mock client until the runtime is installed.
 
 ---
 
@@ -181,6 +188,7 @@ The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with inte
 - **SQLite-vec Extension**: Embedded vector search, no separate database
 - **Per-Project Indexes**: Complete isolation between codebases
 - **Incremental Updates**: Only re-index changed files (hash + mtime tracking)
+- **Semantic search path**: The `Search` endpoint embeds the query, then performs cosine similarity over stored embeddings (currently brute-force within the project DB). Future work can swap this for sqlite-vec indexes.
 
 **Why SQLite-vec vs dedicated vector DB?**
 - Embedded: No separate server to manage

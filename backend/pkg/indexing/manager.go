@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"CodeTextor/backend/internal/store"
+	"CodeTextor/backend/pkg/embedding"
 	"CodeTextor/backend/pkg/models"
 	"sync"
 )
@@ -25,7 +26,7 @@ func NewManager(eventEmitter func(string, interface{})) *Manager {
 // StartIndexer starts a new indexing job for a given project.
 // If an indexer is already running for the project, the existing one will be stopped first.
 // This method ensures that only one indexer runs per project at a time.
-func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview, vectorStore *store.VectorStore) {
+func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview, vectorStore *store.VectorStore, client embedding.EmbeddingClient, onComplete func(models.IndexingStatus)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -40,13 +41,19 @@ func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePrev
 	}
 
 	// Create and register the new indexer
-	newIndexer := NewIndexer(project, vectorStore, m.eventEmitter)
+	newIndexer, err := NewIndexer(project, vectorStore, m.eventEmitter, client)
+	if err != nil {
+		return err
+	}
 	m.projectIndexers[project.ID] = newIndexer
 	m.progressMap.Store(project.ID, newIndexer.progress)
 
 	// Start the indexer in a goroutine
 	go func() {
 		newIndexer.Run(files)
+		if onComplete != nil {
+			onComplete(newIndexer.progress.Status)
+		}
 
 		// Clean up when done
 		m.mu.Lock()
@@ -57,6 +64,8 @@ func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePrev
 		}
 		m.mu.Unlock()
 	}()
+
+	return nil
 }
 
 // StopIndexer stops the indexing job for a given project.

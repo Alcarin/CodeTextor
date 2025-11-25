@@ -6,9 +6,9 @@
 -->
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
-import { mockBackend } from '../services/mockBackend';
+import { backend } from '../api/backend';
 import type { SearchResponse, Chunk } from '../types';
 
 // Get current project
@@ -20,6 +20,28 @@ const topK = ref<number>(10);
 const isSearching = ref<boolean>(false);
 const searchResults = ref<SearchResponse | null>(null);
 const selectedChunk = ref<Chunk | null>(null);
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+/**
+ * Adjusts the height of the textarea to fit content.
+ */
+const adjustHeight = () => {
+  const textarea = textareaRef.value;
+  if (textarea) {
+    textarea.style.height = 'auto';
+    if (textarea.value) {
+      // scrollHeight includes padding. Add 2px for borders (box-sizing: border-box)
+      textarea.style.height = `${textarea.scrollHeight + 2}px`;
+    } else {
+      // Reset to default height if empty (handled by CSS min-height)
+      textarea.style.height = '';
+    }
+  }
+};
+
+onMounted(() => {
+  adjustHeight();
+});
 
 // Computed
 const hasResults = computed(() => searchResults.value && searchResults.value.chunks.length > 0);
@@ -41,11 +63,7 @@ const performSearch = async () => {
   isSearching.value = true;
 
   try {
-    const results = await mockBackend.semanticSearch({
-      projectId: currentProject.value.id,
-      query: query.value,
-      k: topK.value
-    });
+    const results = await backend.search(currentProject.value.id, query.value, topK.value);
 
     searchResults.value = results;
     selectedChunk.value = null; // Clear selection
@@ -98,34 +116,24 @@ const getSimilarityColor = (similarity?: number): string => {
 
 <template>
   <div class="search-view">
-    <!-- Project context info -->
-    <div v-if="currentProject" class="project-context section">
-      <div class="info-banner">
-        <span class="info-icon">🔍</span>
-        <div class="info-content">
-          <strong>Searching in:</strong> {{ currentProject.name }}
-          <span class="db-path">(Database: <code>indexes/{{ currentProject.id }}.db</code>)</span>
-        </div>
-      </div>
-    </div>
-
     <!-- Search form -->
     <div class="search-form section">
-      <div class="form-group">
-        <label for="query">Search Query</label>
-        <input
-          id="query"
-          v-model="query"
-          type="text"
-          placeholder="e.g., 'function that handles user authentication'"
-          class="input-text"
-          @keyup.enter="performSearch"
-          :disabled="isSearching"
-        />
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
+      <div class="form-inline">
+        <div class="form-group inline">
+          <label for="query">Search Query</label>
+          <textarea
+            id="query"
+            ref="textareaRef"
+            v-model="query"
+            placeholder="e.g., 'function that handles user authentication'"
+            class="input-text input-area"
+            @keydown.enter.prevent="performSearch"
+            @input="adjustHeight"
+            :disabled="isSearching"
+            rows="1"
+          ></textarea>
+        </div>
+        <div class="form-group inline compact">
           <label for="topK">Max Results</label>
           <input
             id="topK"
@@ -137,23 +145,22 @@ const getSimilarityColor = (similarity?: number): string => {
             :disabled="isSearching"
           />
         </div>
-      </div>
-
-      <div class="form-actions">
-        <button
-          @click="performSearch"
-          :disabled="isSearching || !query.trim()"
-          class="btn btn-primary"
-        >
-          {{ isSearching ? 'Searching...' : 'Search' }}
-        </button>
-        <button
-          v-if="hasResults"
-          @click="clearSearch"
-          class="btn btn-secondary"
-        >
-          Clear
-        </button>
+        <div class="form-actions inline">
+          <button
+            @click="performSearch"
+            :disabled="isSearching || !query.trim()"
+            class="btn btn-primary"
+          >
+            {{ isSearching ? 'Searching...' : 'Search' }}
+          </button>
+          <button
+            v-if="hasResults"
+            @click="clearSearch"
+            class="btn btn-secondary"
+          >
+            Clear
+          </button>
+        </div>
       </div>
     </div>
 
@@ -216,6 +223,42 @@ const getSimilarityColor = (similarity?: number): string => {
   margin: 0 auto;
 }
 
+.search-form.section {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 1rem 1.25rem;
+}
+
+.form-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2rem;
+}
+
+.form-group.inline label {
+  margin-bottom: 0.35rem;
+}
+
+.form-group.inline {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  flex: 1 1 300px; /* Grow, shrink, basis */
+  margin-bottom: 0;
+}
+
+.form-group.inline .input-text {
+  width: 100%;
+}
+
+.form-group.inline.compact {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 100px;
+}
+
 .section {
   background: #252526;
   border: 1px solid #3e3e42;
@@ -237,7 +280,7 @@ const getSimilarityColor = (similarity?: number): string => {
 
 .input-text {
   width: 100%;
-  padding: 0.75rem;
+  padding: 0.45rem 0.65rem;
   background: #1e1e1e;
   border: 1px solid #3e3e42;
   border-radius: 4px;
@@ -250,14 +293,27 @@ const getSimilarityColor = (similarity?: number): string => {
   border-color: #007acc;
 }
 
+.input-area {
+  box-sizing: border-box;
+  resize: none; /* Disable manual resize to rely on auto-resize */
+  min-height: 36px; /* Exact height: Content(~23px) + Padding(~11px) + Border(2px) */
+  height: auto;
+  overflow-y: hidden; /* Hide scrollbar */
+  font-family: inherit;
+  line-height: 1.5;
+  padding: 0.35rem 0.65rem;
+}
+
 .form-row {
   display: flex;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .input-number {
-  width: 120px;
-  padding: 0.75rem;
+  width: 100%;
+  min-width: 70px;
+  padding: 0.4rem 0.55rem;
   background: #1e1e1e;
   border: 1px solid #3e3e42;
   border-radius: 4px;
@@ -270,8 +326,22 @@ const getSimilarityColor = (similarity?: number): string => {
   margin-top: 1rem;
 }
 
+.form-actions.inline {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  padding-bottom: 0;
+  gap: 0.5rem;
+  align-self: flex-start;
+  margin-top: 1.7rem; /* Align with input fields (label height + gap) */
+}
+.form-actions.inline .btn {
+  min-width: 90px;
+  align-self: flex-end;
+}
+
 .btn {
-  padding: 0.75rem 1.5rem;
+  padding: 0.45rem 1.1rem;
   border: none;
   border-radius: 6px;
   font-size: 0.95rem;
@@ -330,7 +400,7 @@ const getSimilarityColor = (similarity?: number): string => {
 
 .results-container {
   display: grid;
-  grid-template-columns: 400px 1fr;
+  grid-template-columns: 360px 1fr;
   gap: 1.5rem;
   min-height: 400px;
 }
@@ -341,6 +411,22 @@ const getSimilarityColor = (similarity?: number): string => {
   gap: 0.5rem;
   overflow-y: auto;
   max-height: 600px;
+}
+
+@media (max-width: 1100px) {
+  .results-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .form-group.inline {
+    flex: 1 1 100%;
+  }
+
+  .form-group.inline.compact {
+    flex: 0 0 100px;
+  }
 }
 
 .result-item {
@@ -483,51 +569,4 @@ const getSimilarityColor = (similarity?: number): string => {
   color: #858585;
 }
 
-/* Project context banner */
-.project-context {
-  margin-bottom: 1.5rem;
-}
-
-.info-banner {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: #1a3a5a;
-  border: 1px solid #007acc;
-  border-radius: 4px;
-  align-items: center;
-}
-
-.info-icon {
-  font-size: 1.2rem;
-  flex-shrink: 0;
-}
-
-.info-content {
-  flex: 1;
-  color: #7fc7ff;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.info-content strong {
-  color: #a8d8ff;
-  margin-right: 0.5rem;
-}
-
-.db-path {
-  margin-left: 0.5rem;
-  font-size: 0.85rem;
-  color: #9ec7e0;
-}
-
-.db-path code {
-  background: #0d2438;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  color: #4ec9b0;
-  font-family: 'Courier New', monospace;
-  font-size: 0.85em;
-  border: 1px solid #1a4a6e;
-}
 </style>

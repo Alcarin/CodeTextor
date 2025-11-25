@@ -8,7 +8,11 @@ export function CreateProject(arg1:string,arg2:string,arg3:string,arg4:string):P
 
 export function DeleteProject(arg1:string):Promise<void>;
 
+export function DownloadEmbeddingModel(arg1:string):Promise<models.EmbeddingModelInfo>;
+
 export function GetAllProjectsStats():Promise<models.ProjectStats>;
+
+export function GetEmbeddingCapabilities():Promise<models.EmbeddingCapabilities>;
 
 export function GetFileChunks(arg1:string,arg2:string):Promise<Array<models.Chunk>>;
 
@@ -20,6 +24,8 @@ export function GetGitignorePatterns(arg1:string):Promise<Array<string>>;
 
 export function GetIndexingProgress(arg1:string):Promise<models.IndexingProgress>;
 
+export function GetONNXRuntimeSettings():Promise<models.ONNXRuntimeSettings>;
+
 export function GetOutlineTimestamps(arg1:string):Promise<Record<string, number>>;
 
 export function GetProject(arg1:string):Promise<models.Project>;
@@ -29,6 +35,8 @@ export function GetProjectStats(arg1:string):Promise<models.ProjectStats>;
 export function GetSelectedProject():Promise<models.Project>;
 
 export function Greet(arg1:string):Promise<string>;
+
+export function ListEmbeddingModels():Promise<Array<models.EmbeddingModelInfo>>;
 
 export function ListProjects():Promise<Array<models.Project>>;
 
@@ -40,6 +48,10 @@ export function ReindexProject(arg1:string):Promise<void>;
 
 export function ResetProjectIndex(arg1:string):Promise<void>;
 
+export function SaveEmbeddingModel(arg1:models.EmbeddingModelInfo):Promise<models.EmbeddingModelInfo>;
+
+export function Search(arg1:string,arg2:string,arg3:number):Promise<models.SearchResponse>;
+
 export function SelectDirectory(arg1:string,arg2:string):Promise<string>;
 
 export function SetProjectIndexing(arg1:string,arg2:boolean):Promise<void>;
@@ -49,6 +61,10 @@ export function SetSelectedProject(arg1:string):Promise<void>;
 export function StartIndexing(arg1:string):Promise<void>;
 
 export function StopIndexing(arg1:string):Promise<void>;
+
+export function TestONNXRuntimePath(arg1:string):Promise<models.ONNXRuntimeTestResult>;
+
+export function UpdateONNXRuntimeSettings(arg1:string):Promise<models.ONNXRuntimeSettings>;
 
 export function UpdateProject(arg1:string,arg2:string,arg3:string):Promise<models.Project>;
 

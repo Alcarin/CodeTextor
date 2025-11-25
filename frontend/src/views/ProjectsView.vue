@@ -6,11 +6,11 @@
 -->
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
 import { backend } from '../api/backend';
-import type { Project } from '../types';
+import type { Project, ONNXRuntimeSettings, ONNXRuntimeTestResult } from '../types';
 import ProjectCard from '../components/ProjectCard.vue';
 import ProjectTable from '../components/ProjectTable.vue';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.vue';
@@ -28,6 +28,14 @@ const showDeleteConfirm = ref<boolean>(false);
 const projectToDelete = ref<Project | null>(null);
 const projectToEdit = ref<Project | null>(null);
 const viewMode = ref<'grid' | 'table'>('grid'); // Default to grid view
+const showSettingsModal = ref<boolean>(false);
+const runtimeSettings = ref<ONNXRuntimeSettings | null>(null);
+const runtimePathInput = ref<string>('');
+const runtimeTestResult = ref<ONNXRuntimeTestResult | null>(null);
+const runtimeError = ref<string>('');
+const settingsLoading = ref<boolean>(false);
+const settingsSaving = ref<boolean>(false);
+const settingsTesting = ref<boolean>(false);
 
 /**
  * Loads all projects from backend.
@@ -148,6 +156,68 @@ const goToIndexing = async (project: Project) => {
   }
 };
 
+const refreshRuntimeSettings = async () => {
+  settingsLoading.value = true;
+  runtimeError.value = '';
+  runtimeTestResult.value = null;
+  try {
+    const settings = await backend.getONNXRuntimeSettings();
+    runtimeSettings.value = settings;
+    runtimePathInput.value = settings.sharedLibraryPath || '';
+  } catch (error: any) {
+    runtimeError.value = error?.message || 'Unable to load ONNX runtime settings.';
+  } finally {
+    settingsLoading.value = false;
+  }
+};
+
+const openSettings = async () => {
+  showSettingsModal.value = true;
+  await refreshRuntimeSettings();
+};
+
+const closeSettings = () => {
+  showSettingsModal.value = false;
+  runtimeTestResult.value = null;
+  runtimeError.value = '';
+};
+
+const saveRuntimeSettings = async () => {
+  settingsSaving.value = true;
+  runtimeError.value = '';
+  runtimeTestResult.value = null;
+  try {
+    const updated = await backend.updateONNXRuntimeSettings(runtimePathInput.value);
+    runtimeSettings.value = updated;
+  } catch (error: any) {
+    runtimeError.value = error?.message || 'Failed to save runtime settings.';
+  } finally {
+    settingsSaving.value = false;
+  }
+};
+
+const testRuntimePath = async () => {
+  settingsTesting.value = true;
+  runtimeError.value = '';
+  runtimeTestResult.value = null;
+  try {
+    runtimeTestResult.value = await backend.testONNXRuntimePath(runtimePathInput.value);
+  } catch (error: any) {
+    runtimeError.value = error?.message || 'Failed to test runtime path.';
+  } finally {
+    settingsTesting.value = false;
+  }
+};
+
+const runtimeStatus = computed(() => {
+  const settings = runtimeSettings.value;
+  if (!settings) return 'Unknown';
+  if (settings.runtimeAvailable) {
+    return settings.requiresRestart ? 'Runtime ready (restart to apply new path)' : 'Runtime ready';
+  }
+  return 'Runtime unavailable';
+});
+
 // Load projects on mount
 onMounted(() => {
   loadProjects();
@@ -164,6 +234,9 @@ onMounted(() => {
         </button>
         <button @click="loadProjects" :disabled="isLoading" class="btn btn-secondary">
           {{ isLoading ? 'Refreshing...' : '↻ Refresh' }}
+        </button>
+        <button @click="openSettings" class="btn btn-secondary">
+          ⚙ Settings
         </button>
       </div>
 
@@ -239,6 +312,67 @@ onMounted(() => {
       @confirm="deleteProject"
       @cancel="cancelDelete"
     />
+  </div>
+
+  <!-- Runtime settings modal -->
+  <div v-if="showSettingsModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Embedding Runtime Settings</h3>
+        <button class="close-btn" @click="closeSettings">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-subtitle">
+          Configure the ONNX runtime shared library path used for FastEmbed/ONNX models.
+        </p>
+        <label class="field-label" for="onnx-path">ONNX runtime path</label>
+        <input
+          id="onnx-path"
+          v-model="runtimePathInput"
+          type="text"
+          placeholder="/path/to/libonnxruntime.so"
+          class="text-input"
+          :disabled="settingsLoading"
+        />
+        <div class="help-text">
+          Leave empty to use system defaults. Changes require app restart.
+        </div>
+
+        <div class="status-card">
+          <div class="status-row">
+            <span class="status-label">Status</span>
+            <span class="status-value">{{ settingsLoading ? 'Loading...' : runtimeStatus }}</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Active path</span>
+            <span class="status-value">{{ runtimeSettings?.activePath || 'Default/unknown' }}</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Saved path</span>
+            <span class="status-value">{{ runtimeSettings?.sharedLibraryPath || 'Not set' }}</span>
+          </div>
+        </div>
+
+        <div v-if="runtimeTestResult" :class="['alert', runtimeTestResult.success ? 'alert-success' : 'alert-error']">
+          <strong>{{ runtimeTestResult.success ? 'Test OK' : 'Test Failed' }}:</strong>
+          <span>{{ runtimeTestResult.message }}</span>
+          <span v-if="runtimeTestResult.error"> ({{ runtimeTestResult.error }})</span>
+        </div>
+        <div v-if="runtimeError" class="alert alert-error">
+          {{ runtimeError }}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="testRuntimePath" :disabled="settingsTesting" class="btn btn-secondary">
+          {{ settingsTesting ? 'Testing...' : 'Test Path' }}
+        </button>
+        <div class="spacer"></div>
+        <button @click="closeSettings" class="btn btn-secondary">Close</button>
+        <button @click="saveRuntimeSettings" :disabled="settingsSaving" class="btn btn-primary">
+          {{ settingsSaving ? 'Saving...' : 'Save' }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -403,5 +537,139 @@ onMounted(() => {
 .empty-state h3 {
   margin: 0 0 0.5rem 0;
   color: #d4d4d4;
+}
+
+.alert {
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  border: 1px solid transparent;
+}
+
+.alert-success {
+  background: rgba(40, 167, 69, 0.12);
+  color: #b9f6c5;
+  border-color: rgba(40, 167, 69, 0.35);
+}
+
+.alert-error {
+  background: rgba(220, 53, 69, 0.12);
+  color: #ffb3b9;
+  border-color: rgba(220, 53, 69, 0.4);
+}
+
+/* Settings modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 1rem;
+}
+
+.modal {
+  background: #1e1e1e;
+  border: 1px solid #3e3e42;
+  border-radius: 10px;
+  width: min(620px, 95vw);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2f2f34;
+}
+
+.modal-body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #2f2f34;
+}
+
+.modal-subtitle {
+  color: #b0b0b0;
+  margin: 0;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #b0b0b0;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  color: #ffffff;
+}
+
+.field-label {
+  font-weight: 600;
+  color: #d4d4d4;
+}
+
+.text-input {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #3e3e42;
+  background: #252526;
+  color: #e5e5e5;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.help-text {
+  color: #9aa0a6;
+  font-size: 0.9rem;
+}
+
+.status-card {
+  border: 1px solid #2f2f34;
+  background: #242427;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  color: #d4d4d4;
+  font-size: 0.95rem;
+}
+
+.status-label {
+  color: #9aa0a6;
+}
+
+.status-value {
+  font-weight: 600;
+}
+
+.spacer {
+  flex: 1;
 }
 </style>

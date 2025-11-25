@@ -7,6 +7,22 @@
 
 import * as App from '../../wailsjs/go/main/App'
 import { models } from '../../wailsjs/go/models'
+import type { ONNXRuntimeSettings, ONNXRuntimeTestResult } from '../types'
+
+type ProjectConfigInput = Omit<models.ProjectConfig, 'convertValues'> & {
+  convertValues?: () => void
+}
+
+const toBackendConfig = (config: ProjectConfigInput): models.ProjectConfig => {
+  if (config instanceof models.ProjectConfig) {
+    return config
+  }
+  const converted = models.ProjectConfig.createFrom(config)
+  if (!converted.convertValues) {
+    converted.convertValues = () => {}
+  }
+  return converted
+}
 
 /**
  * Backend API wrapper providing type-safe access to Wails bindings.
@@ -64,9 +80,9 @@ export const backend = {
    */
   async updateProjectConfig(
     projectId: string,
-    config: models.ProjectConfig
+    config: ProjectConfigInput
   ): Promise<models.Project> {
-    return App.UpdateProjectConfig(projectId, config)
+    return App.UpdateProjectConfig(projectId, toBackendConfig(config))
   },
 
   /**
@@ -133,9 +149,9 @@ export const backend = {
    */
   async getFilePreviews(
     projectId: string,
-    config: models.ProjectConfig
+    config: ProjectConfigInput
   ): Promise<models.FilePreview[]> {
-    return App.GetFilePreviews(projectId, config)
+    return App.GetFilePreviews(projectId, toBackendConfig(config))
   },
 
   /**
@@ -181,6 +197,31 @@ export const backend = {
    */
   async getGitignorePatterns(projectId: string): Promise<string[]> {
     return App.GetGitignorePatterns(projectId)
+  },
+  async getEmbeddingCapabilities(): Promise<models.EmbeddingCapabilities> {
+    return App.GetEmbeddingCapabilities()
+  },
+  async getONNXRuntimeSettings(): Promise<ONNXRuntimeSettings> {
+    return App.GetONNXRuntimeSettings() as unknown as ONNXRuntimeSettings
+  },
+  async updateONNXRuntimeSettings(path: string): Promise<ONNXRuntimeSettings> {
+    return App.UpdateONNXRuntimeSettings(path) as unknown as ONNXRuntimeSettings
+  },
+  async testONNXRuntimePath(path: string): Promise<ONNXRuntimeTestResult> {
+    return App.TestONNXRuntimePath(path) as unknown as ONNXRuntimeTestResult
+  },
+  async listEmbeddingModels(): Promise<models.EmbeddingModelInfo[]> {
+    return App.ListEmbeddingModels()
+  },
+  async saveEmbeddingModel(model: models.EmbeddingModelInfo): Promise<models.EmbeddingModelInfo> {
+    return App.SaveEmbeddingModel(model)
+  },
+  async downloadEmbeddingModel(modelId: string): Promise<models.EmbeddingModelInfo> {
+    return App.DownloadEmbeddingModel(modelId)
+  },
+
+  async search(projectId: string, query: string, k: number): Promise<models.SearchResponse> {
+    return App.Search(projectId, query, k)
   },
 
   /**

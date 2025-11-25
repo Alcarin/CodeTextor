@@ -45,6 +45,7 @@ const createMockConfig = (rootPath: string = '/test/path') => ({
   chunkSizeMax: 500,
   embeddingModel: 'default',
   maxResponseBytes: 1000000,
+  convertValues: () => {},
 });
 
 describe('ProjectsView.vue', () => {

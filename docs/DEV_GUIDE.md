@@ -343,6 +343,18 @@ Each project maintains its own complete indexing state with concurrent indexing 
   - UI shows "Indexing" badge on all projects currently being processed
 * **Project-specific exclusions**: `.gitignore`, custom ignore patterns are applied per project
 
+### Embedding Model Catalog & Selection
+
+* **Global catalog**: The config database (`projects.db`) stores the authoritative list of available embedding models. Each entry records the model id, display name, vector dimension, on-disk size, typical RAM usage, CPU speed estimate, multilingual flag, code-quality score, download source, expected local path, and source format (ONNX, HF checkpoint, etc.).
+* **Indexing view UI**: A dedicated card (before "Indexing Scope") displays the catalog. Users can pick a preset or open the "Add custom model" modal, which captures the same metadata fields and writes them back to the catalog table.
+* **Per-project snapshot**: `ProjectConfig.EmbeddingModel` persists the selected model id plus the snapshot of its metadata inside `project_meta`. When a project database moves to another machine, the backend rehydrates the catalog entry from this snapshot and uses it to (re)download or convert the required files.
+* **Download manager**: Each catalog entry tracks its download status (`pending`, `downloading`, `ready`, `missing`, `error`) plus the `localPath`. The Indexing view displays these badges and exposes a one-click "Download model" action that streams the artifact into `<AppDataDir>/models/<modelId>/` (Linux: `~/.local/share/codetextor`, macOS: `~/Library/Application Support/codetextor`, Windows: `%LOCALAPPDATA%\codetextor`).
+* **Download progress + fallback**: The backend emits `embedding:download-progress` events while streaming each file so the frontend modal can display a determinate percentage (or a spinner if the total size is unknown). FastEmbed archives fall back to Hugging Face mirrors when the public CDN responds with 403/404, and presets that do not ship ONNX assets (for example `nomic-ai/nomic-embed-code`) stay in `pending` until the user supplies custom Source URIs.
+* **Custom models**: The modal lets users record disk/RAM estimates, latency, multilingual flag, source URI (HTTP or local copy), and license notes. These values feed the download helper and are persisted in the catalog for reuse.
+* **Per-project snapshot**: `ProjectConfig.EmbeddingModelInfo` captures the metadata (id, label, dimension, download status, local path, etc.) inside `project_meta`. When a project `.db` moves to another machine, CodeTextor can recreate the catalog entry and re-download the artifact using this snapshot.
+* **FastEmbed backend**: Lightweight CPU-friendly models (BGE Small, GTE Small, etc.) ship preconfigured under the "FastEmbed" group. They still rely on ONNX Runtime (same requirement as the ONNX group), but cache/download artifacts automatically and expose a consistent API to the backend.
+* **Runtime detection & reuse**: At startup the backend tries to initialize the ONNX Runtime shared library using the path stored in the config database (set via the Projects view). If detection succeeds, only one ONNX session per model id is kept in memory and the UI enables both "FastEmbed" and "ONNX" groups; if it fails every ONNX-dependent option is disabled and projects fall back to the mock embedding client until the runtime is installed and the app restarted.
+
 ---
 
 ## 9. MCP Server Responsibilities
@@ -359,6 +371,7 @@ Expose lightweight, composable tools (JSON-RPC or HTTP) usable by IDEs and AI ag
 | `outline(projectId, path, depth)`                       | Get structural outline of a file in project       |
 | `nodeAt(projectId, path, line)`                         | Return AST node at specific position in project   |
 | `nodeSource(projectId, id, collapseBody)`               | Return source snippet of node from project        |
+| `search(projectId, query, k)`                           | Semantic chunk search (cosine)                     |
 | `searchSymbols(projectId, query, kinds)`                | Lexical symbol search within project              |
 | `findDefinition(projectId, name)` / `findReferences(projectId, name)` | Optional, reference navigation within project     |
 

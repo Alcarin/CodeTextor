@@ -83,9 +83,57 @@ type ProjectConfig struct {
 	// Default: "default" (uses the system's default model)
 	EmbeddingModel string `json:"embeddingModel"`
 
+	// EmbeddingBackend indicates which backend should be used (fastembed, onnx).
+	EmbeddingBackend string `json:"embeddingBackend,omitempty"`
+
+	// EmbeddingModelInfo stores the snapshot of the selected embedding model metadata.
+	// This is persisted per-project so moving the project DB to another machine
+	// provides enough information to (re)download or convert the model locally.
+	EmbeddingModelInfo *EmbeddingModelInfo `json:"embeddingModelInfo,omitempty"`
+
 	// MaxResponseBytes is the maximum byte size for MCP API responses.
 	// Default: 100000 (100KB)
 	MaxResponseBytes int `json:"maxResponseBytes"`
+}
+
+// EmbeddingModelInfo describes an embedding model entry either from the global catalog
+// or from the per-project snapshot (stored inside project_meta).
+type EmbeddingModelInfo struct {
+	ID                   string `json:"id"`
+	DisplayName          string `json:"displayName"`
+	Backend              string `json:"backend"`
+	Description          string `json:"description,omitempty"`
+	Dimension            int    `json:"dimension"`
+	DiskSizeBytes        int64  `json:"diskSizeBytes,omitempty"`
+	RAMRequirementBytes  int64  `json:"ramRequirementBytes,omitempty"`
+	CPULatencyMs         int    `json:"cpuLatencyMs,omitempty"`
+	IsMultilingual       bool   `json:"isMultilingual"`
+	CodeQuality          string `json:"codeQuality,omitempty"`
+	Notes                string `json:"notes,omitempty"`
+	SourceType           string `json:"sourceType"` // e.g., "onnx", "huggingface"
+	SourceURI            string `json:"sourceUri,omitempty"`
+	LocalPath            string `json:"localPath,omitempty"`
+	TokenizerURI         string `json:"tokenizerUri,omitempty"`
+	TokenizerLocalPath   string `json:"tokenizerLocalPath,omitempty"`
+	License              string `json:"license,omitempty"`
+	DownloadStatus       string `json:"downloadStatus,omitempty"` // e.g., "pending", "ready"
+	RequiresConversion   bool   `json:"requiresConversion,omitempty"`
+	PreferredFilename    string `json:"preferredFilename,omitempty"`
+	CreatedAt            int64  `json:"createdAt,omitempty"`
+	UpdatedAt            int64  `json:"updatedAt,omitempty"`
+	CodeFocus            string `json:"codeFocus,omitempty"` // e.g., "general", "code-specialized"
+	EstimatedTokensPerS  int    `json:"estimatedTokensPerSecond,omitempty"`
+	SupportsQuantization bool   `json:"supportsQuantization,omitempty"`
+	MaxSequenceLength    int    `json:"maxSequenceLength,omitempty"`
+}
+
+// Clone returns a deep copy of the metadata to avoid sharing pointers.
+func (m *EmbeddingModelInfo) Clone() *EmbeddingModelInfo {
+	if m == nil {
+		return nil
+	}
+	copy := *m
+	return &copy
 }
 
 // FilePreview represents a file with its metadata for display in the frontend.
@@ -140,11 +188,32 @@ type ProjectStats struct {
 	// LastIndexedAt is the timestamp of the last indexing operation
 	LastIndexedAt *time.Time `json:"lastIndexedAt,omitempty"`
 
+	// LastIndexedAtUnix is a unix timestamp helper for bindings
+	LastIndexedAtUnix int64 `json:"lastIndexedAtUnix,omitempty"`
+
+	// EmbeddingModels aggregates chunk counts per embedding model id.
+	EmbeddingModels []ProjectEmbeddingModelUsage `json:"embeddingModels,omitempty"`
+
+	// LastEmbeddingModel describes the embedding model that produced the current DB contents.
+	LastEmbeddingModel *EmbeddingModelInfo `json:"lastEmbeddingModel,omitempty"`
+
 	// IsIndexing indicates whether the project is currently being indexed
 	IsIndexing bool `json:"isIndexing"`
 
 	// IndexingProgress is the current indexing progress (0.0 to 1.0)
 	IndexingProgress float64 `json:"indexingProgress"`
+}
+
+// EmbeddingCapabilities describes available embedding backends on this machine.
+type EmbeddingCapabilities struct {
+	OnnxRuntimeAvailable bool `json:"onnxRuntimeAvailable"`
+}
+
+// ProjectEmbeddingModelUsage summarizes how many chunks were built with a specific model.
+type ProjectEmbeddingModelUsage struct {
+	ModelID   string               `json:"modelId"`
+	ChunkCount int                 `json:"chunkCount"`
+	ModelInfo *EmbeddingModelInfo  `json:"modelInfo,omitempty"`
 }
 
 // OutlineNode represents the hierarchical structure of a file that was parsed by Tree-sitter.
@@ -161,17 +230,19 @@ type OutlineNode struct {
 // Chunk represents a piece of text from a file, along with its embedding.
 // Extended with semantic chunking metadata for better code understanding.
 type Chunk struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"projectId"`
-	FilePath  string    `json:"filePath"`
-	Content   string    `json:"content"` // Enriched content with metadata headers
-	Embedding []float32 `json:"embedding"`
-	LineStart int       `json:"lineStart"`
-	LineEnd   int       `json:"lineEnd"`
-	CharStart int       `json:"charStart"`
-	CharEnd   int       `json:"charEnd"`
-	CreatedAt int64     `json:"createdAt"`
-	UpdatedAt int64     `json:"updatedAt"`
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"projectId"`
+	FilePath   string    `json:"filePath"`
+	Content    string    `json:"content"` // Enriched content with metadata headers
+	Embedding  []float32 `json:"embedding"`
+	EmbeddingModelID string `json:"embeddingModelId,omitempty"`
+	Similarity float64   `json:"similarity,omitempty"`
+	LineStart  int       `json:"lineStart"`
+	LineEnd    int       `json:"lineEnd"`
+	CharStart  int       `json:"charStart"`
+	CharEnd    int       `json:"charEnd"`
+	CreatedAt  int64     `json:"createdAt"`
+	UpdatedAt  int64     `json:"updatedAt"`
 
 	// Semantic chunking metadata
 	Language    string `json:"language,omitempty"`    // Programming language (e.g., "go", "python")
@@ -236,7 +307,8 @@ func NewProject(id, name, description string) *Project {
 			ContinuousIndexing: false,
 			ChunkSizeMin:       100,
 			ChunkSizeMax:       800,
-			EmbeddingModel:     "default",
+			EmbeddingModel:     "fastembed/bge-small-en-v1.5",
+			EmbeddingBackend:   "fastembed",
 			MaxResponseBytes:   100000,
 		},
 		Stats: nil, // Stats are computed on demand

@@ -90,6 +90,22 @@ func GetConfigDir() (string, error) {
 	return configDir, nil
 }
 
+// GetModelsDir returns the directory where embedding models are stored.
+// Returns: <AppDataDir>/models/
+func GetModelsDir() (string, error) {
+	appDir, err := GetAppDataDir()
+	if err != nil {
+		return "", err
+	}
+
+	modelsDir := filepath.Join(appDir, "models")
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		return "", err
+	}
+
+	return modelsDir, nil
+}
+
 // GetProjectDBPath returns the full path to a project's index database file.
 // Parameters:
 //   - projectID: the unique project identifier

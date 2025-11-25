@@ -41,6 +41,7 @@ This enables:
 - 🧠 **MCP Server mode** for use with IDEs and LLM agents
   - `retrieve`, `outline`, `nodeAt`, `nodeSource`, `searchSymbols`, etc.
 - 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search
+- 🧠 **Per-project embedding selection** with dual FastEmbed/ONNX backends (both require ONNX Runtime), automatic runtime detection, downloadable catalog entries, and a "custom model" modal
 - 🔒 100% **local & private**, no data leaves your machine
 
 ---
@@ -71,6 +72,9 @@ docs/            → Developer documentation & API references
 - [Node.js ≥ 20](https://nodejs.org/)  
 - [Wails ≥ 3](https://wails.io/)  
 - A compiler toolchain for your OS (gcc / clang)
+- [ONNX Runtime 1.22.0](https://github.com/microsoft/onnxruntime/releases/tag/v1.22.0) (configure its shared library path via the **Projects → ONNX runtime path** field inside CodeTextor)
+  - CPU-only builds work as soon as the shared library file is selected in the GUI
+  - GPU builds **must** match the same ONNX Runtime version and require [CUDA 12.x](https://developer.nvidia.com/cuda-downloads) plus [cuDNN 9.x](https://developer.nvidia.com/cudnn)
 
 ### Build
 
@@ -94,6 +98,17 @@ wails dev
 
 CodeTextor will launch both the local web UI and the MCP server.
 
+### ONNX Runtime & CUDA setup
+
+1. Download the ONNX Runtime 1.22.0 archive for your platform, then open **Projects → ONNX runtime path** inside CodeTextor and paste the absolute path to the extracted `libonnxruntime.so.1.22.0`/`onnxruntime.dll`.  
+2. For GPU acceleration install the matching CUDA toolkit (12.6 or 12.7 recommended) plus cuDNN 9.x:
+   - Linux: follow the commands provided on [developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads) for your distro (e.g., install `cuda-toolkit-12-7` and add `/usr/local/cuda-12.7/bin` to `PATH`).  
+   - Install cuDNN 9.x for CUDA 12.x and copy its `lib` directory next to the CUDA toolkit libraries (or use the official `.deb/.rpm` packages).  
+   - Ensure `LD_LIBRARY_PATH` (or `PATH` on Windows) includes both the ONNX Runtime folder and the CUDA/cuDNN provider libraries (`libonnxruntime_providers_cuda.so`, etc.).
+3. Restart CodeTextor so the backend reinitializes ONNX Runtime with the updated libraries. If the GPU provider fails to load, the UI will display a warning and fall back to CPU embeddings.
+4. Download the desired embedding model from **Indexing → Embedding model**. Both FastEmbed presets and ONNX models use the same download flow; the status chip switches to “Ready” only after the files are present locally.
+5. During download the app shows an in-app progress modal; FastEmbed models automatically fall back to the official Hugging Face mirrors if the upstream CDN is unavailable. If a model lacks an official ONNX export (e.g., `nomic-ai/nomic-embed-code`), supply your own converted `model.onnx` + tokenizer via the “Add custom model” flow.
+
 ---
 
 ## 🧠 Using the MCP API
@@ -103,7 +118,7 @@ Example tools include:
 
 | Tool                           | Description                        |
 | ------------------------------ | ---------------------------------- |
-| `retrieve(query, k, filters)`  | Top-k semantic retrieval           |
+| `search(projectId, query, k)`  | Semantic retrieval of code chunks  |
 | `outline(path, depth)`         | Structural outline of a file       |
 | `nodeAt(path, line)`           | Returns the AST node at a position |
 | `nodeSource(id, collapseBody)` | Returns code snippet of a symbol   |
@@ -167,4 +182,3 @@ Built with ❤️ using:
 > — *CodeTextor Manifesto*
 
 ---
-

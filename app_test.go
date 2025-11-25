@@ -13,31 +13,36 @@ import (
 
 // MockProjectServiceAPI for testing App methods
 type MockProjectServiceAPI struct {
-	CreateProjectFunc        func(req services.CreateProjectRequest) (*models.Project, error)
-	GetProjectFunc           func(projectID string) (*models.Project, error)
-	ListProjectsFunc         func() ([]*models.Project, error)
-	UpdateProjectFunc        func(req services.UpdateProjectRequest) (*models.Project, error)
-	UpdateProjectConfigFunc  func(projectID string, config models.ProjectConfig) (*models.Project, error)
-	DeleteProjectFunc        func(projectID string) error
-	ProjectExistsFunc        func(projectID string) (bool, error)
-	SetSelectedProjectFunc   func(projectID string) error
-	GetSelectedProjectFunc   func() (*models.Project, error)
-	ClearSelectedProjectFunc func() error
-	SetProjectIndexingFunc   func(projectID string, enabled bool) error
-	GetFilePreviewsFunc      func(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
-	GetFileChunksFunc        func(projectID, path string) ([]*models.Chunk, error)
-	GetFileOutlineFunc       func(projectID, path string) ([]*models.OutlineNode, error)
-	GetOutlineTimestampsFunc func(projectID string) (map[string]int64, error)
-	ReadFileContentFunc      func(projectID, relativePath string) (string, error)
-	StartIndexingFunc        func(projectID string) error
-	ResetProjectIndexFunc    func(projectID string) error
-	ReindexProjectFunc       func(projectID string) error
-	StopIndexingFunc         func(projectID string) error
-	GetIndexingProgressFunc  func(projectID string) (models.IndexingProgress, error)
-	GetGitIgnorePatternsFunc func(projectID string) ([]string, error)
-	GetProjectStatsFunc      func(projectID string) (*models.ProjectStats, error)
-	GetAllProjectsStatsFunc  func() (*models.ProjectStats, error)
-	CloseFunc                func() error
+	CreateProjectFunc            func(req services.CreateProjectRequest) (*models.Project, error)
+	GetProjectFunc               func(projectID string) (*models.Project, error)
+	ListProjectsFunc             func() ([]*models.Project, error)
+	UpdateProjectFunc            func(req services.UpdateProjectRequest) (*models.Project, error)
+	UpdateProjectConfigFunc      func(projectID string, config models.ProjectConfig) (*models.Project, error)
+	DeleteProjectFunc            func(projectID string) error
+	ProjectExistsFunc            func(projectID string) (bool, error)
+	SetSelectedProjectFunc       func(projectID string) error
+	GetSelectedProjectFunc       func() (*models.Project, error)
+	ClearSelectedProjectFunc     func() error
+	SetProjectIndexingFunc       func(projectID string, enabled bool) error
+	GetFilePreviewsFunc          func(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetFileChunksFunc            func(projectID, path string) ([]*models.Chunk, error)
+	GetFileOutlineFunc           func(projectID, path string) ([]*models.OutlineNode, error)
+	GetOutlineTimestampsFunc     func(projectID string) (map[string]int64, error)
+	ReadFileContentFunc          func(projectID, relativePath string) (string, error)
+	StartIndexingFunc            func(projectID string) error
+	ResetProjectIndexFunc        func(projectID string) error
+	ReindexProjectFunc           func(projectID string) error
+	StopIndexingFunc             func(projectID string) error
+	GetIndexingProgressFunc      func(projectID string) (models.IndexingProgress, error)
+	GetGitIgnorePatternsFunc     func(projectID string) ([]string, error)
+	GetProjectStatsFunc          func(projectID string) (*models.ProjectStats, error)
+	GetAllProjectsStatsFunc      func() (*models.ProjectStats, error)
+	ListEmbeddingModelsFunc      func() ([]*models.EmbeddingModelInfo, error)
+	SaveEmbeddingModelFunc       func(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error)
+	DownloadEmbeddingModelFunc   func(modelID string) (*models.EmbeddingModelInfo, error)
+	GetEmbeddingCapabilitiesFunc func() (*models.EmbeddingCapabilities, error)
+	SearchFunc                   func(projectID, query string, k int) (*models.SearchResponse, error)
+	CloseFunc                    func() error
 }
 
 func (m *MockProjectServiceAPI) CreateProject(req services.CreateProjectRequest) (*models.Project, error) {
@@ -184,6 +189,45 @@ func (m *MockProjectServiceAPI) GetAllProjectsStats() (*models.ProjectStats, err
 		return m.GetAllProjectsStatsFunc()
 	}
 	return &models.ProjectStats{}, nil
+}
+func (m *MockProjectServiceAPI) ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error) {
+	if m.ListEmbeddingModelsFunc != nil {
+		return m.ListEmbeddingModelsFunc()
+	}
+	return []*models.EmbeddingModelInfo{}, nil
+}
+func (m *MockProjectServiceAPI) SaveEmbeddingModel(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error) {
+	if m.SaveEmbeddingModelFunc != nil {
+		return m.SaveEmbeddingModelFunc(model)
+	}
+	return &models.EmbeddingModelInfo{}, nil
+}
+func (m *MockProjectServiceAPI) DownloadEmbeddingModel(modelID string) (*models.EmbeddingModelInfo, error) {
+	if m.DownloadEmbeddingModelFunc != nil {
+		return m.DownloadEmbeddingModelFunc(modelID)
+	}
+	return &models.EmbeddingModelInfo{}, nil
+}
+func (m *MockProjectServiceAPI) GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error) {
+	if m.GetEmbeddingCapabilitiesFunc != nil {
+		return m.GetEmbeddingCapabilitiesFunc()
+	}
+	return &models.EmbeddingCapabilities{}, nil
+}
+func (m *MockProjectServiceAPI) GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error) {
+	return &models.ONNXRuntimeSettings{}, nil
+}
+func (m *MockProjectServiceAPI) UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error) {
+	return &models.ONNXRuntimeSettings{}, nil
+}
+func (m *MockProjectServiceAPI) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error) {
+	return &models.ONNXRuntimeTestResult{}, nil
+}
+func (m *MockProjectServiceAPI) Search(projectID, query string, k int) (*models.SearchResponse, error) {
+	if m.SearchFunc != nil {
+		return m.SearchFunc(projectID, query, k)
+	}
+	return &models.SearchResponse{}, nil
 }
 func (m *MockProjectServiceAPI) Close() error {
 	if m.CloseFunc != nil {

@@ -5,10 +5,12 @@ import (
 	"CodeTextor/backend/pkg/utils"
 	"database/sql"
 	"embed"
+	"encoding/binary"
 	"fmt"
-	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -190,6 +192,9 @@ func (s *VectorStore) InsertChunk(chunk *models.Chunk) error {
 	chunk.ID = uuid.New().String()
 	chunk.CreatedAt = time.Now().Unix()
 	chunk.UpdatedAt = time.Now().Unix()
+	if strings.TrimSpace(chunk.EmbeddingModelID) == "" {
+		chunk.EmbeddingModelID = "unknown"
+	}
 
 	fileID, normalizedPath, err := s.resolveFileID(chunk.FilePath, true)
 	if err != nil {
@@ -199,14 +204,14 @@ func (s *VectorStore) InsertChunk(chunk *models.Chunk) error {
 
 	stmt, err := s.db.Prepare(`
 		INSERT OR REPLACE INTO chunks (
-			id, file_id, content, embedding,
+			id, file_id, content, embedding, embedding_model_id,
 			line_start, line_end, char_start, char_end,
 			language, symbol_name, symbol_kind, parent,
 			signature, visibility, package_name, doc_string,
 			token_count, is_collapsed, source_code,
 			created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert chunk statement: %w", err)
@@ -224,6 +229,7 @@ func (s *VectorStore) InsertChunk(chunk *models.Chunk) error {
 		fileID,
 		chunk.Content,
 		embeddingBytes,
+		chunk.EmbeddingModelID,
 		chunk.LineStart,
 		chunk.LineEnd,
 		chunk.CharStart,
@@ -532,6 +538,76 @@ func (s *VectorStore) DeleteFileOutline(filePath string) error {
 	return nil
 }
 
+// ListAllFilePaths returns all file paths tracked in the files table.
+func (s *VectorStore) ListAllFilePaths() ([]string, error) {
+	rows, err := s.db.Query(`SELECT path FROM files`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tracked files: %w", err)
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, fmt.Errorf("failed to scan file path: %w", err)
+		}
+		paths = append(paths, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate file paths: %w", err)
+	}
+	return paths, nil
+}
+
+// RemoveFileAndArtifacts deletes all stored data for the given file path.
+// If the file is not tracked, it succeeds silently.
+func (s *VectorStore) RemoveFileAndArtifacts(filePath string) error {
+	normalized, err := normalizeOutlinePath(filePath)
+	if err != nil {
+		return err
+	}
+
+	fileID, _, err := s.resolveFileID(normalized, false)
+	if err != nil {
+		if strings.Contains(err.Error(), "file not found") {
+			return nil
+		}
+		return err
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin removal for %s: %w", normalized, err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM chunk_symbols WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)`, fileID); err != nil {
+		return fmt.Errorf("failed to delete chunk-symbol links for %s: %w", normalized, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete chunks for %s: %w", normalized, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM symbols WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete symbols for %s: %w", normalized, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM outline_nodes WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete outline nodes for %s: %w", normalized, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM outline_metadata WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete outline metadata for %s: %w", normalized, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM files WHERE pk = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete file record for %s: %w", normalized, err)
+	}
+
+	s.fileIDMu.Lock()
+	delete(s.fileIDs, normalized)
+	s.fileIDMu.Unlock()
+
+	return tx.Commit()
+}
+
 // GetFileOutlineTimestamp retrieves the last update timestamp for a file's outline.
 // Returns 0 if the file has no outline stored.
 func (s *VectorStore) GetFileOutlineTimestamp(filePath string) (int64, error) {
@@ -593,7 +669,8 @@ func (s *VectorStore) GetFileChunks(filePath string) ([]*models.Chunk, error) {
 
 	rows, err := s.db.Query(`
 		SELECT
-			c.id, f.path, c.content, c.line_start, c.line_end, c.char_start, c.char_end,
+			c.id, f.path, c.content, c.embedding_model_id,
+			c.line_start, c.line_end, c.char_start, c.char_end,
 			c.language, c.symbol_name, c.symbol_kind, c.parent, c.signature, c.visibility,
 			c.package_name, c.doc_string, c.token_count, c.is_collapsed, c.source_code,
 			c.created_at, c.updated_at
@@ -616,7 +693,7 @@ func (s *VectorStore) GetFileChunks(filePath string) ([]*models.Chunk, error) {
 		var isCollapsed sql.NullBool
 
 		err := rows.Scan(
-			&chunk.ID, &chunk.FilePath, &chunk.Content,
+			&chunk.ID, &chunk.FilePath, &chunk.Content, &chunk.EmbeddingModelID,
 			&chunk.LineStart, &chunk.LineEnd, &chunk.CharStart, &chunk.CharEnd,
 			&language, &symbolName, &symbolKind, &parent, &signature, &visibility,
 			&packageName, &docString, &tokenCount, &isCollapsed, &sourceCode,
@@ -752,20 +829,254 @@ func (s *VectorStore) ResetProjectData() error {
 	return nil
 }
 
-// Helper to convert []float32 to []byte
+// Helper to convert []float32 to []byte (little-endian)
 func float32SliceToByteSlice(floats []float32) ([]byte, error) {
-	// TODO: Implement proper conversion (e.g., using binary.Write)
-	// For now, a placeholder that will need to be replaced with actual serialization
-	log.Println("WARNING: Using placeholder for float32SliceToByteSlice. This needs proper serialization.")
-	return []byte(fmt.Sprintf("%v", floats)), nil
+	if len(floats) == 0 {
+		return []byte{}, nil
+	}
+	out := make([]byte, 4*len(floats))
+	for i, f := range floats {
+		bits := math.Float32bits(f)
+		binary.LittleEndian.PutUint32(out[i*4:], bits)
+	}
+	return out, nil
 }
 
-// Helper to convert []byte to []float32
+// Helper to convert []byte to []float32 (little-endian)
 func byteSliceToFloat32Slice(bytes []byte) ([]float32, error) {
-	// TODO: Implement proper conversion (e.g., using binary.Read)
-	// For now, a placeholder that will need to be replaced with actual deserialization
-	log.Println("WARNING: Using placeholder for byteSliceToFloat32Slice. This needs proper deserialization.")
-	return []float32{}, nil
+	if len(bytes) == 0 {
+		return []float32{}, nil
+	}
+	if len(bytes)%4 != 0 {
+		return nil, fmt.Errorf("embedding byte slice length %d is not a multiple of 4", len(bytes))
+	}
+	count := len(bytes) / 4
+	out := make([]float32, count)
+	for i := 0; i < count; i++ {
+		bits := binary.LittleEndian.Uint32(bytes[i*4:])
+		out[i] = math.Float32frombits(bits)
+	}
+	return out, nil
+}
+
+// SearchSimilarChunks performs a brute-force cosine similarity search over all chunks.
+// This is a fallback implementation until a vector index (e.g., sqlite-vec) is integrated.
+func (s *VectorStore) SearchSimilarChunks(queryEmbedding []float32, k int) ([]*models.Chunk, error) {
+	if len(queryEmbedding) == 0 {
+		return nil, fmt.Errorf("query embedding is empty")
+	}
+
+	if k <= 0 {
+		k = 10
+	}
+
+	rows, err := s.db.Query(`
+		SELECT c.id, f.path, c.content, c.embedding, c.embedding_model_id, c.line_start, c.line_end, c.char_start, c.char_end,
+		       c.language, c.symbol_name, c.symbol_kind, c.parent, c.signature, c.visibility,
+		       c.package_name, c.doc_string, c.token_count, c.is_collapsed, c.source_code,
+		       c.created_at, c.updated_at
+		FROM chunks c
+		JOIN files f ON f.pk = c.file_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query chunks for search: %w", err)
+	}
+	defer rows.Close()
+
+	queryNorm := dotProduct(queryEmbedding, queryEmbedding)
+	if queryNorm == 0 {
+		return nil, fmt.Errorf("query embedding has zero norm")
+	}
+	queryNorm = math.Sqrt(queryNorm)
+
+	top := newMinHeap(k)
+
+	for rows.Next() {
+		chunk := &models.Chunk{}
+		var embeddingBytes []byte
+		var language, symbolName, symbolKind, parent, signature, visibility sql.NullString
+		var packageName, docString, sourceCode sql.NullString
+		var tokenCount sql.NullInt64
+		var isCollapsed sql.NullBool
+
+		err := rows.Scan(
+			&chunk.ID,
+			&chunk.FilePath,
+			&chunk.Content,
+			&embeddingBytes,
+			&chunk.EmbeddingModelID,
+			&chunk.LineStart,
+			&chunk.LineEnd,
+			&chunk.CharStart,
+			&chunk.CharEnd,
+			&language,
+			&symbolName,
+			&symbolKind,
+			&parent,
+			&signature,
+			&visibility,
+			&packageName,
+			&docString,
+			&tokenCount,
+			&isCollapsed,
+			&sourceCode,
+			&chunk.CreatedAt,
+			&chunk.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan chunk for search: %w", err)
+		}
+
+		vec, err := byteSliceToFloat32Slice(embeddingBytes)
+		if err != nil {
+			return nil, err
+		}
+		chunk.Embedding = vec
+
+		// Assign nullable fields
+		if language.Valid {
+			chunk.Language = language.String
+		}
+		if symbolName.Valid {
+			chunk.SymbolName = symbolName.String
+		}
+		if symbolKind.Valid {
+			chunk.SymbolKind = symbolKind.String
+		}
+		if parent.Valid {
+			chunk.Parent = parent.String
+		}
+		if signature.Valid {
+			chunk.Signature = signature.String
+		}
+		if visibility.Valid {
+			chunk.Visibility = visibility.String
+		}
+		if packageName.Valid {
+			chunk.PackageName = packageName.String
+		}
+		if docString.Valid {
+			chunk.DocString = docString.String
+		}
+		if tokenCount.Valid {
+			chunk.TokenCount = int(tokenCount.Int64)
+		}
+		if isCollapsed.Valid {
+			chunk.IsCollapsed = isCollapsed.Bool
+		}
+		if sourceCode.Valid {
+			chunk.SourceCode = sourceCode.String
+		}
+
+		if len(vec) == 0 {
+			continue
+		}
+		score := cosineSimilarity(queryEmbedding, vec, queryNorm)
+		chunk.Similarity = score
+		top.Push(chunk)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating search rows: %w", err)
+	}
+
+	result := top.Sorted()
+	return result, nil
+}
+
+func cosineSimilarity(a []float32, b []float32, normA float64) float64 {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return 0
+	}
+	normB := float64(0)
+	dot := float64(0)
+	for i := 0; i < len(a); i++ {
+		dot += float64(a[i]) * float64(b[i])
+		normB += float64(b[i]) * float64(b[i])
+	}
+	if normB == 0 || normA == 0 {
+		return 0
+	}
+	return dot / (normA * math.Sqrt(normB))
+}
+
+func dotProduct(a []float32, b []float32) float64 {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return 0
+	}
+	dot := float64(0)
+	for i := 0; i < len(a); i++ {
+		dot += float64(a[i]) * float64(b[i])
+	}
+	return dot
+}
+
+// minHeap keeps top-k chunks by similarity (ascending heap).
+type minHeap struct {
+	cap  int
+	data []*models.Chunk
+}
+
+func newMinHeap(capacity int) *minHeap {
+	if capacity <= 0 {
+		capacity = 10
+	}
+	return &minHeap{cap: capacity, data: make([]*models.Chunk, 0, capacity)}
+}
+
+func (h *minHeap) Push(c *models.Chunk) {
+	if len(h.data) < h.cap {
+		h.data = append(h.data, c)
+		h.up(len(h.data) - 1)
+		return
+	}
+	if len(h.data) == 0 {
+		return
+	}
+	if c.Similarity <= h.data[0].Similarity {
+		return
+	}
+	h.data[0] = c
+	h.down(0)
+}
+
+func (h *minHeap) Sorted() []*models.Chunk {
+	// Return in descending order
+	res := make([]*models.Chunk, len(h.data))
+	copy(res, h.data)
+	sort.Slice(res, func(i, j int) bool { return res[i].Similarity > res[j].Similarity })
+	return res
+}
+
+func (h *minHeap) up(i int) {
+	for i > 0 {
+		parent := (i - 1) / 2
+		if h.data[parent].Similarity <= h.data[i].Similarity {
+			break
+		}
+		h.data[parent], h.data[i] = h.data[i], h.data[parent]
+		i = parent
+	}
+}
+
+func (h *minHeap) down(i int) {
+	n := len(h.data)
+	for {
+		left := 2*i + 1
+		right := 2*i + 2
+		smallest := i
+		if left < n && h.data[left].Similarity < h.data[smallest].Similarity {
+			smallest = left
+		}
+		if right < n && h.data[right].Similarity < h.data[smallest].Similarity {
+			smallest = right
+		}
+		if smallest == i {
+			break
+		}
+		h.data[i], h.data[smallest] = h.data[smallest], h.data[i]
+		i = smallest
+	}
 }
 
 // GetStats returns statistics for the project index.
@@ -806,6 +1117,37 @@ func (s *VectorStore) GetStats() (*models.ProjectStats, error) {
 	if lastIndexedUnix.Valid && lastIndexedUnix.Int64 > 0 {
 		t := time.Unix(lastIndexedUnix.Int64, 0)
 		stats.LastIndexedAt = &t
+		stats.LastIndexedAtUnix = t.Unix()
+	}
+
+	rows, err := s.db.Query(`
+		SELECT embedding_model_id, COUNT(*) as cnt
+		FROM chunks
+		GROUP BY embedding_model_id
+		ORDER BY cnt DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate embedding models: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var modelID sql.NullString
+		var count int64
+		if err := rows.Scan(&modelID, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan embedding model usage: %w", err)
+		}
+		usage := models.ProjectEmbeddingModelUsage{
+			ModelID:   strings.TrimSpace(modelID.String),
+			ChunkCount: int(count),
+		}
+		if usage.ModelID == "" {
+			usage.ModelID = "unknown"
+		}
+		stats.EmbeddingModels = append(stats.EmbeddingModels, usage)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate embedding model usage: %w", err)
 	}
 
 	return stats, nil

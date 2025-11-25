@@ -24,10 +24,15 @@ func BuildOutlineNodes(filePath string, symbols []chunker.Symbol) []*models.Outl
 	var roots []*models.OutlineNode
 	// Map from symbol name to all nodes with that name
 	symbolMap := make(map[string][]*models.OutlineNode)
+	// Track occurrences of the same span/name to keep IDs unique.
+	idCounters := make(map[string]int)
 
 	for _, symbol := range symbols {
+		idKey := fmt.Sprintf("%s:%d:%d:%s", filePath, symbol.StartLine, symbol.EndLine, symbol.Name)
+		idCounters[idKey]++
+
 		node := &models.OutlineNode{
-			ID:        outlineNodeID(filePath, symbol),
+			ID:        fmt.Sprintf("%s:%d", idKey, idCounters[idKey]),
 			Name:      symbol.Name,
 			Kind:      string(symbol.Kind),
 			FilePath:  filePath,
@@ -69,8 +74,4 @@ func BuildOutlineNodes(filePath string, symbols []chunker.Symbol) []*models.Outl
 	}
 
 	return roots
-}
-
-func outlineNodeID(filePath string, symbol chunker.Symbol) string {
-	return fmt.Sprintf("%s:%d:%d:%s", filePath, symbol.StartLine, symbol.EndLine, symbol.Name)
 }

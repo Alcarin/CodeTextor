@@ -6,9 +6,29 @@
 
 import type { models } from '../api/backend'
 
-// Re-export backend generated types for convenience
-export type { Project, ProjectConfig, ProjectStats } from '../api/backend'
+// Re-export backend generated types, but relax strict class requirements for configs
+export type ProjectConfig = Omit<models.ProjectConfig, 'convertValues'> & {
+  convertValues?: (...args: any[]) => any
+}
+export type Project = Omit<models.Project, 'config' | 'convertValues'> & {
+  config: ProjectConfig
+  convertValues?: (...args: any[]) => any
+}
+export type ProjectStats = models.ProjectStats
 export type IndexingProgress = models.IndexingProgress
+export type EmbeddingModelInfo = models.EmbeddingModelInfo
+export type EmbeddingCapabilities = models.EmbeddingCapabilities
+export interface ONNXRuntimeSettings {
+  sharedLibraryPath: string
+  activePath?: string
+  runtimeAvailable: boolean
+  requiresRestart: boolean
+}
+export interface ONNXRuntimeTestResult {
+  success: boolean
+  message: string
+  error?: string
+}
 
 // Represents a semantic chunk of code with metadata
 export interface Chunk {
@@ -17,6 +37,7 @@ export interface Chunk {
   filePath: string
   content: string
   embedding: number[]
+  embeddingModelId?: string
   lineStart: number
   lineEnd: number
   charStart: number
