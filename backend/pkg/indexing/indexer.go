@@ -34,9 +34,9 @@ type Indexer struct {
 	parser          *chunker.Parser
 	semanticChunker *chunker.SemanticChunker
 	// Debounce map: tracks pending file updates
-	debounceMu     sync.Mutex
-	debounceTimers map[string]*time.Timer
-	eventEmitter   func(string, interface{})
+	debounceMu       sync.Mutex
+	debounceTimers   map[string]*time.Timer
+	eventEmitter     func(string, interface{})
 	embeddingModelID string
 }
 
@@ -67,18 +67,18 @@ func NewIndexer(project *models.Project, vectorStore *store.VectorStore, eventEm
 	}
 
 	return &Indexer{
-		project:         project,
-		progress:        &models.IndexingProgress{Status: models.IndexingStatusIdle},
-		stopChan:        make(chan struct{}),
-		ctx:             ctx,
-		cancel:          cancel,
-		semaphore:       make(chan struct{}, 10), // Limit to 10 concurrent operations
-		embeddingClient: client,
-		vectorStore:     vectorStore,
-		parser:          chunker.NewParser(chunkConfig),
-		semanticChunker: chunker.NewSemanticChunker(chunkConfig),
-		debounceTimers:  make(map[string]*time.Timer),
-		eventEmitter:    eventEmitter,
+		project:          project,
+		progress:         &models.IndexingProgress{Status: models.IndexingStatusIdle},
+		stopChan:         make(chan struct{}),
+		ctx:              ctx,
+		cancel:           cancel,
+		semaphore:        make(chan struct{}, 10), // Limit to 10 concurrent operations
+		embeddingClient:  client,
+		vectorStore:      vectorStore,
+		parser:           chunker.NewParser(chunkConfig),
+		semanticChunker:  chunker.NewSemanticChunker(chunkConfig),
+		debounceTimers:   make(map[string]*time.Timer),
+		eventEmitter:     eventEmitter,
 		embeddingModelID: modelID,
 	}, nil
 }
@@ -165,23 +165,23 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 					// Prepare chunk for database storage
 					dbChunks[idx] = &models.Chunk{
-						FilePath:    file.RelativePath,
-						Content:     chunk.Content,
-						LineStart:   int(chunk.StartLine),
-						LineEnd:     int(chunk.EndLine),
-						CharStart:   int(chunk.StartByte),
-						CharEnd:     int(chunk.EndByte),
-						Language:    chunk.Language,
-						SymbolName:  chunk.SymbolName,
-						SymbolKind:  string(chunk.SymbolKind),
-						Parent:      chunk.Parent,
-						Signature:   chunk.Signature,
-						Visibility:  chunk.Visibility,
-						PackageName: chunk.PackageName,
-						DocString:   chunk.DocString,
-						TokenCount:  chunk.TokenCount,
-						IsCollapsed: chunk.IsCollapsed,
-						SourceCode:  chunk.SourceCode,
+						FilePath:         file.RelativePath,
+						Content:          chunk.Content,
+						LineStart:        int(chunk.StartLine),
+						LineEnd:          int(chunk.EndLine),
+						CharStart:        int(chunk.StartByte),
+						CharEnd:          int(chunk.EndByte),
+						Language:         chunk.Language,
+						SymbolName:       chunk.SymbolName,
+						SymbolKind:       string(chunk.SymbolKind),
+						Parent:           chunk.Parent,
+						Signature:        chunk.Signature,
+						Visibility:       chunk.Visibility,
+						PackageName:      chunk.PackageName,
+						DocString:        chunk.DocString,
+						TokenCount:       chunk.TokenCount,
+						IsCollapsed:      chunk.IsCollapsed,
+						SourceCode:       chunk.SourceCode,
 						EmbeddingModelID: i.embeddingModelID,
 					}
 				}
@@ -203,12 +203,12 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 					// Prepare simple chunk for database
 					dbChunks[idx] = &models.Chunk{
-						FilePath:  file.RelativePath,
-						Content:   chunk.Content,
-						LineStart: chunk.LineStart,
-						LineEnd:   chunk.LineEnd,
-						CharStart: chunk.CharacterStart,
-						CharEnd:   chunk.CharacterEnd,
+						FilePath:         file.RelativePath,
+						Content:          chunk.Content,
+						LineStart:        chunk.LineStart,
+						LineEnd:          chunk.LineEnd,
+						CharStart:        chunk.CharacterStart,
+						CharEnd:          chunk.CharacterEnd,
 						EmbeddingModelID: i.embeddingModelID,
 					}
 				}
@@ -543,23 +543,23 @@ func (i *Indexer) updateFileIndex(filePath string) {
 			chunkContents[idx] = chunk.Content
 
 			dbChunks[idx] = &models.Chunk{
-				FilePath:    relativePath,
-				Content:     chunk.Content,
-				LineStart:   int(chunk.StartLine),
-				LineEnd:     int(chunk.EndLine),
-				CharStart:   int(chunk.StartByte),
-				CharEnd:     int(chunk.EndByte),
-				Language:    chunk.Language,
-				SymbolName:  chunk.SymbolName,
-				SymbolKind:  string(chunk.SymbolKind),
-				Parent:      chunk.Parent,
-				Signature:   chunk.Signature,
-				Visibility:  chunk.Visibility,
-				PackageName: chunk.PackageName,
-				DocString:   chunk.DocString,
-				TokenCount:  chunk.TokenCount,
-				IsCollapsed: chunk.IsCollapsed,
-				SourceCode:  chunk.SourceCode,
+				FilePath:         relativePath,
+				Content:          chunk.Content,
+				LineStart:        int(chunk.StartLine),
+				LineEnd:          int(chunk.EndLine),
+				CharStart:        int(chunk.StartByte),
+				CharEnd:          int(chunk.EndByte),
+				Language:         chunk.Language,
+				SymbolName:       chunk.SymbolName,
+				SymbolKind:       string(chunk.SymbolKind),
+				Parent:           chunk.Parent,
+				Signature:        chunk.Signature,
+				Visibility:       chunk.Visibility,
+				PackageName:      chunk.PackageName,
+				DocString:        chunk.DocString,
+				TokenCount:       chunk.TokenCount,
+				IsCollapsed:      chunk.IsCollapsed,
+				SourceCode:       chunk.SourceCode,
 				EmbeddingModelID: i.embeddingModelID,
 			}
 		}
@@ -578,16 +578,16 @@ func (i *Indexer) updateFileIndex(filePath string) {
 		for idx, chunk := range simpleChunks {
 			chunkContents[idx] = chunk.Content
 
-		dbChunks[idx] = &models.Chunk{
-			FilePath:  relativePath,
-			Content:   chunk.Content,
-			LineStart: chunk.LineStart,
-			LineEnd:   chunk.LineEnd,
-			CharStart: chunk.CharacterStart,
-			CharEnd:   chunk.CharacterEnd,
-			EmbeddingModelID: i.embeddingModelID,
+			dbChunks[idx] = &models.Chunk{
+				FilePath:         relativePath,
+				Content:          chunk.Content,
+				LineStart:        chunk.LineStart,
+				LineEnd:          chunk.LineEnd,
+				CharStart:        chunk.CharacterStart,
+				CharEnd:          chunk.CharacterEnd,
+				EmbeddingModelID: i.embeddingModelID,
+			}
 		}
-	}
 		log.Printf("Created %d simple chunks for file %s", len(simpleChunks), relativePath)
 	}
 
@@ -664,17 +664,15 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 
 	// Save outline nodes
 	nodes := outline.BuildOutlineNodes(relativePath, result.Symbols)
-	if len(nodes) > 0 {
-		if err := i.vectorStore.UpsertFileOutline(relativePath, nodes); err != nil {
-			log.Printf("Failed to persist outline for %s: %v", absPath, err)
-		}
+	if err := i.vectorStore.UpsertFileOutline(relativePath, nodes); err != nil {
+		log.Printf("Failed to persist outline for %s: %v", absPath, err)
+	}
 
-		absKey := filepath.ToSlash(absPath)
-		if absKey != relativePath {
-			// Remove any legacy absolute-path outline/symbol/chunk records without touching the new relative entry.
-			if err := i.vectorStore.RemoveFileAndArtifacts(absKey); err != nil && !strings.Contains(err.Error(), "file not found") {
-				log.Printf("Failed to remove legacy outline key %s: %v", absKey, err)
-			}
+	absKey := filepath.ToSlash(absPath)
+	if absKey != relativePath {
+		// Remove any legacy absolute-path outline/symbol/chunk records without touching the new relative entry.
+		if err := i.vectorStore.RemoveFileAndArtifacts(absKey); err != nil && !strings.Contains(err.Error(), "file not found") {
+			log.Printf("Failed to remove legacy outline key %s: %v", absKey, err)
 		}
 	}
 

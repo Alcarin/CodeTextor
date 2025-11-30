@@ -6,15 +6,14 @@
 -->
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import { useCurrentProject } from '../composables/useCurrentProject';
-import { mockBackend } from '../services/mockBackend';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { backend, models } from '../api/backend';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import type { MCPServerConfig, MCPServerStatus, MCPTool } from '../types';
+import { useCurrentProject } from '../composables/useCurrentProject';
 
-// Get current project
 const { currentProject } = useCurrentProject();
 
-// State
 const config = ref<MCPServerConfig>({
   host: 'localhost',
   port: 3000,
@@ -32,131 +31,141 @@ const status = ref<MCPServerStatus>({
 });
 
 const tools = ref<MCPTool[]>([]);
-const isStarting = ref(false);
-const isStopping = ref(false);
 const isLoadingConfig = ref(false);
+const isStatusLoading = ref(false);
+const isToolsLoading = ref(false);
+const isTogglingServer = ref(false);
+const notification = ref<{ type: 'success' | 'error'; message: string } | null>(null);
 
-let statusInterval: number | null = null;
+const serverUrl = computed(() => `${config.value.protocol}://${config.value.host}:${config.value.port}`);
+const projectId = computed(() => currentProject.value?.id ?? '<project-id>');
+const projectServerUrl = computed(() => `${serverUrl.value}/mcp/${projectId.value}`);
+const currentProjectLabel = computed(() =>
+  currentProject.value ? `${currentProject.value.name} (${currentProject.value.id})` : 'Nessun progetto selezionato'
+);
 
-/**
- * Loads MCP server configuration.
- */
+let notificationTimer: number | null = null;
+let statusUnsubscribe: (() => void) | null = null;
+let toolsUnsubscribe: (() => void) | null = null;
+
+const showNotification = (type: 'success' | 'error', message: string) => {
+  if (notificationTimer) {
+    clearTimeout(notificationTimer);
+    notificationTimer = null;
+  }
+  notification.value = { type, message };
+  notificationTimer = window.setTimeout(() => {
+    notification.value = null;
+    notificationTimer = null;
+  }, 3000);
+};
+
+const dismissNotification = () => {
+  if (notificationTimer) {
+    clearTimeout(notificationTimer);
+    notificationTimer = null;
+  }
+  notification.value = null;
+};
+
+const handleError = (context: string, error: unknown) => {
+  console.error(context, error);
+  const message =
+    error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error';
+  showNotification('error', `${context}: ${message}`);
+};
+
+const normalizeConfig = (cfg: models.MCPServerConfig): MCPServerConfig => ({
+  host: cfg.host,
+  port: cfg.port,
+  protocol: cfg.protocol === 'stdio' ? 'stdio' : 'http',
+  autoStart: cfg.autoStart,
+  maxConnections: cfg.maxConnections
+});
+
+const applyConfig = (newConfig: MCPServerConfig) => {
+  config.value = {
+    host: newConfig.host,
+    port: newConfig.port,
+    protocol: newConfig.protocol,
+    autoStart: newConfig.autoStart,
+    maxConnections: newConfig.maxConnections
+  };
+};
+
 const loadConfig = async () => {
   isLoadingConfig.value = true;
   try {
-    config.value = await mockBackend.getMCPConfig();
+    const cfg = await backend.getMCPConfig();
+    applyConfig(normalizeConfig(cfg));
   } catch (error) {
-    console.error('Failed to load MCP config:', error);
+    handleError('Failed to load MCP config', error);
   } finally {
     isLoadingConfig.value = false;
   }
 };
 
-/**
- * Saves MCP server configuration.
- */
-const saveConfig = async () => {
-  try {
-    await mockBackend.updateMCPConfig(config.value);
-    alert('Configuration saved successfully');
-  } catch (error) {
-    console.error('Failed to save MCP config:', error);
-    alert('Failed to save configuration');
-  }
-};
-
-/**
- * Starts the MCP server.
- */
 const startServer = async () => {
-  isStarting.value = true;
   try {
-    await mockBackend.startMCPServer();
+    await backend.startMCPServer();
     await updateStatus();
-    startStatusPolling();
+    showNotification('success', 'Server started');
   } catch (error) {
-    console.error('Failed to start MCP server:', error);
-    alert('Failed to start server');
-  } finally {
-    isStarting.value = false;
+    handleError('Failed to start server', error);
   }
 };
 
-/**
- * Stops the MCP server.
- */
 const stopServer = async () => {
-  isStopping.value = true;
   try {
-    await mockBackend.stopMCPServer();
+    await backend.stopMCPServer();
     await updateStatus();
-    stopStatusPolling();
+    showNotification('success', 'Server stopped');
   } catch (error) {
-    console.error('Failed to stop MCP server:', error);
-    alert('Failed to stop server');
+    handleError('Failed to stop server', error);
+  }
+};
+
+const toggleServer = async () => {
+  if (isTogglingServer.value) return;
+  isTogglingServer.value = true;
+  try {
+    if (status.value.isRunning) {
+      await stopServer();
+    } else {
+      await startServer();
+    }
   } finally {
-    isStopping.value = false;
+    isTogglingServer.value = false;
   }
 };
 
-/**
- * Updates server status.
- */
 const updateStatus = async () => {
+  isStatusLoading.value = true;
   try {
-    status.value = await mockBackend.getMCPStatus();
+    const next = await backend.getMCPStatus();
+    status.value = {
+      ...status.value,
+      ...next,
+      lastError: next.lastError
+    };
   } catch (error) {
-    console.error('Failed to update status:', error);
+    handleError('Failed to refresh status', error);
+  } finally {
+    isStatusLoading.value = false;
   }
 };
 
-/**
- * Loads available MCP tools.
- */
 const loadTools = async () => {
+  isToolsLoading.value = true;
   try {
-    tools.value = await mockBackend.getMCPTools();
+    tools.value = await backend.getMCPTools();
   } catch (error) {
-    console.error('Failed to load tools:', error);
+    handleError('Failed to load tools', error);
+  } finally {
+    isToolsLoading.value = false;
   }
 };
 
-/**
- * Toggles tool enabled state.
- * @param toolName - Name of tool to toggle
- */
-const toggleTool = async (toolName: string) => {
-  try {
-    await mockBackend.toggleMCPTool(toolName);
-    await loadTools();
-  } catch (error) {
-    console.error('Failed to toggle tool:', error);
-  }
-};
-
-/**
- * Starts polling for status updates.
- */
-const startStatusPolling = () => {
-  if (statusInterval) return;
-  statusInterval = window.setInterval(updateStatus, 2000);
-};
-
-/**
- * Stops polling for status updates.
- */
-const stopStatusPolling = () => {
-  if (statusInterval) {
-    clearInterval(statusInterval);
-    statusInterval = null;
-  }
-};
-
-/**
- * Formats uptime seconds to readable string.
- * @param seconds - Uptime in seconds
- * @returns Formatted uptime string
- */
 const formatUptime = (seconds: number): string => {
   if (seconds === 0) return 'Not running';
   const hours = Math.floor(seconds / 3600);
@@ -165,55 +174,71 @@ const formatUptime = (seconds: number): string => {
 
   if (hours > 0) {
     return `${hours}h ${minutes}m ${secs}s`;
-  } else if (minutes > 0) {
+  }
+  if (minutes > 0) {
     return `${minutes}m ${secs}s`;
   }
   return `${secs}s`;
 };
 
-/**
- * Copies server URL to clipboard.
- */
-const copyServerURL = () => {
-  const url = `${config.value.protocol}://${config.value.host}:${config.value.port}`;
-  navigator.clipboard.writeText(url);
-  alert('Server URL copied to clipboard!');
-};
-
-// Lifecycle hooks
 onMounted(async () => {
   await loadConfig();
-  await updateStatus();
-  await loadTools();
+  await Promise.all([updateStatus(), loadTools()]);
 
-  if (status.value.isRunning) {
-    startStatusPolling();
-  }
+  statusUnsubscribe = EventsOn('mcp:status', (payload: MCPServerStatus) => {
+    status.value = {
+      ...status.value,
+      ...payload,
+      lastError: payload.lastError
+    };
+  });
+
+  toolsUnsubscribe = EventsOn('mcp:tools', (payload: MCPTool[]) => {
+    tools.value = payload ?? [];
+  });
 });
 
 onUnmounted(() => {
-  stopStatusPolling();
+  dismissNotification();
+  statusUnsubscribe?.();
+  toolsUnsubscribe?.();
 });
 </script>
 
 <template>
   <div class="mcp-view">
-    <!-- Project Context Info -->
-    <div v-if="currentProject" class="info-banner">
-      <span class="info-icon">ℹ️</span>
-      <span>MCP server will provide context for project: <strong>{{ currentProject.name }}</strong></span>
-    </div>
-    <div v-else class="warning-banner">
-      <span class="warning-icon">⚠️</span>
-      <span>No project selected. MCP server can run but tools won't have project context.</span>
+    <div class="notification-stack">
+      <transition name="fade">
+        <div v-if="notification" :class="['alert-banner', notification.type]">
+          <span>{{ notification.message }}</span>
+          <button
+            type="button"
+            class="alert-close"
+            aria-label="Dismiss notification"
+            @click="dismissNotification"
+          >
+            ×
+          </button>
+        </div>
+      </transition>
     </div>
 
     <!-- Server Status -->
     <div class="section status-section">
       <div class="section-header">
         <h3>Server Status</h3>
-        <div :class="['status-indicator', { active: status.isRunning }]">
-          {{ status.isRunning ? '● Running' : '○ Stopped' }}
+        <div class="section-header-meta">
+          <span v-if="isStatusLoading" class="status-refresh">Refreshing...</span>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              :checked="status.isRunning"
+              @change="toggleServer"
+              :disabled="isTogglingServer"
+            />
+            <span class="slider"></span>
+            <span class="toggle-label">{{ status.isRunning ? 'On' : 'Off' }}</span>
+          </label>
         </div>
       </div>
 
@@ -236,108 +261,11 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <div v-if="status.lastError" class="status-error">
+        ⚠️ {{ status.lastError }}
+      </div>
+
       <div class="server-controls">
-        <button
-          v-if="!status.isRunning"
-          @click="startServer"
-          :disabled="isStarting"
-          class="btn btn-success"
-        >
-          {{ isStarting ? 'Starting...' : '▶ Start Server' }}
-        </button>
-        <button
-          v-else
-          @click="stopServer"
-          :disabled="isStopping"
-          class="btn btn-danger"
-        >
-          {{ isStopping ? 'Stopping...' : '■ Stop Server' }}
-        </button>
-        <button @click="copyServerURL" class="btn btn-secondary">
-          📋 Copy URL
-        </button>
-      </div>
-    </div>
-
-    <!-- Configuration -->
-    <div class="section config-section">
-      <h3>Configuration</h3>
-
-      <div class="config-grid">
-        <div class="form-group">
-          <label for="host">Host</label>
-          <input
-            id="host"
-            v-model="config.host"
-            type="text"
-            class="input-text"
-            :disabled="status.isRunning"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="port">Port</label>
-          <input
-            id="port"
-            v-model.number="config.port"
-            type="number"
-            min="1024"
-            max="65535"
-            class="input-text"
-            :disabled="status.isRunning"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="protocol">Protocol</label>
-          <select
-            id="protocol"
-            v-model="config.protocol"
-            class="input-select"
-            :disabled="status.isRunning"
-          >
-            <option value="http">HTTP</option>
-            <option value="stdio">STDIO</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="maxConnections">Max Connections</label>
-          <input
-            id="maxConnections"
-            v-model.number="config.maxConnections"
-            type="number"
-            min="1"
-            max="100"
-            class="input-text"
-            :disabled="status.isRunning"
-          />
-        </div>
-      </div>
-
-      <div class="form-group checkbox-group">
-        <label>
-          <input
-            v-model="config.autoStart"
-            type="checkbox"
-            :disabled="status.isRunning"
-          />
-          <span>Auto-start server on application launch</span>
-        </label>
-      </div>
-
-      <div class="form-actions">
-        <button
-          @click="saveConfig"
-          :disabled="status.isRunning || isLoadingConfig"
-          class="btn btn-primary"
-        >
-          💾 Save Configuration
-        </button>
-      </div>
-
-      <div v-if="status.isRunning" class="warning-message">
-        ⚠️ Stop the server to modify configuration
       </div>
     </div>
 
@@ -345,28 +273,21 @@ onUnmounted(() => {
     <div class="section tools-section">
       <h3>Available Tools</h3>
       <p class="section-description">
-        MCP tools exposed to IDE clients for code understanding and navigation
+        Tools are always enabled; IDE clients can call them for context and navigation.
       </p>
 
-      <div class="tools-list">
+      <div v-if="isToolsLoading" class="loading-indicator">Loading tools...</div>
+      <div v-else-if="!tools.length" class="empty-state">
+        No tools are registered yet.
+      </div>
+      <div v-else class="tools-list">
         <div
           v-for="tool in tools"
           :key="tool.name"
-          :class="['tool-item', { disabled: !tool.enabled }]"
+          class="tool-item"
         >
-          <div class="tool-header">
-            <div class="tool-name">{{ tool.name }}</div>
-            <div class="tool-badge">{{ tool.callCount }} calls</div>
-          </div>
+          <div class="tool-name">{{ tool.name }}</div>
           <div class="tool-description">{{ tool.description }}</div>
-          <div class="tool-actions">
-            <button
-              @click="toggleTool(tool.name)"
-              :class="['btn-toggle', { enabled: tool.enabled }]"
-            >
-              {{ tool.enabled ? 'Enabled' : 'Disabled' }}
-            </button>
-          </div>
         </div>
       </div>
     </div>
@@ -375,17 +296,54 @@ onUnmounted(() => {
     <div class="section info-section">
       <h3>Connection Information</h3>
       <div class="info-box">
-        <p><strong>Server URL:</strong></p>
-        <code class="server-url">{{ config.protocol }}://{{ config.host }}:{{ config.port }}</code>
+        <p class="info-label">
+          Server URL per progetto
+          <span class="info-sub" :class="{ muted: !currentProject }">
+            {{ currentProjectLabel }}
+          </span>
+        </p>
+        <code class="server-url">{{ projectServerUrl }}</code>
 
-        <p><strong>Claude Desktop Configuration:</strong></p>
-        <pre class="config-snippet"><code>{
+        <div class="snippet-grid">
+          <div class="snippet-card">
+            <div class="snippet-title">Codex CLI (`~/.codex/config.toml`)</div>
+            <pre class="config-snippet"><code>[mcp_servers.codetextor]
+url = "{{ projectServerUrl }}"
+transport = "http"
+enabled = true
+
+[features]
+rmcp_client = true</code></pre>
+          </div>
+          <div class="snippet-card">
+            <div class="snippet-title">Claude Code CLI</div>
+            <pre class="config-snippet"><code>
+claude mcp add --transport http codetextor {{ projectServerUrl }}
+</code></pre>
+          </div>
+          <div class="snippet-card">
+            <div class="snippet-title">Claude Code (`.mcp.json`)</div>
+            <pre class="config-snippet"><code>{
   "mcpServers": {
     "codetextor": {
-      "command": "{{ config.protocol }}://{{ config.host }}:{{ config.port }}"
+      "type": "http",
+      "url": "{{ projectServerUrl }}"
     }
   }
 }</code></pre>
+          </div>
+          <div class="snippet-card">
+            <div class="snippet-title">VS Code / Cursor / Windsurf </div>
+            <pre class="config-snippet"><code>{
+  "mcpServers": {
+    "codetextor": {
+      "type": "http",
+      "url": "{{ projectServerUrl }}"
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -428,16 +386,6 @@ onUnmounted(() => {
   font-weight: 600;
   background: #6c757d;
   color: white;
-}
-
-.status-indicator.active {
-  background: #28a745;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
 }
 
 .status-grid {
@@ -517,8 +465,65 @@ onUnmounted(() => {
   color: white;
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: #5a6268;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle input {
+  display: none;
+}
+
+.slider {
+  position: relative;
+  width: 48px;
+  height: 26px;
+  background: #3e3e42;
+  border-radius: 26px;
+  transition: background 0.2s ease;
+}
+
+.slider::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: #d4d4d4;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.toggle input:checked + .slider {
+  background: #28a745;
+}
+
+.toggle input:checked + .slider::after {
+  transform: translateX(22px);
+}
+
+.toggle-label {
+  color: #d4d4d4;
+  font-weight: 600;
+}
+
+.notification-stack {
+  position: fixed;
+  bottom: 72px;
+  right: 12px;
+  width: min(360px, calc(100vw - 24px));
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.notification-stack .alert-banner {
+  pointer-events: auto;
 }
 
 .config-grid {
@@ -589,6 +594,7 @@ onUnmounted(() => {
 
 .tools-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
 }
 
@@ -617,43 +623,10 @@ onUnmounted(() => {
   font-family: 'Courier New', monospace;
 }
 
-.tool-badge {
-  padding: 0.25rem 0.75rem;
-  background: #007acc;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  color: white;
-}
-
 .tool-description {
   color: #858585;
   font-size: 0.9rem;
   margin-bottom: 0.75rem;
-}
-
-.tool-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.btn-toggle {
-  padding: 0.4rem 1rem;
-  border: 1px solid #3e3e42;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: #6c757d;
-  color: white;
-}
-
-.btn-toggle.enabled {
-  background: #28a745;
-  border-color: #28a745;
-}
-
-.btn-toggle:hover {
-  opacity: 0.8;
 }
 
 .info-box {
@@ -668,6 +641,17 @@ onUnmounted(() => {
   color: #d4d4d4;
 }
 
+.info-sub {
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: #7ec9ff;
+  font-weight: 500;
+}
+
+.info-sub.muted {
+  color: #858585;
+}
+
 .info-box p:first-child {
   margin-top: 0;
 }
@@ -678,7 +662,7 @@ onUnmounted(() => {
   background: #0d1117;
   border: 1px solid #3e3e42;
   border-radius: 4px;
-  color: #58a6ff;
+  color: #7ec9ff;
   font-family: 'Courier New', monospace;
   font-size: 0.95rem;
 }
@@ -690,6 +674,7 @@ onUnmounted(() => {
   border: 1px solid #3e3e42;
   border-radius: 4px;
   overflow-x: auto;
+  text-align: left;
 }
 
 .config-snippet code {
@@ -697,6 +682,39 @@ onUnmounted(() => {
   font-family: 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.5;
+  text-align: left;
+}
+
+.info-label {
+  color: #d4d4d4;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+}
+
+.snippet-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.snippet-card {
+  background: #0d1117;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.snippet-title {
+  margin: 0 0 0.5rem 0;
+  color: #e5e5e5;
+  font-weight: 600;
+}
+
+.snippet-hint {
+  margin: 0.5rem 0 0 0;
+  color: #858585;
+  font-size: 0.9rem;
 }
 
 /* Project context banners */
@@ -726,5 +744,109 @@ onUnmounted(() => {
 .info-icon,
 .warning-icon {
   font-size: 1.5rem;
+}
+
+.banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.banner-title {
+  margin: 0;
+  color: #e5e5e5;
+  font-weight: 600;
+}
+
+.banner-text {
+  margin: 0;
+  color: #d4d4d4;
+  font-size: 0.95rem;
+}
+
+.alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+  border: 1px solid transparent;
+  font-size: 0.95rem;
+}
+
+.alert-banner.success {
+  background: rgba(40, 167, 69, 0.15);
+  border-color: #28a745;
+  color: #d4ffd4;
+}
+
+.alert-banner.error {
+  background: rgba(220, 53, 69, 0.15);
+  border-color: #dc3545;
+  color: #ffccd5;
+}
+
+.alert-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.section-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.status-refresh {
+  font-size: 0.85rem;
+  color: #9cdcfe;
+}
+
+.status-error {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  color: #f28b9c;
+  font-size: 0.9rem;
+}
+
+.helper-text {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: #858585;
+}
+
+.loading-indicator,
+.empty-state {
+  padding: 1rem;
+  border: 1px dashed #3e3e42;
+  border-radius: 6px;
+  text-align: center;
+  color: #d4d4d4;
+}
+
+.loading-indicator {
+  color: #9cdcfe;
+}
+
+.empty-state {
+  color: #bbbbbb;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -150,16 +150,6 @@ const needsModelDownload = computed(() => {
   return !!selectedEmbeddingModel.value && selectedEmbeddingModel.value.downloadStatus !== 'ready';
 });
 
-const formatTimestamp = (unix?: number | null) => {
-  if (!unix || unix <= 0) {
-    return 'Never indexed';
-  }
-  const date = new Date(unix * 1000);
-  return date.toLocaleString();
-};
-
-const lastIndexedText = computed(() => formatTimestamp(projectStats.value?.lastIndexedAtUnix));
-
 const lastIndexedModelInfo = computed<EmbeddingModelInfo | undefined>(() => {
   if (projectStats.value?.lastEmbeddingModel?.id) {
     return projectStats.value.lastEmbeddingModel;
@@ -191,19 +181,6 @@ const embeddingUsageSummaries = computed(() => {
 
 const primaryEmbeddingUsage = computed(() => embeddingUsageSummaries.value[0]);
 
-const embeddingModelSummary = computed(() => {
-  if (embeddingUsageSummaries.value.length === 0) {
-    if (lastIndexedModelInfo.value?.displayName) {
-      return lastIndexedModelInfo.value.displayName;
-    }
-    return hasPersistedEmbeddings.value ? 'Unknown model' : 'Not indexed yet';
-  }
-  if (embeddingUsageSummaries.value.length === 1) {
-    return embeddingUsageSummaries.value[0].label;
-  }
-  return `${embeddingUsageSummaries.value[0].label} (+${embeddingUsageSummaries.value.length - 1} altri)`;
-});
-
 const storedEmbeddingModelLabel = computed(() => {
   if (primaryEmbeddingUsage.value) {
     return primaryEmbeddingUsage.value.label;
@@ -215,29 +192,6 @@ const storedEmbeddingModelLabel = computed(() => {
     return 'Unknown model';
   }
   return 'Not indexed yet';
-});
-
-const storedEmbeddingModelDetails = computed(() => {
-  if (primaryEmbeddingUsage.value) {
-    const detailParts = [
-      `${primaryEmbeddingUsage.value.chunkCount} chunks`,
-    ];
-    if (primaryEmbeddingUsage.value.percent > 0) {
-      detailParts.push(`${primaryEmbeddingUsage.value.percent}%`);
-    }
-    if (primaryEmbeddingUsage.value.details) {
-      detailParts.push(primaryEmbeddingUsage.value.details);
-    }
-    return detailParts.join(' · ');
-  }
-  if (lastIndexedModelInfo.value) {
-    const attributes = describeModelAttributes(lastIndexedModelInfo.value);
-    return attributes || 'Model metadata unavailable.';
-  }
-  if (hasPersistedEmbeddings.value) {
-    return 'Embeddings exist, but their source model predates this version of CodeTextor.';
-  }
-  return 'Start an indexing run to generate embeddings with the selected model.';
 });
 
 const embeddingModelSelectionMismatch = computed(() => {

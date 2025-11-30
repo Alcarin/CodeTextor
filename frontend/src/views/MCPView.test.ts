@@ -2,13 +2,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, computed } from 'vue';
 import MCPView from './MCPView.vue';
-import { mockBackend } from '../services/mockBackend';
+import { backend } from '../api/backend';
 import { useCurrentProject } from '../composables/useCurrentProject';
 
 vi.mock('../composables/useCurrentProject');
+vi.mock('../api/backend', () => ({
+  backend: {
+    getMCPConfig: vi.fn(),
+    updateMCPConfig: vi.fn(),
+    startMCPServer: vi.fn(),
+    stopMCPServer: vi.fn(),
+    getMCPStatus: vi.fn(),
+    getMCPTools: vi.fn(),
+    toggleMCPTool: vi.fn()
+  }
+}));
+vi.mock('../../wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn().mockReturnValue(() => {})
+}));
 
 describe('MCPView.vue', () => {
   const currentProjectRef = ref<any>(null);
+  const backendMock = vi.mocked(backend);
 
   beforeEach(() => {
     currentProjectRef.value = { id: 'p1', name: 'Test Project', path: '/root' };
@@ -23,14 +38,31 @@ describe('MCPView.vue', () => {
       refreshCurrentProject: vi.fn(),
     });
     vi.clearAllMocks();
+    backendMock.getMCPConfig.mockReset();
+    backendMock.getMCPStatus.mockReset();
+    backendMock.getMCPTools.mockReset();
+    backendMock.startMCPServer.mockReset();
+    backendMock.stopMCPServer.mockReset();
   });
 
   const mountComponent = () => mount(MCPView);
 
   it('renders the component and loads initial data', async () => {
-    const getConfigSpy = vi.spyOn(mockBackend, 'getMCPConfig').mockResolvedValue({ host: 'localhost', port: 3000, protocol: 'http', autoStart: false, maxConnections: 10 });
-    const getStatusSpy = vi.spyOn(mockBackend, 'getMCPStatus').mockResolvedValue({ isRunning: false, uptime: 0, activeConnections: 0, totalRequests: 0, averageResponseTime: 0 });
-    const getToolsSpy = vi.spyOn(mockBackend, 'getMCPTools').mockResolvedValue([]);
+    const getConfigSpy = backendMock.getMCPConfig.mockResolvedValue({
+      host: 'localhost',
+      port: 3000,
+      protocol: 'http',
+      autoStart: false,
+      maxConnections: 10
+    });
+    const getStatusSpy = backendMock.getMCPStatus.mockResolvedValue({
+      isRunning: false,
+      uptime: 0,
+      activeConnections: 0,
+      totalRequests: 0,
+      averageResponseTime: 0
+    });
+    const getToolsSpy = backendMock.getMCPTools.mockResolvedValue([]);
 
     const wrapper = mountComponent();
     await flushPromises();
@@ -42,10 +74,22 @@ describe('MCPView.vue', () => {
   });
 
   it('starts the server when the start button is clicked', async () => {
-    vi.spyOn(mockBackend, 'getMCPConfig').mockResolvedValue({ host: 'localhost', port: 3000, protocol: 'http', autoStart: false, maxConnections: 10 });
-    vi.spyOn(mockBackend, 'getMCPStatus').mockResolvedValue({ isRunning: false, uptime: 0, activeConnections: 0, totalRequests: 0, averageResponseTime: 0 });
-    vi.spyOn(mockBackend, 'getMCPTools').mockResolvedValue([]);
-    const startServerSpy = vi.spyOn(mockBackend, 'startMCPServer').mockResolvedValue();
+    backendMock.getMCPConfig.mockResolvedValue({
+      host: 'localhost',
+      port: 3000,
+      protocol: 'http',
+      autoStart: false,
+      maxConnections: 10
+    });
+    backendMock.getMCPStatus.mockResolvedValue({
+      isRunning: false,
+      uptime: 0,
+      activeConnections: 0,
+      totalRequests: 0,
+      averageResponseTime: 0
+    });
+    backendMock.getMCPTools.mockResolvedValue([]);
+    const startServerSpy = backendMock.startMCPServer.mockResolvedValue();
 
     const wrapper = mountComponent();
     await flushPromises();
@@ -57,10 +101,23 @@ describe('MCPView.vue', () => {
   });
 
   it('stops the server when the stop button is clicked', async () => {
-    vi.spyOn(mockBackend, 'getMCPConfig').mockResolvedValue({ host: 'localhost', port: 3000, protocol: 'http', autoStart: false, maxConnections: 10 });
-    vi.spyOn(mockBackend, 'getMCPStatus').mockResolvedValue({ isRunning: true, uptime: 120, activeConnections: 1, totalRequests: 10, averageResponseTime: 50 });
-    vi.spyOn(mockBackend, 'getMCPTools').mockResolvedValue([]);
-    const stopServerSpy = vi.spyOn(mockBackend, 'stopMCPServer').mockResolvedValue();
+    backendMock.getMCPConfig.mockResolvedValue({
+      host: 'localhost',
+      port: 3000,
+      protocol: 'http',
+      autoStart: false,
+      maxConnections: 10
+    });
+    backendMock.getMCPStatus
+      .mockResolvedValue({
+        isRunning: true,
+        uptime: 120,
+        activeConnections: 1,
+        totalRequests: 10,
+        averageResponseTime: 50
+      });
+    backendMock.getMCPTools.mockResolvedValue([]);
+    const stopServerSpy = backendMock.stopMCPServer.mockResolvedValue();
 
     const wrapper = mountComponent();
     await flushPromises();
@@ -72,9 +129,21 @@ describe('MCPView.vue', () => {
   });
 
   it('displays server status correctly', async () => {
-    vi.spyOn(mockBackend, 'getMCPConfig').mockResolvedValue({ host: 'localhost', port: 3000, protocol: 'http', autoStart: false, maxConnections: 10 });
-    vi.spyOn(mockBackend, 'getMCPStatus').mockResolvedValue({ isRunning: true, uptime: 123, activeConnections: 2, totalRequests: 42, averageResponseTime: 55 });
-    vi.spyOn(mockBackend, 'getMCPTools').mockResolvedValue([]);
+    backendMock.getMCPConfig.mockResolvedValue({
+      host: 'localhost',
+      port: 3000,
+      protocol: 'http',
+      autoStart: false,
+      maxConnections: 10
+    });
+    backendMock.getMCPStatus.mockResolvedValue({
+      isRunning: true,
+      uptime: 123,
+      activeConnections: 2,
+      totalRequests: 42,
+      averageResponseTime: 55
+    });
+    backendMock.getMCPTools.mockResolvedValue([]);
 
     const wrapper = mountComponent();
     await flushPromises();

@@ -211,6 +211,12 @@ The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with inte
 - No vendor lock-in
 - Community-driven protocol evolution
 
+**Implementation (current):**
+- Streamable HTTP transport using `modelcontextprotocol/go-sdk` with a shared server instance plus per-project bound servers resolved from `/mcp/<projectId>` URLs (calls without projectId are rejected)
+- Persisted config (host, port, protocol, autostart, max connections) stored in the config DB; optional auto-start on app launch
+- Status + tools telemetry emitted every 2s (`mcp:status`, `mcp:tools`) so the Vue MCP view can display uptime, active connections, total requests, and enablement
+- Tools: `search` (semantic chunk retrieval), `outline` (Tree-sitter symbol tree), `nodeSource` (canonical snippet for chunk/outline node ids)
+
 ---
 
 ## Data Flow Examples

@@ -174,6 +174,66 @@ export namespace models {
 	        this.error = source["error"];
 	    }
 	}
+	export class MCPServerConfig {
+	    host: string;
+	    port: number;
+	    protocol: string;
+	    autoStart: boolean;
+	    maxConnections: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPServerConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.protocol = source["protocol"];
+	        this.autoStart = source["autoStart"];
+	        this.maxConnections = source["maxConnections"];
+	    }
+	}
+	export class MCPServerStatus {
+	    isRunning: boolean;
+	    uptime: number;
+	    activeConnections: number;
+	    totalRequests: number;
+	    averageResponseTime: number;
+	    lastError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.isRunning = source["isRunning"];
+	        this.uptime = source["uptime"];
+	        this.activeConnections = source["activeConnections"];
+	        this.totalRequests = source["totalRequests"];
+	        this.averageResponseTime = source["averageResponseTime"];
+	        this.lastError = source["lastError"];
+	    }
+	}
+	export class MCPTool {
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+	    callCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPTool(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	        this.callCount = source["callCount"];
+	    }
+	}
 	export class ONNXRuntimeSettings {
 	    sharedLibraryPath: string;
 	    activePath?: string;

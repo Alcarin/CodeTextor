@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Streamable HTTP MCP server powered by the official go-sdk with persisted config (host/port/protocol/autostart/max connections), lifecycle management (start/stop), and periodic status/tool events (`mcp:status`, `mcp:tools`)
+- MCP tools `search`, `outline`, and `nodeSource` exposed per-project via `/mcp/<projectId>`; Wails bindings + Vue MCP view now surface live metrics, tool list, and ready-to-paste client snippets (Codex CLI, Claude Code, VS Code/Cursor/Windsurf)
+- Backend `GetChunkByID` API (VectorStore + ProjectService) to fetch canonical chunk/source snippets for MCP `nodeSource`
+- New `SelectFile` Wails binding for filtered file pickers alongside existing directory selector
 - Embedding model catalog with per-project selection snapshot, custom-model modal, download manager storing artifacts under `<AppDataDir>/models/<modelId>`, and ONNX Runtime-based embedding generation (automatic tokenizer/ONNX downloads, shared sessions per model)
 - Multi-project management (create, edit, delete, select) with per-project SQLite databases
 - Human-readable project slugs and slug auto-generation/validation
@@ -84,6 +88,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Statistics include indexing progress tracking when projects are being indexed
 
 ### Changed
+- File outline requests now auto-generate and persist outlines on demand (Tree-sitter) instead of erroring when no cached outline exists
+- Search results and chunk lookups keep `embedding` as an empty slice (never null) for MCP schema compatibility
 - Project cards now display the slug instead of the raw UUID
 - Default excluded folders now mirror `.gitignore` (user overrides still respected)
 - File preview table shows only the filename and wraps the relative path below it

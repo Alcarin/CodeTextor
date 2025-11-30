@@ -46,6 +46,18 @@ export function GetIndexingProgress(arg1) {
   return window['go']['main']['App']['GetIndexingProgress'](arg1);
 }
 
+export function GetMCPConfig() {
+  return window['go']['main']['App']['GetMCPConfig']();
+}
+
+export function GetMCPStatus() {
+  return window['go']['main']['App']['GetMCPStatus']();
+}
+
+export function GetMCPTools() {
+  return window['go']['main']['App']['GetMCPTools']();
+}
+
 export function GetONNXRuntimeSettings() {
   return window['go']['main']['App']['GetONNXRuntimeSettings']();
 }
@@ -106,6 +118,10 @@ export function SelectDirectory(arg1, arg2) {
   return window['go']['main']['App']['SelectDirectory'](arg1, arg2);
 }
 
+export function SelectFile(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SelectFile'](arg1, arg2, arg3);
+}
+
 export function SetProjectIndexing(arg1, arg2) {
   return window['go']['main']['App']['SetProjectIndexing'](arg1, arg2);
 }
@@ -118,12 +134,28 @@ export function StartIndexing(arg1) {
   return window['go']['main']['App']['StartIndexing'](arg1);
 }
 
+export function StartMCPServer() {
+  return window['go']['main']['App']['StartMCPServer']();
+}
+
 export function StopIndexing(arg1) {
   return window['go']['main']['App']['StopIndexing'](arg1);
 }
 
+export function StopMCPServer() {
+  return window['go']['main']['App']['StopMCPServer']();
+}
+
 export function TestONNXRuntimePath(arg1) {
   return window['go']['main']['App']['TestONNXRuntimePath'](arg1);
+}
+
+export function ToggleMCPTool(arg1) {
+  return window['go']['main']['App']['ToggleMCPTool'](arg1);
+}
+
+export function UpdateMCPConfig(arg1) {
+  return window['go']['main']['App']['UpdateMCPConfig'](arg1);
 }
 
 export function UpdateONNXRuntimeSettings(arg1) {

@@ -2,13 +2,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, computed } from 'vue';
 import SearchView from './SearchView.vue';
-import { mockBackend } from '../services/mockBackend';
+import { backend, models } from '../api/backend';
 import { useCurrentProject } from '../composables/useCurrentProject';
 
 vi.mock('../composables/useCurrentProject');
+vi.mock('../api/backend', async () => {
+  const actual = await vi.importActual<typeof import('../api/backend')>('../api/backend');
+  return {
+    ...actual,
+    backend: {
+      ...actual.backend,
+      search: vi.fn()
+    }
+  };
+});
 
 describe('SearchView.vue', () => {
   const currentProjectRef = ref<any>(null);
+  const backendMock = vi.mocked(backend);
 
   beforeEach(() => {
     currentProjectRef.value = { id: 'p1', name: 'Test Project', path: '/root' };
@@ -23,6 +34,7 @@ describe('SearchView.vue', () => {
       refreshCurrentProject: vi.fn(),
     });
     vi.clearAllMocks();
+    backendMock.search.mockReset();
   });
 
   const mountComponent = () => mount(SearchView);
@@ -34,14 +46,16 @@ describe('SearchView.vue', () => {
   });
 
   it('calls semanticSearch on search button click', async () => {
-    const semanticSearchSpy = vi.spyOn(mockBackend, 'semanticSearch').mockResolvedValue({ chunks: [], totalResults: 0, queryTime: 0 });
+    const semanticSearchSpy = backendMock.search.mockResolvedValue(
+      models.SearchResponse.createFrom({ chunks: [], totalResults: 0, queryTime: 0 })
+    );
 
     const wrapper = mountComponent();
     await wrapper.find('#query').setValue('test query');
     await wrapper.find('button.btn-primary').trigger('click');
     await flushPromises();
 
-    expect(semanticSearchSpy).toHaveBeenCalledWith({ projectId: 'p1', query: 'test query', k: 10 });
+    expect(semanticSearchSpy).toHaveBeenCalledWith('p1', 'test query', 10);
   });
 
   it('displays search results', async () => {
@@ -49,7 +63,7 @@ describe('SearchView.vue', () => {
       { id: 'c1', projectId: 'p1', symbolName: 'Chunk 1', content: 'content 1', filePath: 'file1.ts', embedding: [], lineStart: 1, lineEnd: 10, charStart: 0, charEnd: 100, createdAt: 0, updatedAt: 0, similarity: 0.9, symbolKind: 'function' },
       { id: 'c2', projectId: 'p1', symbolName: 'Chunk 2', content: 'content 2', filePath: 'file2.ts', embedding: [], lineStart: 5, lineEnd: 15, charStart: 50, charEnd: 150, createdAt: 0, updatedAt: 0, similarity: 0.8, symbolKind: 'class' },
     ];
-    vi.spyOn(mockBackend, 'semanticSearch').mockResolvedValue({ chunks, totalResults: 2, queryTime: 123 });
+    backendMock.search.mockResolvedValue(models.SearchResponse.createFrom({ chunks, totalResults: 2, queryTime: 123 }));
 
     const wrapper = mountComponent();
     await wrapper.find('#query').setValue('test query');
@@ -64,7 +78,7 @@ describe('SearchView.vue', () => {
   });
 
   it('shows a loading indicator while searching', async () => {
-    vi.spyOn(mockBackend, 'semanticSearch').mockReturnValue(new Promise(() => {})); // Never resolves
+    backendMock.search.mockReturnValue(new Promise(() => {})); // Never resolves
 
     const wrapper = mountComponent();
     await wrapper.find('#query').setValue('test query');
@@ -76,7 +90,7 @@ describe('SearchView.vue', () => {
 
   it('shows an error message on search failure', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-    vi.spyOn(mockBackend, 'semanticSearch').mockRejectedValue(new Error('Search failed'));
+    backendMock.search.mockRejectedValue(new Error('Search failed'));
 
     const wrapper = mountComponent();
     await wrapper.find('#query').setValue('test query');

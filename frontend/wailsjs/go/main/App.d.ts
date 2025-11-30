@@ -24,6 +24,12 @@ export function GetGitignorePatterns(arg1:string):Promise<Array<string>>;
 
 export function GetIndexingProgress(arg1:string):Promise<models.IndexingProgress>;
 
+export function GetMCPConfig():Promise<models.MCPServerConfig>;
+
+export function GetMCPStatus():Promise<models.MCPServerStatus>;
+
+export function GetMCPTools():Promise<Array<models.MCPTool>>;
+
 export function GetONNXRuntimeSettings():Promise<models.ONNXRuntimeSettings>;
 
 export function GetOutlineTimestamps(arg1:string):Promise<Record<string, number>>;
@@ -54,15 +60,25 @@ export function Search(arg1:string,arg2:string,arg3:number):Promise<models.Searc
 
 export function SelectDirectory(arg1:string,arg2:string):Promise<string>;
 
+export function SelectFile(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function SetProjectIndexing(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetSelectedProject(arg1:string):Promise<void>;
 
 export function StartIndexing(arg1:string):Promise<void>;
 
+export function StartMCPServer():Promise<void>;
+
 export function StopIndexing(arg1:string):Promise<void>;
 
+export function StopMCPServer():Promise<void>;
+
 export function TestONNXRuntimePath(arg1:string):Promise<models.ONNXRuntimeTestResult>;
+
+export function ToggleMCPTool(arg1:string):Promise<void>;
+
+export function UpdateMCPConfig(arg1:models.MCPServerConfig):Promise<models.MCPServerConfig>;
 
 export function UpdateONNXRuntimeSettings(arg1:string):Promise<models.ONNXRuntimeSettings>;
 

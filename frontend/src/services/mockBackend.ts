@@ -526,13 +526,9 @@ export class MockBackendService {
     await delay(100);
 
     return [
-      { name: 'retrieve', description: 'Semantic code retrieval', enabled: true, callCount: 142 },
-      { name: 'outline', description: 'Get file structure outline', enabled: true, callCount: 87 },
-      { name: 'nodeAt', description: 'Get AST node at position', enabled: true, callCount: 54 },
-      { name: 'nodeSource', description: 'Get node source code', enabled: true, callCount: 98 },
-      { name: 'searchSymbols', description: 'Search for symbols', enabled: true, callCount: 63 },
-      { name: 'findDefinition', description: 'Find symbol definition', enabled: false, callCount: 0 },
-      { name: 'findReferences', description: 'Find symbol references', enabled: false, callCount: 0 }
+      { name: 'search', description: 'Semantic chunk search', enabled: true, callCount: 142 },
+      { name: 'outline', description: 'File outline tree', enabled: true, callCount: 87 },
+      { name: 'nodeSource', description: 'Source snippet for a chunk/outline node', enabled: true, callCount: 98 }
     ];
   }
 

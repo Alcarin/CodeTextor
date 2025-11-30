@@ -2,13 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, computed } from 'vue';
 import StatsView from './StatsView.vue';
-import { mockBackend } from '../services/mockBackend';
+import { backend } from '../api/backend';
 import { useCurrentProject } from '../composables/useCurrentProject';
 
 vi.mock('../composables/useCurrentProject');
+vi.mock('../api/backend', () => ({
+  backend: {
+    getProjectStats: vi.fn()
+  }
+}));
 
 describe('StatsView.vue', () => {
   const currentProjectRef = ref<any>(null);
+  const backendMock = vi.mocked(backend);
 
   beforeEach(() => {
     currentProjectRef.value = { id: 'p1', name: 'Test Project', path: '/root' };
@@ -23,12 +29,13 @@ describe('StatsView.vue', () => {
       refreshCurrentProject: vi.fn(),
     });
     vi.clearAllMocks();
+    backendMock.getProjectStats.mockReset();
   });
 
   const mountComponent = () => mount(StatsView);
 
   it('renders the component and loads initial data', async () => {
-    const getStatsSpy = vi.spyOn(mockBackend, 'getProjectStats').mockResolvedValue({
+    const getStatsSpy = backendMock.getProjectStats.mockResolvedValue({
       totalFiles: 100,
       totalChunks: 1000,
       totalSymbols: 5000,
@@ -46,7 +53,7 @@ describe('StatsView.vue', () => {
   });
 
   it('displays project stats correctly', async () => {
-    vi.spyOn(mockBackend, 'getProjectStats').mockResolvedValue({
+    backendMock.getProjectStats.mockResolvedValue({
       totalFiles: 123,
       totalChunks: 1234,
       totalSymbols: 5678,
@@ -66,7 +73,7 @@ describe('StatsView.vue', () => {
   });
 
   it('shows a loading indicator while fetching', async () => {
-    vi.spyOn(mockBackend, 'getProjectStats').mockReturnValue(new Promise(() => {})); // Never resolves
+    backendMock.getProjectStats.mockReturnValue(new Promise(() => {})); // Never resolves
 
     const wrapper = mountComponent();
     await flushPromises();

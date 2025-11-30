@@ -748,6 +748,83 @@ func (s *VectorStore) GetFileChunks(filePath string) ([]*models.Chunk, error) {
 	return chunks, nil
 }
 
+// GetChunkByID retrieves a single chunk from the index.
+func (s *VectorStore) GetChunkByID(chunkID string) (*models.Chunk, error) {
+	trimmed := strings.TrimSpace(chunkID)
+	if trimmed == "" {
+		return nil, fmt.Errorf("chunk id cannot be empty")
+	}
+
+	row := s.db.QueryRow(`
+		SELECT
+			c.id, f.path, c.content, c.embedding_model_id,
+			c.line_start, c.line_end, c.char_start, c.char_end,
+			c.language, c.symbol_name, c.symbol_kind, c.parent, c.signature, c.visibility,
+			c.package_name, c.doc_string, c.token_count, c.is_collapsed, c.source_code,
+			c.created_at, c.updated_at
+		FROM chunks c
+		JOIN files f ON f.pk = c.file_id
+		WHERE c.id = ?
+	`, trimmed)
+
+	chunk := &models.Chunk{}
+	var language, symbolName, symbolKind, parent, signature, visibility sql.NullString
+	var packageName, docString, sourceCode sql.NullString
+	var tokenCount sql.NullInt64
+	var isCollapsed sql.NullBool
+
+	err := row.Scan(
+		&chunk.ID, &chunk.FilePath, &chunk.Content, &chunk.EmbeddingModelID,
+		&chunk.LineStart, &chunk.LineEnd, &chunk.CharStart, &chunk.CharEnd,
+		&language, &symbolName, &symbolKind, &parent, &signature, &visibility,
+		&packageName, &docString, &tokenCount, &isCollapsed, &sourceCode,
+		&chunk.CreatedAt, &chunk.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("chunk not found: %s", trimmed)
+		}
+		return nil, fmt.Errorf("failed to load chunk %s: %w", trimmed, err)
+	}
+
+	if language.Valid {
+		chunk.Language = language.String
+	}
+	if symbolName.Valid {
+		chunk.SymbolName = symbolName.String
+	}
+	if symbolKind.Valid {
+		chunk.SymbolKind = symbolKind.String
+	}
+	if parent.Valid {
+		chunk.Parent = parent.String
+	}
+	if signature.Valid {
+		chunk.Signature = signature.String
+	}
+	if visibility.Valid {
+		chunk.Visibility = visibility.String
+	}
+	if packageName.Valid {
+		chunk.PackageName = packageName.String
+	}
+	if docString.Valid {
+		chunk.DocString = docString.String
+	}
+	if tokenCount.Valid {
+		chunk.TokenCount = int(tokenCount.Int64)
+	}
+	if isCollapsed.Valid {
+		chunk.IsCollapsed = isCollapsed.Bool
+	}
+	if sourceCode.Valid {
+		chunk.SourceCode = sourceCode.String
+	}
+
+	chunk.Embedding = nil
+	return chunk, nil
+}
+
 // DeleteFileChunks removes all chunks associated with a file.
 func (s *VectorStore) DeleteFileChunks(filePath string) error {
 	fileID, normalizedPath, err := s.resolveFileID(filePath, true)
@@ -1138,7 +1215,7 @@ func (s *VectorStore) GetStats() (*models.ProjectStats, error) {
 			return nil, fmt.Errorf("failed to scan embedding model usage: %w", err)
 		}
 		usage := models.ProjectEmbeddingModelUsage{
-			ModelID:   strings.TrimSpace(modelID.String),
+			ModelID:    strings.TrimSpace(modelID.String),
 			ChunkCount: int(count),
 		}
 		if usage.ModelID == "" {

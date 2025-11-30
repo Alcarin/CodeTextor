@@ -221,6 +221,7 @@ const getSimilarityColor = (similarity?: number): string => {
 .search-view {
   max-width: 1400px;
   margin: 0 auto;
+  text-align: left;
 }
 
 .search-form.section {
@@ -561,6 +562,9 @@ const getSimilarityColor = (similarity?: number): string => {
   font-family: 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.5;
+  display: block;
+  white-space: pre-wrap;
+  text-align: left;
 }
 
 .no-results {

@@ -7,8 +7,10 @@ require (
 	github.com/anush008/fastembed-go v1.0.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/golang-migrate/migrate/v4 v4.19.0
+	github.com/google/jsonschema-go v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/modelcontextprotocol/go-sdk v1.1.0
 	github.com/stretchr/testify v1.10.0
 	github.com/sugarme/tokenizer v0.3.0
 	github.com/tree-sitter-grammars/tree-sitter-markdown v0.5.1
@@ -22,6 +24,7 @@ require (
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/wailsapp/wails/v2 v2.10.2
 	github.com/yalue/onnxruntime_go v1.22.0
+	golang.org/x/net v0.43.0
 	modernc.org/sqlite v1.40.0
 )
 
@@ -62,9 +65,10 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.19 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/net v0.43.0 // indirect
+	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect

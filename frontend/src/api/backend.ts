@@ -13,6 +13,14 @@ type ProjectConfigInput = Omit<models.ProjectConfig, 'convertValues'> & {
   convertValues?: () => void
 }
 
+type MCPConfigInput = models.MCPServerConfig | {
+  host: string
+  port: number
+  protocol: string
+  autoStart: boolean
+  maxConnections: number
+}
+
 const toBackendConfig = (config: ProjectConfigInput): models.ProjectConfig => {
   if (config instanceof models.ProjectConfig) {
     return config
@@ -22,6 +30,13 @@ const toBackendConfig = (config: ProjectConfigInput): models.ProjectConfig => {
     converted.convertValues = () => {}
   }
   return converted
+}
+
+const toMCPConfig = (config: MCPConfigInput): models.MCPServerConfig => {
+  if (config instanceof models.MCPServerConfig) {
+    return config
+  }
+  return models.MCPServerConfig.createFrom(config)
 }
 
 /**
@@ -235,6 +250,17 @@ export const backend = {
   },
 
   /**
+   * Opens a file selection dialog.
+   * @param title - Dialog title
+   * @param defaultPath - Starting directory or file path
+   * @param pattern - Glob-style filter pattern (e.g. *.so;*.dll)
+   * @returns Promise resolving to the selected file path
+   */
+  async selectFile(title: string, defaultPath: string, pattern: string = ''): Promise<string> {
+    return App.SelectFile(title, defaultPath, pattern)
+  },
+
+  /**
    * Starts the indexing process for a project.
    * @param projectId - Project identifier
    * @returns Promise that resolves when indexing has started
@@ -292,6 +318,34 @@ export const backend = {
    */
   async getAllProjectsStats(): Promise<models.ProjectStats> {
     return App.GetAllProjectsStats()
+  },
+
+  async getMCPConfig(): Promise<models.MCPServerConfig> {
+    return App.GetMCPConfig()
+  },
+
+  async updateMCPConfig(config: MCPConfigInput): Promise<models.MCPServerConfig> {
+    return App.UpdateMCPConfig(toMCPConfig(config))
+  },
+
+  async startMCPServer(): Promise<void> {
+    return App.StartMCPServer()
+  },
+
+  async stopMCPServer(): Promise<void> {
+    return App.StopMCPServer()
+  },
+
+  async getMCPStatus(): Promise<models.MCPServerStatus> {
+    return App.GetMCPStatus()
+  },
+
+  async getMCPTools(): Promise<models.MCPTool[]> {
+    return App.GetMCPTools()
+  },
+
+  async toggleMCPTool(name: string): Promise<void> {
+    return App.ToggleMCPTool(name)
   },
 }
 

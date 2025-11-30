@@ -6,22 +6,49 @@ details and are covered in `DEV_GUIDE.md` / `ARCHITECTURE.md` instead.
 
 ---
 
-## MCP (Model Context Protocol)
+## MCP (Model Context Protocol) Server
 
-The MCP server is the public interface that IDEs and AI assistants will use to
-query projects. It is currently under development.
+CodeTextor ships a streamable **HTTP** MCP server powered by the official
+`modelcontextprotocol/go-sdk`. It serves code context from the local per-project
+index; requests are read-only.
 
-> **Status:** no external endpoints are available yet. When the MCP server is
-> ready, this section will list every tool (parameters, limits, response
-> structure) together with integration examples.
+### Transport & URLs
+- Protocol: `http`
+- Default bind: `127.0.0.1:3030` (configurable in the MCP tab)
+- Base path: `http://<host>:<port>/mcp/<projectId>`
+  - Requests without `<projectId>` return an error (`projectId is required`)
+- Max connections: configurable; defaults to 32
+- No authentication (local-only)
+
+### Tools
+
+| Tool        | Purpose                                                           |
+| ----------- | ----------------------------------------------------------------- |
+| `search`    | Semantic chunk retrieval for a project (top-k similarity)        |
+| `outline`   | Hierarchical outline for a file (Tree-sitter symbols)            |
+| `nodeSource`| Canonical snippet for a chunk/outline node id with metadata      |
+
+#### `search`
+- **Input**: `{ query: string, k?: number (1-50, default 8) }`
+- **Response**: `{ results: Chunk[], totalResults: number, queryTimeMs: number }`
+  - `Chunk` includes file path, line ranges, language, symbol metadata; `embedding` is an empty array (never null).
+
+#### `outline`
+- **Input**: `{ path: string, depth?: number }` where `path` is relative to the project root.
+- **Response**: `{ outline: OutlineNode[] }` (may be empty if the file has no symbols).
+
+#### `nodeSource`
+- **Input**: `{ id: string, collapseBody?: boolean }` where `id` is a chunk or outline node id returned by `search`/`outline`.
+- **Response**: `{ chunkId, filePath, source, startLine, endLine, language?, symbolName?, symbolKind? }`
+  - If `collapseBody` is true, long snippets are truncated with a placeholder.
+
+### Status & Tool Events
+- `mcp:status`: emitted periodically with `{ isRunning, uptime, activeConnections, totalRequests, averageResponseTime, lastError? }`.
+- `mcp:tools`: emitted when tool enablement changes.
 
 ---
 
 ## Notes for contributors
 
-- If you are working on the desktop app, refer to `DEV_GUIDE.md` for guidance
-  on Wails bindings, backend services, and frontend usage.
-- Only add entries to this file when an API is meant to be consumed outside the
-  CodeTextor application (e.g., MCP tools, REST endpoints, CLI interfaces).
-
-Until the MCP server ships, there are no public APIs to document.
+- Public APIs live here; internal Wails bindings stay documented in `DEV_GUIDE.md`.
+- Update this file whenever MCP tool parameters or transport details change.

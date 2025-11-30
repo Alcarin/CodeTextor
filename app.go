@@ -1,11 +1,14 @@
 package main
 
 import (
+	"CodeTextor/backend/pkg/mcp"
 	"CodeTextor/backend/pkg/models"
 	"CodeTextor/backend/pkg/services"
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -14,6 +17,7 @@ import (
 type App struct {
 	ctx            context.Context
 	projectService services.ProjectServiceAPI
+	mcpManager     *mcp.Manager
 }
 
 // NewApp creates a new App application struct
@@ -32,6 +36,21 @@ func (a *App) startup(ctx context.Context) {
 		log.Fatalf("Failed to initialize project service: %v", err)
 	}
 	a.projectService = projectService
+
+	mcpManager, err := mcp.NewManager(projectService, func(event string, data interface{}) {
+		runtime.EventsEmit(ctx, event, data)
+	})
+	if err != nil {
+		log.Fatalf("Failed to initialize MCP manager: %v", err)
+	}
+	a.mcpManager = mcpManager
+
+	cfg := mcpManager.GetConfig()
+	if cfg.AutoStart {
+		if err := mcpManager.Start(a.ctx); err != nil {
+			log.Printf("Failed to auto-start MCP server: %v", err)
+		}
+	}
 }
 
 // shutdown is called when the app is closing
@@ -39,6 +58,11 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.projectService != nil {
 		if err := a.projectService.Close(); err != nil {
 			log.Printf("Error closing project service: %v", err)
+		}
+	}
+	if a.mcpManager != nil {
+		if err := a.mcpManager.Close(); err != nil {
+			log.Printf("Error closing MCP manager: %v", err)
 		}
 	}
 }
@@ -162,6 +186,36 @@ func (a *App) SelectDirectory(prompt string, startPath string) (string, error) {
 	return selectedDir, nil
 }
 
+// SelectFile opens a dialog to select a single file.
+func (a *App) SelectFile(prompt string, startPath string, pattern string) (string, error) {
+	options := runtime.OpenDialogOptions{
+		Title: prompt,
+	}
+
+	if startPath != "" {
+		if info, err := os.Stat(startPath); err == nil && info.IsDir() {
+			options.DefaultDirectory = startPath
+		} else {
+			options.DefaultDirectory = filepath.Dir(startPath)
+		}
+	}
+
+	if pattern != "" {
+		options.Filters = []runtime.FileFilter{
+			{
+				DisplayName: "Allowed files",
+				Pattern:     pattern,
+			},
+		}
+	}
+
+	selectedFile, err := runtime.OpenFileDialog(a.ctx, options)
+	if err != nil {
+		return "", err
+	}
+	return selectedFile, nil
+}
+
 // GetFilePreviews returns a preview of the files that will be indexed based on project config.
 func (a *App) GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error) {
 	return a.projectService.GetFilePreviews(projectID, config)
@@ -196,6 +250,64 @@ func (a *App) ReadFileContent(projectID, relativePath string) (string, error) {
 // Exposed to frontend as: window.go.main.App.GetProjectStats
 func (a *App) GetProjectStats(projectID string) (*models.ProjectStats, error) {
 	return a.projectService.GetProjectStats(projectID)
+}
+
+// ==================== MCP Server API ====================
+
+// GetMCPConfig returns the persisted MCP server configuration.
+func (a *App) GetMCPConfig() (models.MCPServerConfig, error) {
+	if a.mcpManager == nil {
+		return models.MCPServerConfig{}, fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.GetConfig(), nil
+}
+
+// UpdateMCPConfig saves a new MCP configuration.
+func (a *App) UpdateMCPConfig(config models.MCPServerConfig) (models.MCPServerConfig, error) {
+	if a.mcpManager == nil {
+		return models.MCPServerConfig{}, fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.UpdateConfig(config)
+}
+
+// StartMCPServer launches the MCP server manually.
+func (a *App) StartMCPServer() error {
+	if a.mcpManager == nil {
+		return fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.Start(a.ctx)
+}
+
+// StopMCPServer stops the running MCP server.
+func (a *App) StopMCPServer() error {
+	if a.mcpManager == nil {
+		return fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.Stop(context.Background())
+}
+
+// GetMCPStatus returns live metrics from the MCP server.
+func (a *App) GetMCPStatus() (models.MCPServerStatus, error) {
+	if a.mcpManager == nil {
+		return models.MCPServerStatus{}, fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.GetStatus(), nil
+}
+
+// GetMCPTools lists all registered MCP tools.
+func (a *App) GetMCPTools() ([]models.MCPTool, error) {
+	if a.mcpManager == nil {
+		return nil, fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.GetTools(), nil
+}
+
+// ToggleMCPTool flips the enabled state of a tool.
+func (a *App) ToggleMCPTool(name string) error {
+	if a.mcpManager == nil {
+		return fmt.Errorf("mcp manager not initialized")
+	}
+	return a.mcpManager.ToggleTool(name)
 }
 
 // GetAllProjectsStats returns cumulative statistics across all projects.

@@ -359,27 +359,23 @@ Each project maintains its own complete indexing state with concurrent indexing 
 
 ## 9. MCP Server Responsibilities
 
-Expose lightweight, composable tools (JSON-RPC or HTTP) usable by IDEs and AI agents.
+Expose lightweight, composable tools over the **streamable HTTP** transport (modelcontextprotocol/go-sdk). Clients must call `http://<host>:<port>/mcp/<projectId>`; requests without a projectId are rejected.
 
 ### 🔹 MCP Tools with Project Scoping
 
-**All MCP tools require a `projectId` parameter.** Requests without it are rejected with an error.
+**All MCP tools require a `projectId` (via the URL path).** Requests without it are rejected.
 
-| Tool                                                    | Description                                      |
-| ------------------------------------------------------- | ------------------------------------------------ |
-| `retrieve(projectId, query, k, filters)`                | Semantic top-k retrieval from project's vector DB |
-| `outline(projectId, path, depth)`                       | Get structural outline of a file in project       |
-| `nodeAt(projectId, path, line)`                         | Return AST node at specific position in project   |
-| `nodeSource(projectId, id, collapseBody)`               | Return source snippet of node from project        |
-| `search(projectId, query, k)`                           | Semantic chunk search (cosine)                     |
-| `searchSymbols(projectId, query, kinds)`                | Lexical symbol search within project              |
-| `findDefinition(projectId, name)` / `findReferences(projectId, name)` | Optional, reference navigation within project     |
+| Tool          | Description                                     |
+| ------------- | ----------------------------------------------- |
+| `search`      | Semantic chunk retrieval (`query`, optional `k`) |
+| `outline`     | Hierarchical file outline (`path`, optional `depth`) |
+| `nodeSource`  | Canonical snippet for a chunk/outline node id (`id`, optional `collapseBody`) |
 
 ### 🔹 MCP Server Requirements
 
 All endpoints must:
 
-* **Require projectId**: Validate that the project exists and is accessible
+* **Require projectId**: Validate that the project exists and is accessible (URL path `/mcp/<projectId>`)
 * **Query correct database**: Use `indexes/<projectId>.db` for the specified project
 * **Enforce path boundaries**: Only return results for files within the project's configured include paths
 * **Return bounded results**: Limited by byte size (configurable per project)

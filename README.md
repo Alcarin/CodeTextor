@@ -39,7 +39,8 @@ This enables:
   - Semantic chunks browser with metadata
   - File tree with per-file loading
 - 🧠 **MCP Server mode** for use with IDEs and LLM agents
-  - `retrieve`, `outline`, `nodeAt`, `nodeSource`, `searchSymbols`, etc.
+  - Streamable HTTP server with `search`, `outline`, `nodeSource` tools
+  - Per-project routing via `/mcp/<projectId>`
 - 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search
 - 🧠 **Per-project embedding selection** with dual FastEmbed/ONNX backends (both require ONNX Runtime), automatic runtime detection, downloadable catalog entries, and a "custom model" modal
 - 🔒 100% **local & private**, no data leaves your machine
@@ -113,18 +114,33 @@ CodeTextor will launch both the local web UI and the MCP server.
 
 ## 🧠 Using the MCP API
 
-CodeTextor exposes a lightweight JSON-based MCP interface.
-Example tools include:
+CodeTextor ships a streamable **HTTP** MCP server. Point your client to:
 
-| Tool                           | Description                        |
-| ------------------------------ | ---------------------------------- |
-| `search(projectId, query, k)`  | Semantic retrieval of code chunks  |
-| `outline(path, depth)`         | Structural outline of a file       |
-| `nodeAt(path, line)`           | Returns the AST node at a position |
-| `nodeSource(id, collapseBody)` | Returns code snippet of a symbol   |
-| `searchSymbols(query, kinds)`  | Lexical symbol search              |
+```
+http://127.0.0.1:3030/mcp/<projectId>
+```
 
-Integrate it with your LLM or IDE plugin to provide local context awareness.
+`<projectId>` must be a valid project ID; calls to the root endpoint are rejected. The host/port and auto-start toggle live in the **MCP** tab inside the app.
+
+Available tools:
+
+| Tool | Description |
+| ---- | ----------- |
+| `search` | Semantic chunk retrieval (`query`, optional `k` 1-50) |
+| `outline` | Hierarchical outline for a file (`path`, optional `depth`) |
+| `nodeSource` | Canonical snippet for a chunk/outline node id (`id`, optional `collapseBody`) |
+
+Example Codex CLI config (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.codetextor]
+url = "http://127.0.0.1:3030/mcp/<projectId>"
+transport = "http"
+enabled = true
+
+[features]
+rmcp_client = true
+```
 
 ---
 
@@ -133,7 +149,7 @@ Integrate it with your LLM or IDE plugin to provide local context awareness.
 Developer and contributor documentation lives under [`/docs`](./docs):
 
 * [`DEV_GUIDE.md`](./docs/DEV_GUIDE.md) — detailed architecture, coding standards, and LLM collaboration rules
-* `API_REFERENCE.md` — MCP and internal API reference (coming soon)
+* `API_REFERENCE.md` — MCP server tools and external API reference
 * `ARCHITECTURE.md` — system overview diagrams and data flows
 
 ---

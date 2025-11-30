@@ -1,10 +1,12 @@
 package services
 
 import (
+	"CodeTextor/backend/internal/chunker"
 	"CodeTextor/backend/internal/store"
 	"CodeTextor/backend/pkg/embedding"
 	"CodeTextor/backend/pkg/indexing"
 	"CodeTextor/backend/pkg/models"
+	"CodeTextor/backend/pkg/outline"
 	"CodeTextor/backend/pkg/utils"
 	"bufio"
 	"context"
@@ -76,6 +78,7 @@ type ProjectServiceAPI interface {
 	GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
 	GetFileOutline(projectID, path string) ([]*models.OutlineNode, error)
 	GetFileChunks(projectID, path string) ([]*models.Chunk, error)
+	GetChunkByID(projectID, chunkID string) (*models.Chunk, error)
 	GetOutlineTimestamps(projectID string) (map[string]int64, error)
 	ReadFileContent(projectID, relativePath string) (string, error)
 	StartIndexing(projectID string) error
@@ -1017,7 +1020,9 @@ func (s *ProjectService) Search(projectID string, query string, k int) (*models.
 
 	for _, c := range results {
 		c.ProjectID = projectID
-		c.Embedding = nil // avoid sending large payloads
+		// Drop embeddings to avoid large payloads but keep a non-nil slice so MCP schema validation
+		// (expects an array) does not see a null value.
+		c.Embedding = []float32{}
 	}
 
 	resp := &models.SearchResponse{
@@ -1317,11 +1322,63 @@ func (s *ProjectService) GetFileOutline(projectID, path string) ([]*models.Outli
 			return nil, err
 		}
 	}
+
 	if len(outline) == 0 {
-		return nil, fmt.Errorf("outline is not available for %s; ensure continuous indexing has run", trimmed)
+		outline, err = s.buildAndStoreOutline(project, absPath, key, vectorStore)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if outline == nil {
+		outline = []*models.OutlineNode{}
+	}
+	if len(outline) == 0 {
+		return outline, nil
 	}
 
 	return outline, nil
+}
+
+// buildAndStoreOutline parses the file to generate and persist an outline when none exists yet.
+func (s *ProjectService) buildAndStoreOutline(
+	project *models.Project,
+	absPath string,
+	storageKey string,
+	vectorStore *store.VectorStore,
+) ([]*models.OutlineNode, error) {
+	if project == nil {
+		return nil, fmt.Errorf("project is required to build outline")
+	}
+
+	chunkConfig := chunker.ChunkConfig{
+		MaxChunkSize:      project.Config.ChunkSizeMax,
+		MinChunkSize:      project.Config.ChunkSizeMin,
+		CollapseThreshold: 500,
+		MergeSmallChunks:  true,
+		IncludeComments:   true,
+	}
+	parser := chunker.NewParser(chunkConfig)
+	if !parser.IsSupported(absPath) {
+		return nil, fmt.Errorf("outline is not supported for %s", storageKey)
+	}
+
+	source, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file %s: %w", storageKey, err)
+	}
+
+	result, err := parser.ParseFile(absPath, source)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse outline for %s: %w", storageKey, err)
+	}
+
+	nodes := outline.BuildOutlineNodes(storageKey, result.Symbols)
+	if err := vectorStore.UpsertFileOutline(storageKey, nodes); err != nil {
+		return nil, fmt.Errorf("failed to persist outline for %s: %w", storageKey, err)
+	}
+
+	return nodes, nil
 }
 
 // GetFileChunks retrieves all semantic chunks for a given file from the database.
@@ -1372,6 +1429,32 @@ func (s *ProjectService) GetFileChunks(projectID, path string) ([]*models.Chunk,
 	}
 
 	return chunks, nil
+}
+
+// GetChunkByID retrieves a single chunk using its identifier.
+func (s *ProjectService) GetChunkByID(projectID, chunkID string) (*models.Chunk, error) {
+	if strings.TrimSpace(chunkID) == "" {
+		return nil, fmt.Errorf("chunk id cannot be empty")
+	}
+
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	vectorStore, err := s.GetVectorStore(project.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	chunk, err := vectorStore.GetChunkByID(chunkID)
+	if err != nil {
+		return nil, err
+	}
+	chunk.ProjectID = project.ID
+	// Avoid returning the embedding payload; keep it an empty slice for JSON schema compliance.
+	chunk.Embedding = []float32{}
+	return chunk, nil
 }
 
 // GetOutlineTimestamps retrieves all outline update timestamps for a project.
