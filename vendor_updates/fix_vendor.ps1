@@ -4,7 +4,7 @@
 # from the Go module cache OR downloading them (for SQL grammar) if they are missing.
 
 $ErrorActionPreference = "Stop"
-$vendorDir = "..\vendor"
+$vendorDir = Join-Path $PSScriptRoot "..\vendor"
 $goPath = go env GOPATH
 $modCache = Join-Path $goPath "pkg\mod"
 
@@ -58,33 +58,92 @@ foreach ($file in $filesToDownload) {
 }
 
 # 3. GLOBAL GRAMMAR FIX: Other grammars
-# Ensures all grammars have src/queries folders if they exist in the cache.
 Write-Host "[3/3] Checking other grammars..." -ForegroundColor Yellow
-$grammars = Get-ChildItem -Path $vendorDir -Recurse -Filter "tree-sitter-*" | Where-Object { $_.PSIsContainer }
+$grammars = Get-ChildItem -Path "$vendorDir\github.com\tree-sitter" -Filter "tree-sitter-*" | Where-Object { $_.PSIsContainer }
 foreach ($g in $grammars) {
     if (!(Test-Path (Join-Path $g.FullName "bindings\go"))) { continue }
     
-    $relPath = $g.FullName.Substring($g.FullName.IndexOf("vendor\") + 7)
-    if ($relPath -match "DerekStride\\tree-sitter-sql") { continue } # Skip SQL (already done)
+    $moduleName = $g.Name
+    Write-Host "  Checking $moduleName..."
     
-    Write-Host "  Checking $($g.Name)..."
+    # Direct search in mod cache for this specific module
+    $searchDir = Join-Path $modCache "github.com\tree-sitter"
+    $moduleSource = Get-ChildItem -Path $searchDir -Filter "$moduleName@*" -Directory | Sort-Object Name -Descending | Select-Object -First 1
     
-    $parentPath = Split-Path $relPath -Parent
-    $encodedParentPath = $parentPath.ToLower().Replace("derekstride", "!derek!stride")
-    $searchDir = Join-Path $modCache $encodedParentPath
-    
-    if (Test-Path $searchDir) {
-        $leafName = Split-Path $relPath -Leaf
-        $gSource = Get-ChildItem -Path $searchDir -Filter "$leafName@*" | Select-Object -First 1
-        if ($gSource) {
-            # Restore src and queries if missing
-            if (!(Test-Path (Join-Path $g.FullName "src"))) {
-                Write-Host "    Restoring src..."
-                Copy-Item -Path (Join-Path $gSource.FullName "src") -Destination $g.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    if ($moduleSource) {
+        Write-Host "    Found source at: $($moduleSource.FullName)"
+        
+        # Restore common folder if it exists (needed by some grammars like typescript)
+        $commonPath = Join-Path $moduleSource.FullName "common"
+        if (Test-Path $commonPath) {
+            Write-Host "    Restoring common folder..."
+            $destCommon = Join-Path $g.FullName "common"
+            if (!(Test-Path $destCommon)) { New-Item -ItemType Directory -Force -Path $destCommon | Out-Null }
+            Copy-Item -Path $commonPath -Destination $g.FullName -Recurse -Force
+        }
+
+        if ($moduleName -eq "tree-sitter-typescript") {
+            Write-Host "    Handling typescript subfolders..."
+            foreach ($sub in @("typescript", "tsx")) {
+                $srcPath = Join-Path $moduleSource.FullName "$sub\src"
+                $destPath = Join-Path $g.FullName "$sub" # Should be vendor/.../tree-sitter-typescript/typescript/
+                if (Test-Path $srcPath) {
+                    Write-Host "      Restoring $sub\src..."
+                    if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Force -Path $destPath | Out-Null }
+                    Copy-Item -Path $srcPath -Destination $destPath -Recurse -Force
+                }
             }
-            if ((Test-Path (Join-Path $gSource.FullName "queries")) -and !(Test-Path (Join-Path $g.FullName "queries"))) {
+        } elseif ($moduleName -eq "tree-sitter-markdown") {
+            Write-Host "    Handling markdown subfolders..."
+            foreach ($sub in @("tree-sitter-markdown", "tree-sitter-markdown-inline")) {
+                $srcPath = Join-Path $moduleSource.FullName "$sub\src"
+                $destPath = Join-Path $g.FullName "$sub"
+                if (Test-Path $srcPath) {
+                    Write-Host "      Restoring $sub\src..."
+                    if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Force -Path $destPath | Out-Null }
+                    Copy-Item -Path $srcPath -Destination $destPath -Recurse -Force
+                }
+            }
+        } else {
+            $srcPath = Join-Path $moduleSource.FullName "src"
+            $queriesPath = Join-Path $moduleSource.FullName "queries"
+            
+            if (Test-Path $srcPath) {
+                Write-Host "    Restoring src..."
+                Copy-Item -Path $srcPath -Destination $g.FullName -Recurse -Force
+            }
+            if (Test-Path $queriesPath) {
                 Write-Host "    Restoring queries..."
-                Copy-Item -Path (Join-Path $gSource.FullName "queries") -Destination $g.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                Copy-Item -Path $queriesPath -Destination $g.FullName -Recurse -Force
+            }
+        }
+    } else {
+        Write-Host "    Warning: Could not find source for $moduleName in $searchDir" -ForegroundColor Red
+    }
+}
+
+# 4. Handle tree-sitter-grammars/tree-sitter-markdown specifically
+$mgSource = Get-ChildItem -Path "$modCache\github.com\tree-sitter-grammars" -Filter "tree-sitter-markdown@*" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+if ($mgSource) {
+    $mgVendor = Join-Path $vendorDir "github.com\tree-sitter-grammars\tree-sitter-markdown"
+    if (Test-Path $mgVendor) {
+        Write-Host "[4/4] Fixing tree-sitter-grammars/tree-sitter-markdown..." -ForegroundColor Yellow
+        
+        # Restore common folder if it exists
+        $commonPath = Join-Path $mgSource.FullName "common"
+        if (Test-Path $commonPath) {
+            Write-Host "  Restoring common folder..."
+            if (!(Test-Path (Join-Path $mgVendor "common"))) { New-Item -ItemType Directory -Force -Path (Join-Path $mgVendor "common") | Out-Null }
+            Copy-Item -Path $commonPath -Destination $mgVendor -Recurse -Force
+        }
+
+        foreach ($sub in @("tree-sitter-markdown", "tree-sitter-markdown-inline")) {
+            $srcPath = Join-Path $mgSource.FullName "$sub\src"
+            $destPath = Join-Path $mgVendor "$sub" # Should stay as vendor/.../tree-sitter-markdown/tree-sitter-markdown/
+            if (Test-Path $srcPath) {
+                Write-Host "  Restoring $sub\src..."
+                if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Force -Path $destPath | Out-Null }
+                Copy-Item -Path $srcPath -Destination $destPath -Recurse -Force
             }
         }
     }
