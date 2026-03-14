@@ -80,4 +80,4 @@ require (
 
 // replace github.com/wailsapp/wails/v2 v2.10.2 => /home/frubeo/go/pkg/mod
 
-replace github.com/tree-sitter/tree-sitter-sql => github.com/DerekStride/tree-sitter-sql v0.3.11
+// replace github.com/tree-sitter/tree-sitter-sql => github.com/DerekStride/tree-sitter-sql v0.3.11

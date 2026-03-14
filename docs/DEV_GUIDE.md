@@ -42,7 +42,7 @@ CodeTextor maintains documentation in `/docs/`:
 - ✅ Architectural decisions (new subsystems, major refactors)
 - ✅ Non-obvious design choices (why we chose X over Y)
 - ✅ Public APIs and interfaces (MCP tools, Wails bindings)
-- ✅ Development workflows (how to add migrations, run tests)
+- ✅ Development workflows (how to add migrations, run tests, fix vendor folders)
 - ✅ Breaking changes or migration paths
 
 **DON'T create documentation for:**
@@ -273,7 +273,21 @@ Migrations are embedded in the binary and run automatically:
 
 ---
 
-## 7. Coding Conventions
+## 7. Windows/Cross-Platform Vendor Fixes
+
+Tree-sitter grammars may sometimes have missing files in the `vendor/` folder when generated on Windows or due to missing generated files in upstream repositories.
+
+### Procedure for fixing vendor issues:
+If you encounter compilation errors related to missing `.c` or `.h` files in the `vendor/` directory:
+
+1. **Windows**: Run `powershell -File vendor_updates/fix_vendor.ps1`
+2. **Linux/macOS**: Run `bash vendor_updates/fix_vendor.sh`
+
+See [vendor_updates/README.md](file:///d:/Sviluppo/CodeTextor/vendor_updates/README.md) for more details.
+
+---
+
+## 8. Coding Conventions
 
 ### General
 
