@@ -443,6 +443,9 @@ func (s *ProjectService) UpdateProjectConfig(projectID string, config models.Pro
 
 // DeleteProject removes a project database.
 func (s *ProjectService) DeleteProject(projectID string) error {
+	s.indexerManager.StopIndexer(projectID)
+	s.indexerManager.ClearProgress(projectID)
+
 	s.mu.Lock()
 	if vs, ok := s.vectorStores[projectID]; ok {
 		vs.Close()
@@ -451,8 +454,22 @@ func (s *ProjectService) DeleteProject(projectID string) error {
 	s.mu.Unlock()
 
 	path := s.projectDBPath(projectID)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove project database: %w", err)
+	// Retry removal a few times to give the indexer time to release file handles
+	var removeErr error
+	for i := 0; i < 5; i++ {
+		removeErr = os.Remove(path)
+		if removeErr == nil || os.IsNotExist(removeErr) {
+			// Also try to remove WAL and SHM files
+			_ = os.Remove(path + "-wal")
+			_ = os.Remove(path + "-shm")
+			removeErr = nil
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if removeErr != nil {
+		return fmt.Errorf("failed to remove project database after retries: %w", removeErr)
 	}
 
 	if err := s.clearSelectedProjectIfMatches(projectID); err != nil {
@@ -1735,6 +1752,10 @@ func (s *ProjectService) GetAllProjectsStats() (*models.ProjectStats, error) {
 func (s *ProjectService) Close() error {
 	var firstErr error
 	s.mu.Lock()
+	// Stop all active indexers first
+	for projectID := range s.vectorStores {
+		s.indexerManager.StopIndexer(projectID)
+	}
 	for projectID, vs := range s.vectorStores {
 		if err := vs.Close(); err != nil && firstErr == nil {
 			firstErr = err

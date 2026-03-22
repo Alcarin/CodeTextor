@@ -79,6 +79,11 @@ func (m *Manager) StopIndexer(projectID string) {
 	}
 }
 
+// ClearProgress removes the progress tracking for a given project.
+func (m *Manager) ClearProgress(projectID string) {
+	m.progressMap.Delete(projectID)
+}
+
 // GetIndexingProgress retrieves the current indexing progress for a project.
 func (m *Manager) GetIndexingProgress(projectID string) (*models.IndexingProgress, bool) {
 	progress, found := m.progressMap.Load(projectID)
