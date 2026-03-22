@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -420,17 +421,15 @@ func describeForProject(base, projectID string) string {
 func (m *Manager) buildServerInstructions(boundProjectID string) string {
 	var b strings.Builder
 
-	b.WriteString("CodeTextor MCP serves read-only code context from the local index (Tree-sitter chunks + SQLite-vec embeddings) over streamable HTTP. ")
+	b.WriteString("CodeTextor MCP serves read-only code context from the local index (Tree-sitter chunks + SQLite-vec embeddings). ")
 	projectLabel := strings.TrimSpace(m.projectLabel(boundProjectID))
 	if projectLabel != "" {
 		b.WriteString(fmt.Sprintf("This session is bound to project %s. ", projectLabel))
 	} else {
-		b.WriteString("Call the endpoint as /mcp/<projectId> to bind requests to a project; tool calls without a projectId will fail. ")
+		b.WriteString("Call the endpoint as /mcp/<projectId> to bind requests to a project. ")
 	}
-	b.WriteString("Use tools instead of asking for raw files to save tokens: start with search to find candidates, outline to map a file, then nodeSource to fetch the minimal snippet. Avoid requesting entire files; responses are short and read-only. ")
-	b.WriteString("Tools: search - semantic retrieval of indexed chunks (natural-language query, optional k to control results, default 8, max 50). ")
-	b.WriteString("outline - hierarchical outline for a file path relative to the project root; depth trims nested children to keep responses short. ")
-	b.WriteString("nodeSource - canonical code snippet and metadata for a chunk or outline node id returned by search/outline; use collapseBody to shorten large blocks. ")
+	b.WriteString("Workflow: 1. use getProjectDetails to understand project scope; 2. use listFiles to explore structure; 3. use search to find code; 4. use outline to map a file; 5. use nodeSource to read code snippets. ")
+	b.WriteString("Avoid requesting entire files; responses are short and read-only. ")
 	b.WriteString("All tools are read-only; use them to ground model answers without modifying the codebase.")
 	return b.String()
 }
@@ -457,22 +456,46 @@ func (m *Manager) initTools() {
 	m.toolsMu.Lock()
 
 	m.tools = map[string]*toolState{
+		"getProjectDetails": {
+			name:        "getProjectDetails",
+			description: "Get project configuration, root path, and statistics",
+		},
+		"listFiles": {
+			name:        "listFiles",
+			description: "List files in the project with optional sub-path and extension filtering",
+		},
 		"search": {
 			name:        "search",
-			description: "Semantic search across indexed code chunks; start here to locate relevant code before requesting snippets",
+			description: "Semantic search across indexed code chunks; find relevant code by natural language",
 		},
 		"outline": {
 			name:        "outline",
-			description: "Hierarchical outline for a file path relative to the project root; use to narrow where to read",
+			description: "Hierarchical outline for a file path; explore classes, functions, and symbols",
 		},
 		"nodeSource": {
 			name:        "nodeSource",
-			description: "Return canonical source for a chunk or outline node id; use after search/outline instead of whole files",
+			description: "Return canonical source for a chunk or outline node id; fetch actual code snippets",
 		},
 	}
 
 	for name, state := range m.tools {
 		switch name {
+		case "getProjectDetails":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "getProjectDetails",
+					Description: desc,
+				}, wrapTool(m, "getProjectDetails", m.handleProjectDetails(boundProjectID)))
+			}
+		case "listFiles":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "listFiles",
+					Description: desc,
+				}, wrapTool(m, "listFiles", m.handleListFiles(boundProjectID)))
+			}
 		case "search":
 			state.register = func(s *sdkmcp.Server, boundProjectID string) {
 				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
@@ -487,6 +510,9 @@ func (m *Manager) initTools() {
 				Properties: map[string]*jsonschema.Schema{
 					"outline": {
 						Type: "array",
+						Items: &jsonschema.Schema{
+							Type: "object",
+						},
 					},
 				},
 			}
@@ -616,15 +642,36 @@ func (m *Manager) loadDisabledTools() error {
 
 // --- Tool handlers ---------------------------------------------------------
 
+type listFilesInput struct {
+	Path      string `json:"path,omitempty" jsonschema_description:"Optional sub-path to list files from (relative to project root)"`
+	Extension string `json:"extension,omitempty" jsonschema_description:"Optional file extension to filter by (e.g. .go, .ts)"`
+	Recursive bool   `json:"recursive,omitempty" jsonschema_description:"If true, lists files in subdirectories recursively (default false)"`
+}
+
+type listFileOutput struct {
+	Files []models.FilePreview `json:"files" jsonschema_description:"List of files matching the criteria"`
+}
+
+type projectDetailsOutput struct {
+	ID              string               `json:"id" jsonschema_description:"Project unique identifier"`
+	Name            string               `json:"name" jsonschema_description:"Human-readable project name"`
+	Description     string               `json:"description" jsonschema_description:"Project description"`
+	RootPath        string               `json:"rootPath" jsonschema_description:"Project absolute root path on host"`
+	IncludePaths    []string             `json:"includePaths" jsonschema_description:"Paths included in indexing"`
+	ExcludePatterns []string             `json:"excludePatterns" jsonschema_description:"Glob patterns for excluded files"`
+	FileExtensions  []string             `json:"fileExtensions" jsonschema_description:"Indexed file extensions"`
+	Stats           *models.ProjectStats `json:"stats,omitempty" jsonschema_description:"Current project statistics"`
+}
+
 type searchInput struct {
 	Query string `json:"query" jsonschema_description:"Natural language search across the indexed project"`
 	K     int    `json:"k,omitempty" jsonschema_description:"Max chunks to return (1-50, default 8)" jsonschema_extras:"minimum=1,maximum=50"`
 }
 
 type searchOutput struct {
-	Results      []*models.Chunk `json:"results"`
-	TotalResults int             `json:"totalResults"`
-	QueryTimeMs  int64           `json:"queryTimeMs"`
+	Results      []*models.Chunk `json:"results" jsonschema_description:"List of relevant code chunks"`
+	TotalResults int             `json:"totalResults" jsonschema_description:"Total matches found"`
+	QueryTimeMs  int64           `json:"queryTimeMs" jsonschema_description:"Time taken for semantic retrieval in milliseconds"`
 }
 
 type outlineInput struct {
@@ -633,7 +680,7 @@ type outlineInput struct {
 }
 
 type outlineOutput struct {
-	Outline []*models.OutlineNode `json:"outline"`
+	Outline []*models.OutlineNode `json:"outline" jsonschema_description:"Hierarchical tree of code symbols"`
 }
 
 type nodeSourceInput struct {
@@ -642,14 +689,14 @@ type nodeSourceInput struct {
 }
 
 type nodeSourceOutput struct {
-	ChunkID    string `json:"chunkId"`
-	FilePath   string `json:"filePath"`
-	Source     string `json:"source"`
-	StartLine  int    `json:"startLine"`
-	EndLine    int    `json:"endLine"`
-	Language   string `json:"language,omitempty"`
-	SymbolName string `json:"symbolName,omitempty"`
-	SymbolKind string `json:"symbolKind,omitempty"`
+	ChunkID    string `json:"chunkId" jsonschema_description:"Original chunk identifier"`
+	FilePath   string `json:"filePath" jsonschema_description:"File path relative to project root"`
+	Source     string `json:"source" jsonschema_description:"The actual source code content"`
+	StartLine  int    `json:"startLine" jsonschema_description:"Starting line number (1-indexed)"`
+	EndLine    int    `json:"endLine" jsonschema_description:"Ending line number (1-indexed)"`
+	Language   string `json:"language,omitempty" jsonschema_description:"Programming language associated with the code"`
+	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"Associated symbol name (if any)"`
+	SymbolKind string `json:"symbolKind,omitempty" jsonschema_description:"Associated symbol kind (e.g. function, class)"`
 }
 
 func (m *Manager) resolveProjectID(boundProjectID string) (string, error) {
@@ -658,6 +705,84 @@ func (m *Manager) resolveProjectID(boundProjectID string) (string, error) {
 		return projectID, nil
 	}
 	return "", fmt.Errorf("projectId is required; call the MCP server via /mcp/<projectId>")
+}
+
+func (m *Manager) handleListFiles(boundProjectID string) sdkmcp.ToolHandlerFor[listFilesInput, listFileOutput] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input listFilesInput) (*sdkmcp.CallToolResult, listFileOutput, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, listFileOutput{}, err
+		}
+
+		// We use GetFilePreviews which already handles filtering and exclusion patterns
+		config := models.ProjectConfig{
+			IncludePaths: []string{input.Path},
+		}
+		if input.Extension != "" {
+			config.FileExtensions = []string{input.Extension}
+		}
+
+		previews, err := m.projectService.GetFilePreviews(projectID, config)
+		if err != nil {
+			return nil, listFileOutput{}, err
+		}
+
+		// If not recursive, filter out files that are not in the immediate directory
+		if !input.Recursive {
+			cleanPath := strings.Trim(filepath.ToSlash(input.Path), "/")
+			filtered := make([]*models.FilePreview, 0)
+			for _, p := range previews {
+				rel := strings.Trim(filepath.ToSlash(p.RelativePath), "/")
+				if cleanPath == "" {
+					if !strings.Contains(rel, "/") {
+						filtered = append(filtered, p)
+					}
+				} else {
+					if strings.HasPrefix(rel, cleanPath+"/") {
+						sub := strings.TrimPrefix(rel, cleanPath+"/")
+						if !strings.Contains(sub, "/") {
+							filtered = append(filtered, p)
+						}
+					}
+				}
+			}
+			previews = filtered
+		}
+
+		files := make([]models.FilePreview, len(previews))
+		for i, p := range previews {
+			files[i] = *p
+		}
+
+		return nil, listFileOutput{Files: files}, nil
+	}
+}
+
+func (m *Manager) handleProjectDetails(boundProjectID string) sdkmcp.ToolHandlerFor[struct{}, projectDetailsOutput] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, projectDetailsOutput, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, projectDetailsOutput{}, err
+		}
+
+		project, err := m.projectService.GetProject(projectID)
+		if err != nil {
+			return nil, projectDetailsOutput{}, err
+		}
+
+		stats, _ := m.projectService.GetProjectStats(projectID)
+
+		return nil, projectDetailsOutput{
+			ID:              project.ID,
+			Name:            project.Name,
+			Description:     project.Description,
+			RootPath:        project.Config.RootPath,
+			IncludePaths:    project.Config.IncludePaths,
+			ExcludePatterns: project.Config.ExcludePatterns,
+			FileExtensions:  project.Config.FileExtensions,
+			Stats:           stats,
+		}, nil
+	}
 }
 
 func (m *Manager) handleSearch(boundProjectID string) sdkmcp.ToolHandlerFor[searchInput, searchOutput] {

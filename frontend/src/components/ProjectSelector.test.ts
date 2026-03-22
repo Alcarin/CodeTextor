@@ -20,6 +20,7 @@ const createMockConfig = (rootPath: string = '/test/path') => ({
   fileExtensions: ['.ts', '.js', '.vue'],
   autoExcludeHidden: true,
   continuousIndexing: false,
+  useGitIgnore: true,
   chunkSizeMin: 100,
   chunkSizeMax: 500,
   embeddingModel: 'default',
