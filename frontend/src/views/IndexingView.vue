@@ -614,9 +614,9 @@ const downloadSelectedModel = async () => {
       currentProject.value.config.embeddingModelInfo = cloneModelInfo(updated);
     }
     syncEmbeddingSelectionFromProject(currentProject.value, { skipSave: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to download embedding model:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = error?.message || String(error);
     alert(`Failed to download model: ${message}`);
   } finally {
     isDownloadingModel.value = false;
@@ -789,9 +789,9 @@ const triggerIndexingRun = async (): Promise<boolean> => {
     console.log('Triggering indexing run for', currentProject.value.id);
     await loadProjectStats();
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to start indexing:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = error?.message || String(error);
     alert(`Failed to start indexing: ${message}`);
     return false;
   }
@@ -811,9 +811,9 @@ const reindexNow = async () => {
     await backend.reindexProject(currentProject.value.id);
     beginProgressPolling();
     await loadProjectStats();
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to re-index project:', error);
-    alert('Failed to re-index project: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    alert('Failed to re-index project: ' + (error?.message || String(error)));
     manualReindexing.value = false;
   }
 };

@@ -58,9 +58,9 @@ const loadProjects = async () => {
   isLoading.value = true;
   try {
     projects.value = await backend.listProjects();
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to load projects:', error);
-    alert('Failed to load projects: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    alert('Failed to load projects: ' + (error?.message || String(error)));
   } finally {
     isLoading.value = false;
   }
@@ -150,9 +150,9 @@ const deleteProject = async () => {
     // Close dialog
     showDeleteConfirm.value = false;
     projectToDelete.value = null;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to delete project:', error);
-    alert('Failed to delete project: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    alert('Failed to delete project: ' + (error?.message || String(error)));
   }
 };
 
@@ -164,9 +164,9 @@ const goToIndexing = async (project: Project) => {
   try {
     await setCurrentProject(project);
     navigateTo('indexing');
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to select project:', error);
-    alert('Failed to select project: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    alert('Failed to select project: ' + (error?.message || String(error)));
   }
 };
 

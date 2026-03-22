@@ -37,9 +37,9 @@ const loadStats = async () => {
   try {
     const result = await backend.getProjectStats(currentProject.value.id);
     stats.value = result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to load stats:', error);
-    alert('Failed to load stats: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    alert('Failed to load stats: ' + (error?.message || String(error)));
   } finally {
     isLoading.value = false;
   }

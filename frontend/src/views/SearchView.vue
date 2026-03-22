@@ -67,9 +67,9 @@ const performSearch = async () => {
 
     searchResults.value = results;
     selectedChunk.value = null; // Clear selection
-  } catch (error) {
-    console.error('Search failed:', error);
-    alert('Search failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  } catch (error: any) {
+    console.error('Failed to search:', error);
+    alert('Failed to search: ' + (error?.message || String(error)));
   } finally {
     isSearching.value = false;
   }

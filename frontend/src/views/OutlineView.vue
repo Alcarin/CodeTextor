@@ -121,8 +121,8 @@ const refreshFileTree = async () => {
       currentProject.value.config
     );
     fileTree.value = buildFileTree(previews);
-  } catch (error) {
-    treeError.value = error instanceof Error ? error.message : 'Unknown error';
+  } catch (error: any) {
+    alert('Failed to load file outline: ' + (error?.message || String(error)));
   } finally {
     isLoadingTree.value = false;
   }

@@ -40,6 +40,24 @@ const toMCPConfig = (config: MCPConfigInput): models.MCPServerConfig => {
 }
 
 /**
+ * Helper to wrap backend calls with retry logic for initialization errors.
+ * Also ensures errors are always proper Error objects.
+ */
+async function safeCall<T>(fn: () => Promise<T>, retries = 5, delay = 800): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    if (errorMsg.includes('initializing') && retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return safeCall(fn, retries - 1, Math.min(delay * 1.5, 3000));
+    }
+    // Throw as a proper Error object so UI catch blocks handle it correctly
+    throw err instanceof Error ? err : new Error(errorMsg);
+  }
+}
+
+/**
  * Backend API wrapper providing type-safe access to Wails bindings.
  * All methods return promises that resolve with backend data or reject with errors.
  */
@@ -52,7 +70,7 @@ export const backend = {
    * @returns Promise resolving to the created project
    */
   async createProject(name: string, description: string, slug: string = '', rootPath: string): Promise<models.Project> {
-    return App.CreateProject(name, description, slug, rootPath)
+    return safeCall(() => App.CreateProject(name, description, slug, rootPath))
   },
 
   /**
@@ -61,7 +79,7 @@ export const backend = {
    * @returns Promise resolving to the project or null if not found
    */
   async getProject(projectId: string): Promise<models.Project> {
-    return App.GetProject(projectId)
+    return safeCall(() => App.GetProject(projectId))
   },
 
   /**
@@ -69,7 +87,7 @@ export const backend = {
    * @returns Promise resolving to array of projects
    */
   async listProjects(): Promise<models.Project[]> {
-    return App.ListProjects()
+    return safeCall(() => App.ListProjects())
   },
 
   /**
@@ -135,7 +153,7 @@ export const backend = {
    * @returns Promise resolving to the selected project or null if no projects exist
    */
   async getSelectedProject(): Promise<models.Project | null> {
-    return App.GetSelectedProject()
+    return safeCall(() => App.GetSelectedProject())
   },
 
   /**
@@ -214,10 +232,10 @@ export const backend = {
     return App.GetGitignorePatterns(projectId)
   },
   async getEmbeddingCapabilities(): Promise<models.EmbeddingCapabilities> {
-    return App.GetEmbeddingCapabilities()
+    return safeCall(() => App.GetEmbeddingCapabilities())
   },
   async getONNXRuntimeSettings(): Promise<ONNXRuntimeSettings> {
-    return App.GetONNXRuntimeSettings() as unknown as ONNXRuntimeSettings
+    return safeCall(() => App.GetONNXRuntimeSettings()) as unknown as ONNXRuntimeSettings
   },
   async updateONNXRuntimeSettings(path: string): Promise<ONNXRuntimeSettings> {
     return App.UpdateONNXRuntimeSettings(path) as unknown as ONNXRuntimeSettings
@@ -226,7 +244,7 @@ export const backend = {
     return App.TestONNXRuntimePath(path) as unknown as ONNXRuntimeTestResult
   },
   async listEmbeddingModels(): Promise<models.EmbeddingModelInfo[]> {
-    return App.ListEmbeddingModels()
+    return safeCall(() => App.ListEmbeddingModels())
   },
   async saveEmbeddingModel(model: models.EmbeddingModelInfo): Promise<models.EmbeddingModelInfo> {
     return App.SaveEmbeddingModel(model)
@@ -321,7 +339,7 @@ export const backend = {
   },
 
   async getMCPConfig(): Promise<models.MCPServerConfig> {
-    return App.GetMCPConfig()
+    return safeCall(() => App.GetMCPConfig())
   },
 
   async updateMCPConfig(config: MCPConfigInput): Promise<models.MCPServerConfig> {
