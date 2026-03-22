@@ -167,6 +167,24 @@ enabled = true
 rmcp_client = true
 ```
 
+Example Gemini CLI (Command line):
+
+```bash
+gemini mcp add --transport http codetextor-<projectName> http://127.0.0.1:3030/mcp/<projectId>
+```
+
+Example Antigravity / Gemini CLI (`mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "codetextor-<projectName>": {
+      "serverURL": "http://127.0.0.1:3030/mcp/<projectId>"
+    }
+  }
+}
+```
+
 ---
 
 ## 📚 Documentation

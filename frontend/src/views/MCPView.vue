@@ -333,12 +333,28 @@ claude mcp add --transport http codetextor {{ projectServerUrl }}
 }</code></pre>
           </div>
           <div class="snippet-card">
-            <div class="snippet-title">VS Code / Cursor / Windsurf </div>
+            <div class="snippet-title">VS Code / Cursor / Windsurf</div>
             <pre class="config-snippet"><code>{
   "mcpServers": {
     "codetextor": {
       "type": "http",
       "url": "{{ projectServerUrl }}"
+    }
+  }
+}</code></pre>
+          </div>
+          <div class="snippet-card">
+            <div class="snippet-title">Gemini CLI (Command line)</div>
+            <pre class="config-snippet"><code>
+gemini mcp add --transport http codetextor-{{ currentProject?.name ?? 'project-name' }} {{ projectServerUrl }}
+</code></pre>
+          </div>
+          <div class="snippet-card">
+            <div class="snippet-title">Antigravity / Gemini CLI (`mcp_config.json`)</div>
+            <pre class="config-snippet"><code>{
+  "mcpServers": {
+    "codetextor-{{ currentProject?.name ?? 'project-name' }}": {
+      "serverURL": "{{ projectServerUrl }}"
     }
   }
 }</code></pre>
