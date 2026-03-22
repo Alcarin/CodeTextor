@@ -281,9 +281,30 @@ const runtimeStatus = computed(() => {
   const settings = runtimeSettings.value;
   if (!settings) return 'Unknown';
   if (settings.runtimeAvailable) {
-    return settings.requiresRestart ? 'Runtime ready (restart to apply new path)' : 'Runtime ready';
+    let status = 'Runtime ready';
+    if (settings.activeExecutionProvider && settings.activeExecutionProvider !== 'CPU') {
+      status += ` (${settings.activeExecutionProvider} GPU active)`;
+    } else if (settings.activeExecutionProvider === 'CPU') {
+      status += ' (CPU mode)';
+    }
+    
+    if (settings.requiresRestart) {
+      status += ' - restart to apply new path';
+    }
+    return status;
   }
   return 'Runtime unavailable';
+});
+
+const runtimePlaceholder = computed(() => {
+  // Simple platform detection
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  if (userAgent.indexOf('win') !== -1) {
+    return 'C:\\path\\to\\onnxruntime.dll';
+  } else if (userAgent.indexOf('mac') !== -1) {
+    return '/usr/local/lib/libonnxruntime.dylib';
+  }
+  return '/usr/lib/libonnxruntime.so';
 });
 
 const runtimeStatusClass = computed(() => {
@@ -455,7 +476,7 @@ onMounted(() => {
                 id="onnx-path"
                 v-model="runtimePathInput"
                 type="text"
-                placeholder="/path/to/libonnxruntime.so"
+                :placeholder="runtimePlaceholder"
                 class="text-input"
                 :disabled="settingsLoading"
               />
@@ -469,7 +490,7 @@ onMounted(() => {
               </button>
             </div>
             <div class="help-text">
-              Leave empty to use system defaults. Changes apply after app restart.
+              Leave empty to use system defaults. Support for .dll (Windows), .so (Linux), and .dylib (macOS).
             </div>
           </div>
 
@@ -482,6 +503,14 @@ onMounted(() => {
               <span class="status-label">Saved path</span>
               <span class="status-value">{{ runtimeSettings?.sharedLibraryPath || 'Not set' }}</span>
             </div>
+            <div class="status-row">
+              <span class="status-label">Execution Provider</span>
+              <span class="status-value">{{ runtimeSettings?.activeExecutionProvider || 'Unknown' }}</span>
+            </div>
+          </div>
+
+          <div v-if="runtimeSettings?.runtimeAvailable && runtimeSettings?.activeExecutionProvider === 'CPU' && runtimeSettings?.activePath" class="alert alert-warning" style="margin-top: 0.5rem">
+            <strong>Note:</strong> ONNX is using CPU mode. If you configured a GPU-accelerated library, it may lack dependencies (such as CUDA/DirectX) or your hardware is not supported.
           </div>
 
           <div v-if="runtimeTestResult" :class="['alert', runtimeTestResult.success ? 'alert-success' : 'alert-error']">
@@ -761,6 +790,12 @@ onMounted(() => {
   background: rgba(220, 53, 69, 0.12);
   color: #ffb3b9;
   border-color: rgba(220, 53, 69, 0.4);
+}
+
+.alert-warning {
+  background: rgba(255, 193, 7, 0.14);
+  color: #ffe082;
+  border-color: rgba(255, 193, 7, 0.4);
 }
 
 /* Settings modal */

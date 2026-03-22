@@ -81,9 +81,7 @@ func (c *FastEmbedClient) GenerateEmbeddings(texts []string) ([][]float32, error
 	}
 
 	result := make([][]float32, len(embeddings))
-	for i, vec := range embeddings {
-		result[i] = vec
-	}
+	copy(result, embeddings)
 	return result, nil
 }
 

@@ -60,6 +60,7 @@ export namespace models {
 	}
 	export class EmbeddingCapabilities {
 	    onnxRuntimeAvailable: boolean;
+	    activeExecutionProvider?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new EmbeddingCapabilities(source);
@@ -68,6 +69,7 @@ export namespace models {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.onnxRuntimeAvailable = source["onnxRuntimeAvailable"];
+	        this.activeExecutionProvider = source["activeExecutionProvider"];
 	    }
 	}
 	export class EmbeddingModelInfo {
@@ -239,6 +241,7 @@ export namespace models {
 	    activePath?: string;
 	    runtimeAvailable: boolean;
 	    requiresRestart: boolean;
+	    activeExecutionProvider?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ONNXRuntimeSettings(source);
@@ -250,6 +253,7 @@ export namespace models {
 	        this.activePath = source["activePath"];
 	        this.runtimeAvailable = source["runtimeAvailable"];
 	        this.requiresRestart = source["requiresRestart"];
+	        this.activeExecutionProvider = source["activeExecutionProvider"];
 	    }
 	}
 	export class ONNXRuntimeTestResult {
@@ -400,6 +404,7 @@ export namespace models {
 	    rootPath: string;
 	    autoExcludeHidden: boolean;
 	    continuousIndexing: boolean;
+	    useGitIgnore: boolean;
 	    chunkSizeMin: number;
 	    chunkSizeMax: number;
 	    embeddingModel: string;
@@ -419,6 +424,7 @@ export namespace models {
 	        this.rootPath = source["rootPath"];
 	        this.autoExcludeHidden = source["autoExcludeHidden"];
 	        this.continuousIndexing = source["continuousIndexing"];
+	        this.useGitIgnore = source["useGitIgnore"];
 	        this.chunkSizeMin = source["chunkSizeMin"];
 	        this.chunkSizeMax = source["chunkSizeMax"];
 	        this.embeddingModel = source["embeddingModel"];

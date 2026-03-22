@@ -88,12 +88,18 @@ func (a *App) CreateProject(name, description, slug, rootPath string) (*models.P
 // GetProject retrieves a project by ID.
 // Exposed to frontend as: window.go.main.App.GetProject
 func (a *App) GetProject(projectID string) (*models.Project, error) {
+	if a.projectService == nil {
+		return nil, fmt.Errorf("application service is still initializing")
+	}
 	return a.projectService.GetProject(projectID)
 }
 
 // ListProjects returns all projects.
 // Exposed to frontend as: window.go.main.App.ListProjects
 func (a *App) ListProjects() ([]*models.Project, error) {
+	if a.projectService == nil {
+		return nil, fmt.Errorf("application service is still initializing")
+	}
 	return a.projectService.ListProjects()
 }
 
@@ -134,6 +140,9 @@ func (a *App) SetSelectedProject(projectID string) error {
 // GetSelectedProject gets the currently selected project.
 // Exposed to frontend as: window.go.main.App.GetSelectedProject
 func (a *App) GetSelectedProject() (*models.Project, error) {
+	if a.projectService == nil {
+		return nil, fmt.Errorf("application service is still initializing")
+	}
 	return a.projectService.GetSelectedProject()
 }
 
@@ -257,7 +266,7 @@ func (a *App) GetProjectStats(projectID string) (*models.ProjectStats, error) {
 // GetMCPConfig returns the persisted MCP server configuration.
 func (a *App) GetMCPConfig() (models.MCPServerConfig, error) {
 	if a.mcpManager == nil {
-		return models.MCPServerConfig{}, fmt.Errorf("mcp manager not initialized")
+		return models.MCPServerConfig{}, fmt.Errorf("application service is still initializing")
 	}
 	return a.mcpManager.GetConfig(), nil
 }
@@ -318,11 +327,17 @@ func (a *App) GetAllProjectsStats() (*models.ProjectStats, error) {
 
 // GetEmbeddingCapabilities exposes runtime availability to the frontend.
 func (a *App) GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error) {
+	if a.projectService == nil {
+		return nil, fmt.Errorf("application service is still initializing")
+	}
 	return a.projectService.GetEmbeddingCapabilities()
 }
 
 // GetONNXRuntimeSettings returns the persisted ONNX runtime configuration.
 func (a *App) GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error) {
+	if a.projectService == nil {
+		return nil, fmt.Errorf("application service is still initializing")
+	}
 	return a.projectService.GetONNXRuntimeSettings()
 }
 
@@ -338,6 +353,9 @@ func (a *App) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, e
 
 // ListEmbeddingModels returns the embedding model catalog.
 func (a *App) ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error) {
+	if a.projectService == nil {
+		return nil, fmt.Errorf("application service is still initializing")
+	}
 	return a.projectService.ListEmbeddingModels()
 }
 

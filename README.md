@@ -9,12 +9,17 @@ CodeTextor analyzes your source code using [Tree-sitter](https://tree-sitter.git
 
 ## ✨ Overview
 
-CodeTextor is a **local-first semantic indexer** for your projects.  
+CodeTextor is a **local-first semantic indexer** for your projects.
 It extracts structural code chunks (functions, classes, comments, modules), generates embeddings, and serves them through a simple **MCP (Model Context Protocol)** API.
 
-This enables:
-- IDE plugins or AI assistants to query the local codebase semantically.  
-- Fast "where is this defined?" or "show me related functions" queries.  
+Specifiche CodeTextor:
+
+- **Local-first**:
+- **Isolated**: Each project has its own database.
+- **Transparent**: All data is inspectable.
+- **Standards-based**: Uses the Model Context Protocol.
+- IDE plugins or AI assistants to query the local codebase semantically.
+- Fast "where is this defined?" or "show me related functions" queries.
 - Offline RAG-style context retrieval for LLMs without cloud APIs.
 
 ---
@@ -49,8 +54,7 @@ This enables:
 
 ## 🧱 Architecture
 
-```
-
+```text
 frontend/        → Wails UI (Vue/React + TypeScript)
 backend/
 internal/
@@ -61,21 +65,22 @@ store/       → DB schema & helpers
 search/      → Lexical + semantic query logic
 cmd/           → CLI entry points
 docs/            → Developer documentation & API references
-
-````
+```
 
 ---
 
 ## ⚙️ Installation
 
 ### Prerequisites
+
 - [Go ≥ 1.23](https://go.dev/)  
 - [Node.js ≥ 20](https://nodejs.org/)  
 - [Wails ≥ 3](https://wails.io/)  
 - A compiler toolchain for your OS (gcc / clang)
-- [ONNX Runtime 1.22.0](https://github.com/microsoft/onnxruntime/releases/tag/v1.22.0) (configure its shared library path via the **Projects → ONNX runtime path** field inside CodeTextor)
-  - CPU-only builds work as soon as the shared library file is selected in the GUI
-  - GPU builds **must** match the same ONNX Runtime version and require [CUDA 12.x](https://developer.nvidia.com/cuda-downloads) plus [cuDNN 9.x](https://developer.nvidia.com/cudnn)
+- [ONNX Runtime 1.24.3](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.3) (configure the shared library path in **Settings → Projects → ONNX runtime path**)
+  - **Windows**: Supports DirectML (GPU DirectX 12) e CUDA 12.x.
+  - **macOS**: Supports CoreML (Apple Silicon via `CoreML_V2`).
+  - **Linux**: Supports CUDA 12.x.
 
 ### Build
 
@@ -99,16 +104,36 @@ wails dev
 
 CodeTextor will launch both the local web UI and the MCP server.
 
-### ONNX Runtime & CUDA setup
+### ONNX Runtime & GPU Setup
 
-1. Download the ONNX Runtime 1.22.0 archive for your platform, then open **Projects → ONNX runtime path** inside CodeTextor and paste the absolute path to the extracted `libonnxruntime.so.1.22.0`/`onnxruntime.dll`.  
-2. For GPU acceleration install the matching CUDA toolkit (12.6 or 12.7 recommended) plus cuDNN 9.x:
-   - Linux: follow the commands provided on [developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads) for your distro (e.g., install `cuda-toolkit-12-7` and add `/usr/local/cuda-12.7/bin` to `PATH`).  
-   - Install cuDNN 9.x for CUDA 12.x and copy its `lib` directory next to the CUDA toolkit libraries (or use the official `.deb/.rpm` packages).  
-   - Ensure `LD_LIBRARY_PATH` (or `PATH` on Windows) includes both the ONNX Runtime folder and the CUDA/cuDNN provider libraries (`libonnxruntime_providers_cuda.so`, etc.).
-3. Restart CodeTextor so the backend reinitializes ONNX Runtime with the updated libraries. If the GPU provider fails to load, the UI will display a warning and fall back to CPU embeddings.
-4. Download the desired embedding model from **Indexing → Embedding model**. Both FastEmbed presets and ONNX models use the same download flow; the status chip switches to “Ready” only after the files are present locally.
-5. During download the app shows an in-app progress modal; FastEmbed models automatically fall back to the official Hugging Face mirrors if the upstream CDN is unavailable. If a model lacks an official ONNX export (e.g., `nomic-ai/nomic-embed-code`), supply your own converted `model.onnx` + tokenizer via the “Add custom model” flow.
+If you see the message **"Hardware Acceleration: CPU (Falling back to CPU)"**, it means the loaded ONNX Runtime library does not support hardware acceleration or required components are missing.
+
+#### 1. Recommended: DirectML (Universal for Windows GPU)
+
+DirectML is the most compatible way to enable GPU acceleration on Windows (works with NVIDIA, AMD, and Intel).
+
+- **Download**: Do **NOT** use the standard GitHub ZIP. Instead, download the NuGet package [Microsoft.ML.OnnxRuntime.DirectML v1.24.3](https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime.DirectML/1.24.3).
+- **Extract**: Rename the downloaded `.nupkg` to `.zip`, extract it, and find `onnxruntime.dll` in `runtimes/win-x64/native/`.
+- **Dependency**: Also download [Microsoft.AI.DirectML](https://www.nuget.org/packages/Microsoft.AI.DirectML/) and extract `DirectML.dll` from `bin/x64-win/`.
+- **Configure**: Place both `onnxruntime.dll` and `DirectML.dll` in the same folder. In CodeTextor (**Settings → Projects → ONNX runtime path**), select the absolute path to your `onnxruntime.dll`.
+
+#### 2. Advanced: NVIDIA CUDA
+
+For high-performance on NVIDIA hardware:
+
+- **Download**: Use the `onnxruntime-win-x64-gpu-1.24.3.zip` from [GitHub Releases](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.3).
+- **Requirements**: Requires [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) and [cuDNN 9.x](https://developer.nvidia.com/cudnn) to be installed on your system.
+- **Environment**: Ensure the `bin` directories for both CUDA and cuDNN are in your system `PATH`.
+
+#### 3. Apple Silicon (macOS)
+
+CoreML is used automatically to leverage the Apple Neural Engine. Download the standard `.dylib` from [GitHub Releases](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.3).
+
+#### 4. Setup Steps
+
+1. Configure the **ONNX runtime path** in Settings.
+2. **Restart CodeTextor** to apply changes.
+3. Download models from **Indexing → Embedding model**.
 
 ---
 
@@ -116,7 +141,7 @@ CodeTextor will launch both the local web UI and the MCP server.
 
 CodeTextor ships a streamable **HTTP** MCP server. Point your client to:
 
-```
+```bash
 http://127.0.0.1:3030/mcp/<projectId>
 ```
 
@@ -148,19 +173,19 @@ rmcp_client = true
 
 Developer and contributor documentation lives under [`/docs`](./docs):
 
-* [`DEV_GUIDE.md`](./docs/DEV_GUIDE.md) — detailed architecture, coding standards, and LLM collaboration rules
-* `API_REFERENCE.md` — MCP server tools and external API reference
-* `ARCHITECTURE.md` — system overview diagrams and data flows
+- [`DEV_GUIDE.md`](./docs/DEV_GUIDE.md) — detailed architecture, coding standards, and LLM collaboration rules
+- `API_REFERENCE.md` — system overview diagrams and data flows
+- `ARCHITECTURE.md` — system overview diagrams and data flows
 
 ---
 
 ## 🧩 Design Principles
 
-* **Local-first:** runs entirely on your machine
-* **Modular:** each subsystem in its own package
-* **Transparent:** all data and embeddings are inspectable
-* **Extensible:** easy to add languages or custom chunkers
-* **Readable:** written for humans *and* LLMs — every function documented
+- **Local-first:** runs entirely on your machine
+- **Modular:** each subsystem in its own package
+- **Transparent:** all data and embeddings are inspectable
+- **Extensible:** easy to add languages or custom chunkers
+- **Readable:** written for humans *and* LLMs — every function documented
 
 ---
 
@@ -169,10 +194,10 @@ Developer and contributor documentation lives under [`/docs`](./docs):
 Pull requests and ideas are welcome!
 Please read the [Developer Guide](./docs/DEV_GUIDE.md) before contributing.
 
-* Write all code and comments in **English**.
-* Use **modular design** and split large files into logical parts.
-* Document every function (including arrow or anonymous ones).
-* Keep code clean, readable, and deterministic.
+- Write all code and comments in **English**.
+- Use **modular design** and split large files into logical parts.
+- Document every function (including arrow or anonymous ones).
+- Keep code clean, readable, and deterministic.
 
 ---
 
@@ -187,10 +212,10 @@ See [LICENSE](./LICENSE) for details.
 
 Built with ❤️ using:
 
-* [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)
-* [SQLite-vec](https://github.com/asg017/sqlite-vec)
-* [Wails](https://wails.io/)
-* [MCP Protocol](https://modelcontextprotocol.io/)
+- [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)
+- [SQLite-vec](https://github.com/asg017/sqlite-vec)
+- [Wails](https://wails.io/)
+- [MCP Protocol](https://modelcontextprotocol.io/)
 
 ---
 

@@ -4,3 +4,5 @@ frontend/dist
 AGENTS.md
 TODO.md
 .claude
+.gemini
+.agents

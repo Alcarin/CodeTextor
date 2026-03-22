@@ -91,16 +91,22 @@ const customModelForm = reactive<CustomModelFormData>({
 });
 
 const backendGroupOrder = ['fastembed', 'onnx'];
-const backendGroupMetadata: Record<string, { label: string; description: string }> = {
-  fastembed: {
-    label: 'FastEmbed (CPU)',
-    description: 'Lightweight CPU models (uses ONNX Runtime).',
-  },
-  onnx: {
-    label: 'ONNX',
-    description: 'Larger ONNX models. Requires the onnxruntime library.',
-  },
-};
+const backendGroupMetadata = computed(() => {
+  const provider = embeddingCapabilities.value?.activeExecutionProvider || 'CPU';
+  const isGPU = provider !== 'CPU' && provider !== '';
+  const gpuSuffix = isGPU ? ` (${provider} GPU)` : ' (CPU mode)';
+  
+  return {
+    fastembed: {
+      label: `FastEmbed${gpuSuffix}`,
+      description: isGPU ? `Accelerated with ${provider}.` : 'Lightweight CPU models (uses ONNX Runtime).',
+    },
+    onnx: {
+      label: `ONNX${gpuSuffix}`,
+      description: isGPU ? `Accelerated with ${provider}.` : 'Larger ONNX models. Requires the onnxruntime library.',
+    },
+  };
+});
 
 const backendRequiresOnnx = () => true;
 
@@ -237,9 +243,9 @@ const groupedEmbeddingModels = computed(() => {
   const ensureGroup = (backend: string) => {
     const normalized = backend.toLowerCase();
     if (!groups.has(normalized)) {
-      const meta = backendGroupMetadata[normalized] || {
+      const meta = (backendGroupMetadata.value as any)[normalized] || {
         label: normalized.toUpperCase(),
-        description: 'Modello personalizzato',
+        description: 'Custom model',
       };
       groups.set(normalized, {
         backend: normalized,
@@ -369,6 +375,7 @@ const includePaths = ref<string[]>([]);
 const excludePaths = ref<string[]>([...defaultExcludePatterns]);
 const autoExcludeHidden = ref(true);
 const projectRootPath = ref<string>('/');
+const useGitIgnore = ref(true);
 const gitignorePatterns = ref<string[]>([]);
 
 const files = ref<FilePreview[]>([]);
@@ -394,6 +401,7 @@ const fetchFilePreviews = async () => {
         excludePatterns: excludePaths.value,
         rootPath: projectRootPath.value,
         autoExcludeHidden: autoExcludeHidden.value,
+        useGitIgnore: useGitIgnore.value,
         // We intentionally do not pass selected extensions so we can still show all available chips.
         fileExtensions: [],
         continuousIndexing: currentProject.value!.config.continuousIndexing,
@@ -991,6 +999,7 @@ const applyProjectConfigValues = async (project: Project) => {
 	}
 	selectedExtensions.value = project.config?.fileExtensions ?? [];
 	autoExcludeHidden.value = project.config?.autoExcludeHidden ?? true;
+	useGitIgnore.value = project.config?.useGitIgnore ?? true;
 	syncEmbeddingSelectionFromProject(project, { skipSave: true });
 };
 
@@ -1166,6 +1175,7 @@ const buildProjectConfigPayload = () => {
     rootPath: projectRootPath.value,
     fileExtensions: selectedExtensions.value,
     autoExcludeHidden: autoExcludeHidden.value,
+    useGitIgnore: useGitIgnore.value,
     continuousIndexing: currentProject.value.config.continuousIndexing,
     chunkSizeMin: currentProject.value.config.chunkSizeMin,
     chunkSizeMax: currentProject.value.config.chunkSizeMax,
@@ -1225,7 +1235,7 @@ async function saveProjectConfig(options?: { immediate?: boolean }) {
   }, 500); // Wait 500ms before saving to batch rapid changes
 }
 
-  watch([includePaths, excludePaths, autoExcludeHidden], () => {
+  watch([includePaths, excludePaths, autoExcludeHidden, useGitIgnore], () => {
     // Skip during initialization
     if (isInitializing.value) {
       return;
@@ -1377,8 +1387,18 @@ watch(availableExtensions, extensions => {
                 <span v-if="group.disabled" class="legend-disabled">(ONNX Runtime required)</span>
               </li>
             </ul>
+            <div v-if="onnxRuntimeAvailable" class="acceleration-status">
+              <span class="status-icon" :class="{ 'gpu-active': embeddingCapabilities?.activeExecutionProvider && embeddingCapabilities?.activeExecutionProvider !== 'CPU' }">
+                {{ (embeddingCapabilities?.activeExecutionProvider && embeddingCapabilities?.activeExecutionProvider !== 'CPU') ? '🚀' : '💻' }}
+              </span>
+              <span>
+                <strong>Hardware Acceleration:</strong> 
+                {{ embeddingCapabilities?.activeExecutionProvider || 'CPU' }}
+                <span v-if="embeddingCapabilities?.activeExecutionProvider === 'CPU'" class="cpu-note"> (Falling back to CPU)</span>
+              </span>
+            </div>
             <p v-if="!onnxRuntimeAvailable && hasModelsRequiringOnnx" class="runtime-warning">
-              ONNX Runtime not detected: install version 1.22.0, set its shared library path under Projects → “ONNX runtime path”, and restart to enable FastEmbed/ONNX models. GPU builds require CUDA 12.x + cuDNN 9.x.
+              ONNX Runtime library not found. Please provide the library path (.dll, .so or .dylib) in "Projects" settings and restart. Version 1.24.3 recommended.
             </p>
           </div>
           <div class="model-actions">
@@ -1486,6 +1506,10 @@ watch(availableExtensions, extensions => {
             <label class="toggle">
               <input type="checkbox" v-model="autoExcludeHidden" />
               <span>Exclude hidden directories (.*)</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" v-model="useGitIgnore" />
+              <span>Exclude paths from .gitignore</span>
             </label>
             <div class="path-pill-list">
               <div v-if="excludePaths.length === 0" class="empty-pill">No custom exclusions</div>
@@ -1889,7 +1913,38 @@ watch(availableExtensions, extensions => {
 .runtime-warning {
   color: #f39c12;
   font-size: 0.85rem;
-  margin: 0;
+  margin: 0.5rem 0 0 0;
+  padding: 0.5rem;
+  border: 1px dashed rgba(243, 156, 18, 0.4);
+  border-radius: 6px;
+}
+
+.acceleration-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  background: #1b1b1b;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #d4d4d4;
+}
+
+.status-icon {
+  font-size: 1.2rem;
+  filter: grayscale(1);
+  transition: filter 0.3s ease;
+}
+
+.status-icon.gpu-active {
+  filter: grayscale(0);
+}
+
+.cpu-note {
+  color: #858585;
+  font-size: 0.85rem;
 }
 
 .model-details {

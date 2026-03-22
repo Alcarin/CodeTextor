@@ -11,6 +11,8 @@ type ONNXRuntimeSettings struct {
 	// RequiresRestart indicates that the saved path differs from the active runtime and
 	// a restart is needed for the change to take effect.
 	RequiresRestart bool `json:"requiresRestart"`
+	// ActiveExecutionProvider is the name of the execution provider currently in use (e.g., DirectML, CoreML, CUDA, CPU).
+	ActiveExecutionProvider string `json:"activeExecutionProvider,omitempty"`
 }
 
 // ONNXRuntimeTestResult captures a quick validation of a user-provided ONNX path.

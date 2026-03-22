@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ONNX Runtime 1.24.3 Update**: Improved GPU support and simplified cross-platform configuration
+  - **Windows**: Introduced native **DirectML** support (GPU acceleration without CUDA/cuDNN)
+  - **macOS**: Optimized **CoreML** support for Apple Silicon (M1/M2/M3)
+  - **Linux/Windows**: Updated support for **CUDA 12.x** and **CUDA Graph**
+- Shared `utils.ShouldSkipPath` utility for consistent file/directory exclusion (hidden, `.git`, `.gitignore`, custom patterns) across both indexing and live watchers
+- Concurrency semaphore for indexing to limit CPU usage and maintain system responsiveness (50% target core utilization)
+- Live MCP server status in the application footer via Wails events (`mcp:status`)
+- Toggle to automatically include patterns from `.gitignore` in the project exclusion lists
+- FastEmbed model download fallback to HuggingFace for improved reliability
+- Track and display the active indexing engine (DirectML, CoreML, CUDA, or CPU) in the user interface
 - Streamable HTTP MCP server powered by the official go-sdk with persisted config (host/port/protocol/autostart/max connections), lifecycle management (start/stop), and periodic status/tool events (`mcp:status`, `mcp:tools`)
 - MCP tools `search`, `outline`, and `nodeSource` exposed per-project via `/mcp/<projectId>`; Wails bindings + Vue MCP view now surface live metrics, tool list, and ready-to-paste client snippets (Codex CLI, Claude Code, VS Code/Cursor/Windsurf)
 - Backend `GetChunkByID` API (VectorStore + ProjectService) to fetch canonical chunk/source snippets for MCP `nodeSource`
@@ -87,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic statistics refresh every 5 seconds in footer
   - Statistics include indexing progress tracking when projects are being indexed
 
+
 ### Changed
 - File outline requests now auto-generate and persist outlines on demand (Tree-sitter) instead of erroring when no cached outline exists
 - Search results and chunk lookups keep `embedding` as an empty slice (never null) for MCP schema compatibility
@@ -108,7 +119,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **StatsView refactored**: Removed Database Location and Indexing Status banners, now shows only essential statistics
 - **API migration**: Replaced mockBackend with real backend calls throughout the application
 
+
 ### Fixed
+- Resolved "nil pointer dereference" errors during project loading and startup by improving ONNX environment initialization checks
+- Fixed MCP status label in the footer incorrectly displaying "Stopped" when the server was active
+- Improved project selection robustness when no projects exist or during simultaneous initialization
 - SQLite compatibility issue in slug migration (removed unsupported ALTER COLUMN DROP DEFAULT syntax)
 - Robustness of the database migration for adding the `slug` column, preventing potential database corruption on startup
 - Timestamp conversion from Unix seconds to JavaScript milliseconds (fixed incorrect project creation dates)

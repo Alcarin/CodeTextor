@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -66,13 +67,19 @@ func NewIndexer(project *models.Project, vectorStore *store.VectorStore, eventEm
 		modelID = "unknown"
 	}
 
+	// Calculate a safe concurrency limit: 50% of available CPUs, minimum 1
+	concurrencyLimit := runtime.NumCPU() / 2
+	if concurrencyLimit < 1 {
+		concurrencyLimit = 1
+	}
+
 	return &Indexer{
 		project:          project,
 		progress:         &models.IndexingProgress{Status: models.IndexingStatusIdle},
 		stopChan:         make(chan struct{}),
 		ctx:              ctx,
 		cancel:           cancel,
-		semaphore:        make(chan struct{}, 10), // Limit to 10 concurrent operations
+		semaphore:        make(chan struct{}, concurrencyLimit), // Limit to a percentage of available CPUs
 		embeddingClient:  client,
 		vectorStore:      vectorStore,
 		parser:           chunker.NewParser(chunkConfig),
@@ -101,11 +108,13 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 	var wg sync.WaitGroup
 	for _, file := range filePreviews {
 		wg.Add(1)
+		
+		// Acquire semaphore BEFORE spawning the goroutine to avoid creating
+		// thousands of sleeping goroutines if there are many files.
+		i.semaphore <- struct{}{}
+		
 		go func(file *models.FilePreview) {
 			defer wg.Done()
-
-			// Acquire semaphore
-			i.semaphore <- struct{}{}
 			defer func() { <-i.semaphore }()
 
 			select {
@@ -290,15 +299,16 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 					log.Printf("Error walking path %s for watcher: %v", p, err)
 					return nil // Don't stop walk, just skip this path
 				}
+				
+				// Standard skip check (handles both directories and files)
+				if utils.ShouldSkipPath(i.project.Config.RootPath, p, i.project.Config.ExcludePatterns, i.project.Config.AutoExcludeHidden) {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+
 				if d.IsDir() {
-					// Check if directory should be excluded using relative + absolute patterns
-					if shouldSkipDir(includeRoot, p, i.project.Config.ExcludePatterns) {
-						return filepath.SkipDir
-					}
-					// Check for hidden directories
-					if i.project.Config.AutoExcludeHidden && strings.HasPrefix(d.Name(), ".") && len(d.Name()) > 1 {
-						return filepath.SkipDir
-					}
 					log.Printf("Adding path to watcher: %s", p)
 					err := i.watcher.Add(p)
 					if err != nil {
@@ -324,6 +334,11 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 				// Only process Write and Create events for files
 				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+					// Check if path is excluded by configuration
+					if utils.ShouldSkipPath(i.project.Config.RootPath, event.Name, i.project.Config.ExcludePatterns, i.project.Config.AutoExcludeHidden) {
+						continue
+					}
+					
 					// Check if it's a supported file
 					if i.parser.IsSupported(event.Name) {
 						log.Printf("File changed in project %s: %s", i.project.Name, event.Name)
@@ -392,40 +407,6 @@ func resolveIncludePaths(root string, includes []string) []string {
 	}
 
 	return resolved
-}
-
-func shouldSkipDir(root, dir string, patterns []string) bool {
-	if len(patterns) == 0 {
-		return false
-	}
-
-	absPath := filepath.Clean(dir)
-	relPath := absPath
-	if root != "" {
-		if rel, err := filepath.Rel(root, absPath); err == nil {
-			relPath = rel
-		}
-	}
-
-	absSlash := filepath.ToSlash(absPath)
-	relSlash := filepath.ToSlash(relPath)
-	base := filepath.Base(absPath)
-
-	for _, pattern := range patterns {
-		if pattern == "" {
-			continue
-		}
-		if matched, _ := filepath.Match(pattern, relSlash); matched {
-			return true
-		}
-		if matched, _ := filepath.Match(pattern, absSlash); matched {
-			return true
-		}
-		if matched, _ := filepath.Match(pattern, base); matched {
-			return true
-		}
-	}
-	return false
 }
 
 // Stop gracefully stops the indexer.

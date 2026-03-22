@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -181,9 +182,11 @@ func NewProjectService(ctx context.Context) (*ProjectService, error) {
 	}
 
 	// Auto-start indexing for projects with ContinuousIndexing enabled
-	if err := service.initializeAutoIndexing(); err != nil {
-		log.Printf("Warning: failed to initialize auto-indexing: %v", err)
-	}
+	go func() {
+		if err := service.initializeAutoIndexing(); err != nil {
+			log.Printf("Warning: failed to initialize auto-indexing: %v", err)
+		}
+	}()
 
 	return service, nil
 }
@@ -623,10 +626,23 @@ func (s *ProjectService) StartIndexing(projectID string) error {
 		return err
 	}
 
-	files, err := s.GetFilePreviews(projectID, project.Config)
+	// Use effective config with gitignore patterns merged if enabled
+	effectiveConfig := project.Config
+	if effectiveConfig.UseGitIgnore {
+		if giPatterns, err := s.GetGitIgnorePatterns(projectID); err == nil {
+			effectiveConfig.ExcludePatterns = append(effectiveConfig.ExcludePatterns, giPatterns...)
+		}
+	}
+
+	files, err := s.GetFilePreviews(projectID, effectiveConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get file previews for indexing: %w", err)
 	}
+
+	// Update the project snapshot for the indexer so it uses effective patterns for watching
+	projectCopy := *project
+	projectCopy.Config = effectiveConfig
+	project = &projectCopy
 
 	vectorStore, err := s.GetVectorStore(project.ID)
 	if err != nil {
@@ -878,6 +894,13 @@ func refreshModelLocalStatus(meta *models.EmbeddingModelInfo) {
 	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() {
 		meta.LocalPath = targetPath
 		meta.DownloadStatus = "ready"
+		// Ensure tokenizer path is also refreshed if missing
+		if strings.TrimSpace(meta.TokenizerLocalPath) == "" {
+			tokenizerPath := filepath.Join(filepath.Dir(targetPath), "tokenizer.json")
+			if tInfo, tErr := os.Stat(tokenizerPath); tErr == nil && !tInfo.IsDir() {
+				meta.TokenizerLocalPath = tokenizerPath
+			}
+		}
 	} else if meta.DownloadStatus == "" {
 		meta.DownloadStatus = "pending"
 	} else {
@@ -955,6 +978,10 @@ func (s *ProjectService) DownloadEmbeddingModel(modelID string) (*models.Embeddi
 
 	metaClone := meta.Clone()
 	metaClone.DownloadStatus = "downloading"
+	// Force redownload by clearing local paths if we are explicitly calling DownloadEmbeddingModel
+	metaClone.LocalPath = ""
+	metaClone.TokenizerLocalPath = ""
+	
 	if err := s.configStore.UpsertEmbeddingModel(metaClone); err != nil {
 		return nil, err
 	}
@@ -1035,7 +1062,10 @@ func (s *ProjectService) Search(projectID string, query string, k int) (*models.
 
 // GetEmbeddingCapabilities reports which embedding backends are currently available.
 func (s *ProjectService) GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error) {
-	return &models.EmbeddingCapabilities{OnnxRuntimeAvailable: s.enableONNXRuntime}, nil
+	return &models.EmbeddingCapabilities{
+		OnnxRuntimeAvailable:    s.enableONNXRuntime,
+		ActiveExecutionProvider: embedding.GetActiveExecutionProvider(),
+	}, nil
 }
 
 // GetONNXRuntimeSettings returns the persisted runtime path plus current status.
@@ -1077,9 +1107,15 @@ func (s *ProjectService) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTe
 		}, nil
 	}
 	if info.IsDir() {
+		ext := ".so"
+		if stdruntime.GOOS == "windows" {
+			ext = ".dll"
+		} else if stdruntime.GOOS == "darwin" {
+			ext = ".dylib"
+		}
 		return &models.ONNXRuntimeTestResult{
 			Success: false,
-			Message: "The provided path points to a directory. Select the shared library file (e.g., libonnxruntime.so).",
+			Message: fmt.Sprintf("The provided path points to a directory. Select the shared library file (e.g., libonnxruntime%s or onnxruntime%s).", ext, ext),
 		}, nil
 	}
 
@@ -1098,10 +1134,11 @@ func (s *ProjectService) buildONNXRuntimeSettings() *models.ONNXRuntimeSettings 
 	expected := strings.TrimSpace(s.onnxRuntimePath)
 	active := strings.TrimSpace(s.activeONNXPath)
 	return &models.ONNXRuntimeSettings{
-		SharedLibraryPath: expected,
-		ActivePath:        active,
-		RuntimeAvailable:  s.enableONNXRuntime,
-		RequiresRestart:   !strings.EqualFold(expected, active),
+		SharedLibraryPath:       expected,
+		ActivePath:              active,
+		RuntimeAvailable:        s.enableONNXRuntime,
+		RequiresRestart:         !strings.EqualFold(expected, active),
+		ActiveExecutionProvider: embedding.GetActiveExecutionProvider(),
 	}
 }
 
@@ -1121,6 +1158,7 @@ func mergeConfig(base, override models.ProjectConfig) models.ProjectConfig {
 	}
 	result.AutoExcludeHidden = override.AutoExcludeHidden
 	result.ContinuousIndexing = override.ContinuousIndexing
+	result.UseGitIgnore = override.UseGitIgnore
 	if override.ChunkSizeMin != 0 {
 		result.ChunkSizeMin = override.ChunkSizeMin
 	}
@@ -1183,6 +1221,14 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 	if finalConfig.RootPath == "" {
 		finalConfig.RootPath = project.Config.RootPath
 	}
+
+	// Merge gitignore patterns if enabled
+	if finalConfig.UseGitIgnore {
+		if giPatterns, err := s.GetGitIgnorePatterns(projectID); err == nil {
+			finalConfig.ExcludePatterns = append(finalConfig.ExcludePatterns, giPatterns...)
+		}
+	}
+
 	includePaths := resolveIncludePaths(finalConfig.RootPath, finalConfig.IncludePaths)
 
 	var previews []*models.FilePreview
@@ -1215,27 +1261,11 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 				}
 			}
 
-			isHidden := strings.HasPrefix(d.Name(), ".") && len(d.Name()) > 1
-			if finalConfig.AutoExcludeHidden && isHidden {
+			if utils.ShouldSkipPath(finalConfig.RootPath, path, finalConfig.ExcludePatterns, finalConfig.AutoExcludeHidden) {
 				if d.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
-			}
-
-			for _, pattern := range finalConfig.ExcludePatterns {
-				if matched, _ := filepath.Match(pattern, relativePath); matched {
-					if d.IsDir() {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-				if matched, _ := filepath.Match(pattern, path); matched {
-					if d.IsDir() {
-						return filepath.SkipDir
-					}
-					return nil
-				}
 			}
 
 			if d.IsDir() {
@@ -1254,6 +1284,7 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 				return err
 			}
 
+			isHidden := strings.HasPrefix(d.Name(), ".") && len(d.Name()) > 1
 			previews = append(previews, &models.FilePreview{
 				AbsolutePath: path,
 				RelativePath: relativePath,

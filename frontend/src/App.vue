@@ -10,6 +10,7 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useNavigation } from './composables/useNavigation';
 import { useCurrentProject } from './composables/useCurrentProject';
 import { backend } from './api/backend';
+import { EventsOn } from '../wailsjs/runtime/runtime';
 import ProjectsView from './views/ProjectsView.vue';
 import IndexingView from './views/IndexingView.vue';
 import SearchView from './views/SearchView.vue';
@@ -31,6 +32,7 @@ const { currentProject, loadCurrentProject } = useCurrentProject();
 const projectStats = ref<ProjectStats | null>(null);
 const mcpStatus = ref<MCPServerStatus | null>(null);
 let statsInterval: number | null = null;
+let statusUnsubscribe: (() => void) | null = null;
 
 // Mobile menu state
 const showMobileMenu = ref(false);
@@ -97,14 +99,8 @@ const updateFooterStats = async () => {
   try {
     // Get cumulative stats for all projects
     projectStats.value = await backend.getAllProjectsStats();
-    // TODO: Implement MCP status retrieval when available
-    mcpStatus.value = {
-      isRunning: false,
-      uptime: 0,
-      activeConnections: 0,
-      totalRequests: 0,
-      averageResponseTime: 0
-    };
+    // Get live MCP server status
+    mcpStatus.value = await backend.getMCPStatus();
   } catch (error) {
     console.error('Failed to update footer stats:', error);
   }
@@ -155,11 +151,19 @@ onMounted(async () => {
   // Then start stats updates
   updateFooterStats();
   statsInterval = window.setInterval(updateFooterStats, 5000);
+
+  // Subscribe to real-time MCP status updates
+  statusUnsubscribe = EventsOn('mcp:status', (payload: MCPServerStatus) => {
+    mcpStatus.value = payload;
+  });
 });
 
 onUnmounted(() => {
   if (statsInterval) {
     clearInterval(statsInterval);
+  }
+  if (statusUnsubscribe) {
+    statusUnsubscribe();
   }
 });
 </script>

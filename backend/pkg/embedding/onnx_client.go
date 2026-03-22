@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -20,6 +21,7 @@ var (
 	onnxRuntimeInitErr      error
 	onnxSharedLibraryPath   string
 	activeSharedLibraryPath string
+	activeExecutionProvider string = "CPU" // Default fallback
 )
 
 // ONNXEmbeddingClient uses ONNX Runtime + HuggingFace tokenizer.json files to compute embeddings.
@@ -95,9 +97,9 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		outputNames[i] = info.Name
 	}
 
-	session, err := newONNXSessionWithOptionalCUDA(meta.LocalPath, inputNames, outputNames)
+	session, err := newONNXSessionWithBestProvider(meta.LocalPath, inputNames, outputNames)
 	if err != nil {
-		log.Printf("DEBUG: newONNXSessionWithOptionalCUDA failed: %v", err)
+		log.Printf("DEBUG: newONNXSessionWithBestProvider failed: %v", err)
 		return nil, fmt.Errorf("failed to create ONNX session: %w", err)
 	}
 	log.Printf("DEBUG: ONNX session created successfully for %s", meta.LocalPath)
@@ -147,7 +149,15 @@ func (c *ONNXEmbeddingClient) Close() error {
 	return nil
 }
 
-func (c *ONNXEmbeddingClient) embedSingle(text string) ([]float32, error) {
+func (c *ONNXEmbeddingClient) embedSingle(text string) (result []float32, err error) {
+	// Defensively recover from panics in the external tokenizer library.
+	// Some versions of sugarme/tokenizer can panic for obscure string patterns.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("tokenizer panic for input of length %d: %v", len(text), r)
+		}
+	}()
+
 	encoding, err := c.tokenizer.EncodeSingle(text, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode text: %w", err)
@@ -315,18 +325,96 @@ func (c *ONNXEmbeddingClient) postProcessEmbedding(data []float32, shape onnx.Sh
 	return result, nil
 }
 
-func newONNXSessionWithOptionalCUDA(modelPath string, inputNames, outputNames []string) (*onnx.DynamicAdvancedSession, error) {
-	return onnx.NewDynamicAdvancedSession(modelPath, inputNames, outputNames, nil)
+func newONNXSessionWithBestProvider(modelPath string, inputNames, outputNames []string) (*onnx.DynamicAdvancedSession, error) {
+	options, err := onnx.NewSessionOptions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session options: %w", err)
+	}
+	defer options.Destroy()
+
+	// Enable all graph optimizations for best performance
+	options.SetGraphOptimizationLevel(onnx.GraphOptimizationLevelEnableAll)
+
+	// Limit CPU usage: set internal thread pools to 50% of available CPUs
+	// This prevents ONNX from taking over all cores for a single operation.
+	numThreads := runtime.NumCPU() / 2
+	if numThreads < 1 {
+		numThreads = 1
+	}
+	options.SetIntraOpNumThreads(numThreads)
+	options.SetInterOpNumThreads(numThreads)
+
+	// Try to append specialized execution providers.
+	// We use the globally detected execution provider.
+	if GetActiveExecutionProvider() == "CoreML" {
+		options.AppendExecutionProviderCoreMLV2(nil)
+	} else if GetActiveExecutionProvider() == "DirectML" {
+		options.AppendExecutionProviderDirectML(0)
+	} else if GetActiveExecutionProvider() == "CUDA" {
+		cudaOpts, err := onnx.NewCUDAProviderOptions()
+		if err == nil {
+			defer cudaOpts.Destroy()
+			options.AppendExecutionProviderCUDA(cudaOpts)
+		}
+	}
+
+	return onnx.NewDynamicAdvancedSession(modelPath, inputNames, outputNames, options)
+}
+
+func detectBestExecutionProvider() {
+	options, err := onnx.NewSessionOptions()
+	if err != nil {
+		return
+	}
+	defer options.Destroy()
+
+	if runtime.GOOS == "darwin" {
+		if err := options.AppendExecutionProviderCoreMLV2(nil); err == nil {
+			log.Printf("DEBUG: CoreML execution provider detected")
+			activeExecutionProvider = "CoreML"
+			return
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		if err := options.AppendExecutionProviderDirectML(0); err == nil {
+			log.Printf("DEBUG: DirectML execution provider detected")
+			activeExecutionProvider = "DirectML"
+			return
+		}
+	}
+
+	cudaOpts, err := onnx.NewCUDAProviderOptions()
+	if err == nil {
+		defer cudaOpts.Destroy()
+		if err := options.AppendExecutionProviderCUDA(cudaOpts); err == nil {
+			log.Printf("DEBUG: CUDA execution provider detected")
+			activeExecutionProvider = "CUDA"
+			return
+		}
+	}
+
+	activeExecutionProvider = "CPU"
+	log.Printf("DEBUG: CPU execution provider detected")
 }
 
 func ensureONNXRuntimeInitialized() error {
 	onnxRuntimeInitOnce.Do(func() {
-		if trimmed := strings.TrimSpace(onnxSharedLibraryPath); trimmed != "" {
+		trimmed := strings.TrimSpace(onnxSharedLibraryPath)
+		if trimmed != "" {
+			log.Printf("DEBUG: Setting ONNX shared library path to: %s", trimmed)
 			onnx.SetSharedLibraryPath(trimmed)
+		} else {
+			log.Printf("DEBUG: No custom ONNX shared library path set. Using default search strategy.")
 		}
+		
 		onnxRuntimeInitErr = onnx.InitializeEnvironment()
-		if onnxRuntimeInitErr == nil {
+		if onnxRuntimeInitErr != nil {
+			log.Printf("ERROR: ONNX Runtime initialization failed: %v", onnxRuntimeInitErr)
+		} else {
 			activeSharedLibraryPath = onnxSharedLibraryPath
+			log.Printf("DEBUG: ONNX Runtime environment initialized successfully.")
+			detectBestExecutionProvider()
 		}
 	})
 	return onnxRuntimeInitErr
@@ -340,6 +428,11 @@ func ConfigureSharedLibraryPath(path string) {
 // ActiveSharedLibraryPath returns the ONNX Runtime shared library path currently in use.
 func ActiveSharedLibraryPath() string {
 	return strings.TrimSpace(activeSharedLibraryPath)
+}
+
+// GetActiveExecutionProvider returns the name of the execution provider currently in use.
+func GetActiveExecutionProvider() string {
+	return activeExecutionProvider
 }
 
 // IsONNXRuntimeInstalled checks if the shared library exists without loading it.

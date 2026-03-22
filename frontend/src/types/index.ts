@@ -23,6 +23,7 @@ export interface ONNXRuntimeSettings {
   activePath?: string
   runtimeAvailable: boolean
   requiresRestart: boolean
+  activeExecutionProvider?: string
 }
 export interface ONNXRuntimeTestResult {
   success: boolean

@@ -71,6 +71,9 @@ type ProjectConfig struct {
 	// ContinuousIndexing enables file system watching for automatic re-indexing.
 	ContinuousIndexing bool `json:"continuousIndexing"`
 
+	// UseGitIgnore automatically includes patterns from .gitignore in the exclusion list.
+	UseGitIgnore bool `json:"useGitIgnore"`
+
 	// ChunkSizeMin is the minimum token count for a chunk (merge smaller ones).
 	// Default: 100 tokens
 	ChunkSizeMin int `json:"chunkSizeMin"`
@@ -206,7 +209,8 @@ type ProjectStats struct {
 
 // EmbeddingCapabilities describes available embedding backends on this machine.
 type EmbeddingCapabilities struct {
-	OnnxRuntimeAvailable bool `json:"onnxRuntimeAvailable"`
+	OnnxRuntimeAvailable    bool   `json:"onnxRuntimeAvailable"`
+	ActiveExecutionProvider string `json:"activeExecutionProvider,omitempty"`
 }
 
 // ProjectEmbeddingModelUsage summarizes how many chunks were built with a specific model.
@@ -305,6 +309,7 @@ func NewProject(id, name, description string) *Project {
 			RootPath:           "",
 			AutoExcludeHidden:  true,
 			ContinuousIndexing: false,
+			UseGitIgnore:       true,
 			ChunkSizeMin:       100,
 			ChunkSizeMax:       800,
 			EmbeddingModel:     "fastembed/bge-small-en-v1.5",

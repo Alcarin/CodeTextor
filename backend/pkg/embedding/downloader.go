@@ -138,7 +138,6 @@ func downloadFileWithProgress(modelID, url, destination, stage string, progress 
 	if err != nil {
 		return fmt.Errorf("failed to create %s: %w", destination, err)
 	}
-	defer out.Close()
 
 	total := resp.ContentLength
 	var downloaded int64
@@ -147,6 +146,8 @@ func downloadFileWithProgress(modelID, url, destination, stage string, progress 
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
+				out.Close()
+				os.Remove(destination)
 				return writeErr
 			}
 			downloaded += int64(n)
@@ -156,9 +157,12 @@ func downloadFileWithProgress(modelID, url, destination, stage string, progress 
 			if readErr == io.EOF {
 				break
 			}
+			out.Close()
+			os.Remove(destination)
 			return readErr
 		}
 	}
+	out.Close()
 	reportProgress(progress, modelID, stage, total, total)
 	return nil
 }
