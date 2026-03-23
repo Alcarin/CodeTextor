@@ -152,6 +152,7 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `getProjectDetails` | Overview of project configuration and statistics |
 | `listFiles` | Explore the project file tree (relative paths and sizes) |
 | `search` | Semantic natural language search (results grouped by file) |
+| `semanticSearchFiles` | High-level exploration: suggests the most relevant files for a concept |
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
 | `nodeSource` | Precise source snippets for identified symbols/chunks |
 

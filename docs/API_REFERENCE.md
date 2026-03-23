@@ -27,6 +27,7 @@ index; requests are read-only.
 | `getProjectDetails` | Overview of project scope, configuration, and statistics                |
 | `listFiles`         | Explore file tree with optional path/extension filtering                |
 | `search`            | Semantic natural language search across indexed code chunks             |
+| `semanticSearchFiles`| High-level exploration: suggests the most relevant files for a concept |
 | `outline`           | Hierarchical symbol tree (classes, functions) for a file                |
 | `nodeSource`        | Precise source snippets for identified symbols/chunks                    |
 
@@ -47,6 +48,14 @@ index; requests are read-only.
 - **Response**: `{ results: { path, chunks: mcpChunk[] }[], total: number }`
   - Results are grouped by file path to reduce token usage.
   - `mcpChunk` includes `id`, `content`, `similarity`, `start` (line), `end` (line), `symbol`, `kind`.
+
+#### `semanticSearchFiles`
+
+- **Input**: `{ query: string, k?: number (1-20, default 5) }`
+- **Response**: `{ results: { path, score, summary }[] }`
+  - Returns the most relevant files for a conceptual query (e.g., "Where is authentication?").
+  - `score` indicates relevance (highest similarity of any chunk in the file).
+  - `summary` provides context (e.g., matching chunks count and top snippet preview).
 
 #### `outline`
 

@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FastEmbed model download fallback to HuggingFace for improved reliability
 - Track and display the active indexing engine (DirectML, CoreML, CUDA, or CPU) in the user interface
 - Streamable HTTP MCP server powered by the official go-sdk with persisted config (host/port/protocol/autostart/max connections), lifecycle management (start/stop), and periodic status/tool events (`mcp:status`, `mcp:tools`)
-- MCP tools `search`, `outline`, and `nodeSource` exposed per-project via `/mcp/<projectId>`; Wails bindings + Vue MCP view now surface live metrics, tool list, and ready-to-paste client snippets (Codex CLI, Claude Code, VS Code/Cursor/Windsurf)
+- MCP tools `search`, `semanticSearchFiles`, `outline`, and `nodeSource` exposed per-project via `/mcp/<projectId>`; Wails bindings + Vue MCP view now surface live metrics, tool list, and ready-to-paste client snippets (Codex CLI, Claude Code, VS Code/Cursor/Windsurf)
 - Backend `GetChunkByID` API (VectorStore + ProjectService) to fetch canonical chunk/source snippets for MCP `nodeSource`
 - New `SelectFile` Wails binding for filtered file pickers alongside existing directory selector
 - Embedding model catalog with per-project selection snapshot, custom-model modal, download manager storing artifacts under `<AppDataDir>/models/<modelId>`, and ONNX Runtime-based embedding generation (automatic tokenizer/ONNX downloads, shared sessions per model)
@@ -135,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IndexingView toggle now correctly reflects database state on mount and project switch
 - "Go to Indexing" button now selects project before navigation
 - Project switching in IndexingView now refreshes and displays correct indexing state
+- **MCP `listFiles` Root Fix**: Corrected path normalization to properly list files in the root directory when calling the tool with `.` or `./`
 - **Unit tests for indexing operations**: Fixed mock implementations and test logic to properly validate all indexing API methods
 - **Markdown links**: Now include correct line numbers (was missing position tracking)
 - **Markdown heading ranges**: EndLine now extends to next same/higher-level heading for proper containment

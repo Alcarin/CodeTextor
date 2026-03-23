@@ -432,9 +432,10 @@ func (m *Manager) buildServerInstructions(boundProjectID string) string {
 	b.WriteString("Preferred Workflow:\n")
 	b.WriteString("1. 'getProjectDetails': Overview of scope and indexed extensions.\n")
 	b.WriteString("2. 'listFiles': Explore file tree (use recursive=false for bread-first browsing).\n")
-	b.WriteString("3. 'search': SEMANTIC search for concepts or implementation patterns.\n")
-	b.WriteString("4. 'outline': Map the symbols (classes, functions) of a specific file.\n")
-	b.WriteString("5. 'nodeSource': Fetch actual code snippets for identified symbols/chunks.\n")
+	b.WriteString("3. 'semanticSearchFiles': High-level exploration. Suggests the most relevant FILES for a concept (e.g. 'Where is authentication?').\n")
+	b.WriteString("4. 'search': SEMANTIC search for CONTEXT. Finds relevant code snippets (chunks) by intent.\n")
+	b.WriteString("5. 'outline': Map the symbols (classes, functions) of a specific file.\n")
+	b.WriteString("6. 'nodeSource': Fetch actual code snippets for identified symbols/chunks.\n")
 	b.WriteString("\nNote: All responses use RELATIVE paths from the project root. Tools are read-only.")
 	return b.String()
 }
@@ -473,6 +474,10 @@ func (m *Manager) initTools() {
 			name:        "search",
 			description: "Semantic natural language search. Finds relevant code by intent, not just literal matches. Returns code snippets.",
 		},
+		"semanticSearchFiles": {
+			name:        "semanticSearchFiles",
+			description: "Suggests the most relevant files for a concept. Best for high-level exploration of unknown projects.",
+		},
 		"outline": {
 			name:        "outline",
 			description: "Extract the symbol hierarchy (classes, functions) from a specific file. Useful for mapping file structure.",
@@ -508,6 +513,14 @@ func (m *Manager) initTools() {
 					Name:        "search",
 					Description: desc,
 				}, wrapTool(m, "search", m.handleSearch(boundProjectID)))
+			}
+		case "semanticSearchFiles":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "semanticSearchFiles",
+					Description: desc,
+				}, wrapTool(m, "semanticSearchFiles", m.handleSemanticSearchFiles(boundProjectID)))
 			}
 		case "outline":
 			outlineSchema := &jsonschema.Schema{
@@ -698,6 +711,21 @@ type searchOutput struct {
 	TotalResults int             `json:"total"`
 }
 
+type semanticSearchFilesInput struct {
+	Query string `json:"query" jsonschema_description:"Semantic query (e.g. 'where is authentication handled?')"`
+	K     int    `json:"k,omitempty" jsonschema_description:"Max files to return (default 5)" jsonschema_extras:"minimum=1,maximum=20"`
+}
+
+type mcpFileScoreResult struct {
+	Path    string  `json:"path"`
+	Score   float64 `json:"score"`
+	Summary string  `json:"summary"`
+}
+
+type semanticSearchFilesOutput struct {
+	Results []mcpFileScoreResult `json:"results" jsonschema_description:"Ranked files by relevance"`
+}
+
 type outlineInput struct {
 	Path  string `json:"path" jsonschema_description:"File path relative to the project root"`
 	Depth int    `json:"depth,omitempty" jsonschema_description:"Depth limit (1=top-level only)"`
@@ -761,6 +789,9 @@ func (m *Manager) handleListFiles(boundProjectID string) sdkmcp.ToolHandlerFor[l
 		// If not recursive, filter out files that are not in the immediate directory
 		if !input.Recursive {
 			cleanPath := strings.Trim(filepath.ToSlash(input.Path), "/")
+			if cleanPath == "." {
+				cleanPath = ""
+			}
 			filtered := make([]*models.FilePreview, 0)
 			for _, p := range previews {
 				rel := strings.Trim(filepath.ToSlash(p.RelativePath), "/")
@@ -816,6 +847,81 @@ func (m *Manager) handleProjectDetails(boundProjectID string) sdkmcp.ToolHandler
 			FileExtensions:  project.Config.FileExtensions,
 			Stats:           stats,
 		}, nil
+	}
+}
+
+func (m *Manager) handleSemanticSearchFiles(boundProjectID string) sdkmcp.ToolHandlerFor[semanticSearchFilesInput, semanticSearchFilesOutput] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input semanticSearchFilesInput) (*sdkmcp.CallToolResult, semanticSearchFilesOutput, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, semanticSearchFilesOutput{}, err
+		}
+
+		k := input.K
+		if k <= 0 {
+			k = 5
+		}
+		if k > 20 {
+			k = 20
+		}
+
+		// Search for 50 chunks to have enough coverage to aggregate by file.
+		// Higher K used here because semanticSearchFiles is about breadth.
+		searchRes, err := m.projectService.Search(projectID, input.Query, 50)
+		if err != nil {
+			return nil, semanticSearchFilesOutput{}, err
+		}
+
+		type fileAccumulator struct {
+			path     string
+			maxScore float64
+			count    int
+			topMatch string
+		}
+		scores := make(map[string]*fileAccumulator)
+		var order []string
+
+		for _, chunk := range searchRes.Chunks {
+			s, ok := scores[chunk.FilePath]
+			if !ok {
+				s = &fileAccumulator{path: chunk.FilePath}
+				scores[chunk.FilePath] = s
+				order = append(order, chunk.FilePath)
+			}
+			if chunk.Similarity > s.maxScore {
+				s.maxScore = chunk.Similarity
+				s.topMatch = chunk.Content
+			}
+			s.count++
+		}
+
+		// Sort files by their maximum similarity score
+		sort.Slice(order, func(i, j int) bool {
+			return scores[order[i]].maxScore > scores[order[j]].maxScore
+		})
+
+		if len(order) > k {
+			order = order[:k]
+		}
+
+		results := make([]mcpFileScoreResult, len(order))
+		for i, path := range order {
+			acc := scores[path]
+			
+			// Build a concise summary
+			snippet := strings.ReplaceAll(acc.topMatch, "\n", " ")
+			if len(snippet) > 100 {
+				snippet = snippet[:97] + "..."
+			}
+
+			results[i] = mcpFileScoreResult{
+				Path:  path,
+				Score: acc.maxScore,
+				Summary: fmt.Sprintf("Matches %d chunks. Top match: %s", acc.count, snippet),
+			}
+		}
+
+		return nil, semanticSearchFilesOutput{Results: results}, nil
 	}
 }
 
