@@ -22,24 +22,43 @@ index; requests are read-only.
 
 ### Tools
 
-| Tool        | Purpose                                                           |
-| ----------- | ----------------------------------------------------------------- |
-| `search`    | Semantic chunk retrieval for a project (top-k similarity)        |
-| `outline`   | Hierarchical outline for a file (Tree-sitter symbols)            |
-| `nodeSource`| Canonical snippet for a chunk/outline node id with metadata      |
+| Tool                | Purpose                                                                 |
+| ------------------- | ----------------------------------------------------------------------- |
+| `getProjectDetails` | Overview of project scope, configuration, and statistics                |
+| `listFiles`         | Explore file tree with optional path/extension filtering                |
+| `search`            | Semantic natural language search across indexed code chunks             |
+| `outline`           | Hierarchical symbol tree (classes, functions) for a file                |
+| `nodeSource`        | Precise source snippets for identified symbols/chunks                    |
+
+#### `getProjectDetails`
+
+- **Input**: `{}` (empty object)
+- **Response**: `{ id, name, description, rootPath, includePaths, excludePatterns, fileExtensions, stats }`
+
+#### `listFiles`
+
+- **Input**: `{ path?: string, extension?: string, recursive?: boolean }`
+- **Response**: `{ files: { path, size }[] }`
+  - `path` is relative to the project root.
 
 #### `search`
+
 - **Input**: `{ query: string, k?: number (1-50, default 8) }`
-- **Response**: `{ results: Chunk[], totalResults: number, queryTimeMs: number }`
-  - `Chunk` includes file path, line ranges, language, symbol metadata; `embedding` is an empty array (never null).
+- **Response**: `{ results: { path, chunks: mcpChunk[] }[], total: number }`
+  - Results are grouped by file path to reduce token usage.
+  - `mcpChunk` includes `id`, `content`, `similarity`, `start` (line), `end` (line), `symbol`, `kind`.
 
 #### `outline`
+
 - **Input**: `{ path: string, depth?: number }` where `path` is relative to the project root.
-- **Response**: `{ outline: OutlineNode[] }` (may be empty if the file has no symbols).
+- **Response**: `{ outline: mcpOutlineNode[] }`
+  - `mcpOutlineNode` includes `id`, `name`, `kind`, `start`, `end`, and nested `children`.
 
 #### `nodeSource`
-- **Input**: `{ id: string, collapseBody?: boolean }` where `id` is a chunk or outline node id returned by `search`/`outline`.
-- **Response**: `{ chunkId, filePath, source, startLine, endLine, language?, symbolName?, symbolKind? }`
+
+- **Input**: `{ id: string, collapseBody?: boolean }` where `id` is an identifier from `search`/`outline`.
+- **Response**: `{ path, source, start, end, language?, symbol? }`
+  - Focuses on the snippet content and precise boundaries.
   - If `collapseBody` is true, long snippets are truncated with a placeholder.
 
 ### Status & Tool Events

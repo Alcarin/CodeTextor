@@ -421,16 +421,21 @@ func describeForProject(base, projectID string) string {
 func (m *Manager) buildServerInstructions(boundProjectID string) string {
 	var b strings.Builder
 
-	b.WriteString("CodeTextor MCP serves read-only code context from the local index (Tree-sitter chunks + SQLite-vec embeddings). ")
+	b.WriteString("CodeTextor MCP provides high-level, semantic code context from local indexing. ")
+	b.WriteString("Use this server to explore code structure, find definitions, and understand relationships beyond simple text search. ")
 	projectLabel := strings.TrimSpace(m.projectLabel(boundProjectID))
 	if projectLabel != "" {
-		b.WriteString(fmt.Sprintf("This session is bound to project %s. ", projectLabel))
+		b.WriteString(fmt.Sprintf("Currently bound to project: %s. ", projectLabel))
 	} else {
-		b.WriteString("Call the endpoint as /mcp/<projectId> to bind requests to a project. ")
+		b.WriteString("Bind to a project by calling the endpoint as /mcp/<projectId>. ")
 	}
-	b.WriteString("Workflow: 1. use getProjectDetails to understand project scope; 2. use listFiles to explore structure; 3. use search to find code; 4. use outline to map a file; 5. use nodeSource to read code snippets. ")
-	b.WriteString("Avoid requesting entire files; responses are short and read-only. ")
-	b.WriteString("All tools are read-only; use them to ground model answers without modifying the codebase.")
+	b.WriteString("Preferred Workflow:\n")
+	b.WriteString("1. 'getProjectDetails': Overview of scope and indexed extensions.\n")
+	b.WriteString("2. 'listFiles': Explore file tree (use recursive=false for bread-first browsing).\n")
+	b.WriteString("3. 'search': SEMANTIC search for concepts or implementation patterns.\n")
+	b.WriteString("4. 'outline': Map the symbols (classes, functions) of a specific file.\n")
+	b.WriteString("5. 'nodeSource': Fetch actual code snippets for identified symbols/chunks.\n")
+	b.WriteString("\nNote: All responses use RELATIVE paths from the project root. Tools are read-only.")
 	return b.String()
 }
 
@@ -458,23 +463,23 @@ func (m *Manager) initTools() {
 	m.tools = map[string]*toolState{
 		"getProjectDetails": {
 			name:        "getProjectDetails",
-			description: "Get project configuration, root path, and statistics",
+			description: "Get project configuration, root path, and statistics. Use this first to understand the context.",
 		},
 		"listFiles": {
 			name:        "listFiles",
-			description: "List files in the project with optional sub-path and extension filtering",
+			description: "Explore the project file tree. Returns relative paths and sizes. Use recursive=false for shallow browsing.",
 		},
 		"search": {
 			name:        "search",
-			description: "Semantic search across indexed code chunks; find relevant code by natural language",
+			description: "Semantic natural language search. Finds relevant code by intent, not just literal matches. Returns code snippets.",
 		},
 		"outline": {
 			name:        "outline",
-			description: "Hierarchical outline for a file path; explore classes, functions, and symbols",
+			description: "Extract the symbol hierarchy (classes, functions) from a specific file. Useful for mapping file structure.",
 		},
 		"nodeSource": {
 			name:        "nodeSource",
-			description: "Return canonical source for a chunk or outline node id; fetch actual code snippets",
+			description: "Fetch the source code for a specific symbol or chunk ID. Use this for precise code reading.",
 		},
 	}
 
@@ -648,55 +653,81 @@ type listFilesInput struct {
 	Recursive bool   `json:"recursive,omitempty" jsonschema_description:"If true, lists files in subdirectories recursively (default false)"`
 }
 
+type mcpFilePreview struct {
+	Path string `json:"path"`
+	Size string `json:"size"`
+}
+
 type listFileOutput struct {
-	Files []models.FilePreview `json:"files" jsonschema_description:"List of files matching the criteria"`
+	Files []mcpFilePreview `json:"files" jsonschema_description:"List of files matching the criteria"`
 }
 
 type projectDetailsOutput struct {
-	ID              string               `json:"id" jsonschema_description:"Project unique identifier"`
-	Name            string               `json:"name" jsonschema_description:"Human-readable project name"`
-	Description     string               `json:"description" jsonschema_description:"Project description"`
-	RootPath        string               `json:"rootPath" jsonschema_description:"Project absolute root path on host"`
-	IncludePaths    []string             `json:"includePaths" jsonschema_description:"Paths included in indexing"`
-	ExcludePatterns []string             `json:"excludePatterns" jsonschema_description:"Glob patterns for excluded files"`
-	FileExtensions  []string             `json:"fileExtensions" jsonschema_description:"Indexed file extensions"`
-	Stats           *models.ProjectStats `json:"stats,omitempty" jsonschema_description:"Current project statistics"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	Description     string               `json:"description"`
+	RootPath        string               `json:"rootPath" jsonschema_description:"Project absolute root path"`
+	IncludePaths    []string             `json:"includePaths"`
+	ExcludePatterns []string             `json:"excludePatterns"`
+	FileExtensions  []string             `json:"fileExtensions"`
+	Stats           *models.ProjectStats `json:"stats,omitempty"`
 }
 
 type searchInput struct {
-	Query string `json:"query" jsonschema_description:"Natural language search across the indexed project"`
-	K     int    `json:"k,omitempty" jsonschema_description:"Max chunks to return (1-50, default 8)" jsonschema_extras:"minimum=1,maximum=50"`
+	Query string `json:"query" jsonschema_description:"Semantic query (e.g. 'how is authentication handled?')"`
+	K     int    `json:"k,omitempty" jsonschema_description:"Max chunks to return (default 8)" jsonschema_extras:"minimum=1,maximum=50"`
+}
+
+type mcpChunk struct {
+	ID         string  `json:"id"`
+	Content    string  `json:"content"`
+	Similarity float64 `json:"similarity"`
+	LineStart  int     `json:"start"`
+	LineEnd    int     `json:"end"`
+	SymbolName string  `json:"symbol,omitempty"`
+	SymbolKind string  `json:"kind,omitempty"`
+}
+
+type mcpFileResult struct {
+	Path   string     `json:"path"`
+	Chunks []mcpChunk `json:"chunks"`
 }
 
 type searchOutput struct {
-	Results      []*models.Chunk `json:"results" jsonschema_description:"List of relevant code chunks"`
-	TotalResults int             `json:"totalResults" jsonschema_description:"Total matches found"`
-	QueryTimeMs  int64           `json:"queryTimeMs" jsonschema_description:"Time taken for semantic retrieval in milliseconds"`
+	Results      []mcpFileResult `json:"results" jsonschema_description:"Grouped code snippets by file"`
+	TotalResults int             `json:"total"`
 }
 
 type outlineInput struct {
-	Path  string `json:"path" jsonschema_description:"File path relative to the project root (e.g. src/main.go)"`
-	Depth int    `json:"depth,omitempty" jsonschema_description:"Optional depth limit; 1 returns only top-level nodes"`
+	Path  string `json:"path" jsonschema_description:"File path relative to the project root"`
+	Depth int    `json:"depth,omitempty" jsonschema_description:"Depth limit (1=top-level only)"`
+}
+
+type mcpOutlineNode struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Kind      string            `json:"kind"`
+	StartLine uint32            `json:"start"`
+	EndLine   uint32            `json:"end"`
+	Children  []*mcpOutlineNode `json:"children,omitempty"`
 }
 
 type outlineOutput struct {
-	Outline []*models.OutlineNode `json:"outline" jsonschema_description:"Hierarchical tree of code symbols"`
+	Outline []*mcpOutlineNode `json:"outline" jsonschema_description:"Hierarchical tree of symbols"`
 }
 
 type nodeSourceInput struct {
-	ID           string `json:"id" jsonschema_description:"Chunk or outline node id returned by search/outline"`
-	CollapseBody bool   `json:"collapseBody,omitempty" jsonschema_description:"If true, shortens large node bodies"`
+	ID           string `json:"id" jsonschema_description:"ID from search or outline results"`
+	CollapseBody bool   `json:"collapseBody,omitempty" jsonschema_description:"Collapse large bodies for brevity"`
 }
 
 type nodeSourceOutput struct {
-	ChunkID    string `json:"chunkId" jsonschema_description:"Original chunk identifier"`
-	FilePath   string `json:"filePath" jsonschema_description:"File path relative to project root"`
-	Source     string `json:"source" jsonschema_description:"The actual source code content"`
-	StartLine  int    `json:"startLine" jsonschema_description:"Starting line number (1-indexed)"`
-	EndLine    int    `json:"endLine" jsonschema_description:"Ending line number (1-indexed)"`
-	Language   string `json:"language,omitempty" jsonschema_description:"Programming language associated with the code"`
-	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"Associated symbol name (if any)"`
-	SymbolKind string `json:"symbolKind,omitempty" jsonschema_description:"Associated symbol kind (e.g. function, class)"`
+	FilePath  string `json:"path"`
+	Source    string `json:"source"`
+	StartLine int    `json:"start"`
+	EndLine   int    `json:"end"`
+	Language  string `json:"language,omitempty"`
+	Symbol    string `json:"symbol,omitempty"`
 }
 
 func (m *Manager) resolveProjectID(boundProjectID string) (string, error) {
@@ -749,9 +780,12 @@ func (m *Manager) handleListFiles(boundProjectID string) sdkmcp.ToolHandlerFor[l
 			previews = filtered
 		}
 
-		files := make([]models.FilePreview, len(previews))
+		files := make([]mcpFilePreview, len(previews))
 		for i, p := range previews {
-			files[i] = *p
+			files[i] = mcpFilePreview{
+				Path: p.RelativePath,
+				Size: p.Size,
+			}
 		}
 
 		return nil, listFileOutput{Files: files}, nil
@@ -802,10 +836,35 @@ func (m *Manager) handleSearch(boundProjectID string) sdkmcp.ToolHandlerFor[sear
 		if err != nil {
 			return nil, searchOutput{}, err
 		}
+		// Group chunks by FilePath to avoid repeating the path string
+		groups := make(map[string][]mcpChunk)
+		order := []string{} // Keep track of the first appearance of each file
+		for _, c := range resp.Chunks {
+			if _, ok := groups[c.FilePath]; !ok {
+				order = append(order, c.FilePath)
+			}
+			groups[c.FilePath] = append(groups[c.FilePath], mcpChunk{
+				ID:         c.ID,
+				Content:    c.Content,
+				Similarity: c.Similarity,
+				LineStart:  c.LineStart,
+				LineEnd:    c.LineEnd,
+				SymbolName: c.SymbolName,
+				SymbolKind: c.SymbolKind,
+			})
+		}
+
+		results := make([]mcpFileResult, len(order))
+		for i, path := range order {
+			results[i] = mcpFileResult{
+				Path:   path,
+				Chunks: groups[path],
+			}
+		}
+
 		return nil, searchOutput{
-			Results:      resp.Chunks,
+			Results:      results,
 			TotalResults: resp.TotalResults,
-			QueryTimeMs:  resp.QueryTimeMs,
 		}, nil
 	}
 }
@@ -826,8 +885,27 @@ func (m *Manager) handleOutline(boundProjectID string) sdkmcp.ToolHandlerFor[out
 		if input.Depth > 0 {
 			nodes = limitOutlineDepth(nodes, input.Depth)
 		}
-		return nil, outlineOutput{Outline: nodes}, nil
+
+		return nil, outlineOutput{Outline: mapToMcpOutline(nodes)}, nil
 	}
+}
+
+func mapToMcpOutline(nodes []*models.OutlineNode) []*mcpOutlineNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	result := make([]*mcpOutlineNode, len(nodes))
+	for i, n := range nodes {
+		result[i] = &mcpOutlineNode{
+			ID:        n.ID,
+			Name:      n.Name,
+			Kind:      n.Kind,
+			StartLine: n.StartLine,
+			EndLine:   n.EndLine,
+			Children:  mapToMcpOutline(n.Children),
+		}
+	}
+	return result
 }
 
 func (m *Manager) handleNodeSource(boundProjectID string) sdkmcp.ToolHandlerFor[nodeSourceInput, nodeSourceOutput] {
@@ -856,14 +934,12 @@ func (m *Manager) handleNodeSource(boundProjectID string) sdkmcp.ToolHandlerFor[
 		}
 
 		output := nodeSourceOutput{
-			ChunkID:    chunk.ID,
-			FilePath:   chunk.FilePath,
-			Source:     source,
-			StartLine:  chunk.LineStart,
-			EndLine:    chunk.LineEnd,
-			Language:   chunk.Language,
-			SymbolName: chunk.SymbolName,
-			SymbolKind: chunk.SymbolKind,
+			FilePath:  chunk.FilePath,
+			Source:    source,
+			StartLine: chunk.LineStart,
+			EndLine:   chunk.LineEnd,
+			Language:  chunk.Language,
+			Symbol:    chunk.SymbolName,
 		}
 		return nil, output, nil
 	}

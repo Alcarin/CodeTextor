@@ -379,11 +379,13 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 
 **All MCP tools require a `projectId` (via the URL path).** Requests without it are rejected.
 
-| Tool          | Description                                     |
-| ------------- | ----------------------------------------------- |
-| `search`      | Semantic chunk retrieval (`query`, optional `k`) |
-| `outline`     | Hierarchical file outline (`path`, optional `depth`) |
-| `nodeSource`  | Canonical snippet for a chunk/outline node id (`id`, optional `collapseBody`) |
+| Tool                | Description                                                          |
+| ------------------- | -------------------------------------------------------------------- |
+| `getProjectDetails` | Overview of project scope, configuration, and statistics             |
+| `listFiles`         | Explore project file tree with relative paths and sizes              |
+| `search`            | Semantic natural language search (results grouped by file)            |
+| `outline`           | Hierarchical symbol tree (classes, functions) for a file             |
+| `nodeSource`        | Precise source snippets for identified symbols/chunks (uses IDs)      |
 
 ### 🔹 MCP Server Requirements
 

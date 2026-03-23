@@ -44,8 +44,9 @@ Specifiche CodeTextor:
   - Semantic chunks browser with metadata
   - File tree with per-file loading
 - 🧠 **MCP Server mode** for use with IDEs and LLM agents
-  - Streamable HTTP server with `search`, `outline`, `nodeSource` tools
+  - Streamable HTTP server with `getProjectDetails`, `listFiles`, `search`, `outline`, `nodeSource` tools
   - Per-project routing via `/mcp/<projectId>`
+  - Optimized output for token efficiency
 - 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search
 - 🧠 **Per-project embedding selection** with dual FastEmbed/ONNX backends (both require ONNX Runtime), automatic runtime detection, downloadable catalog entries, and a "custom model" modal
 - 🔒 100% **local & private**, no data leaves your machine
@@ -146,13 +147,13 @@ http://127.0.0.1:3030/mcp/<projectId>
 
 `<projectId>` must be a valid project ID; calls to the root endpoint are rejected. The host/port and auto-start toggle live in the **MCP** tab inside the app.
 
-Available tools:
-
 | Tool | Description |
 | ---- | ----------- |
-| `search` | Semantic chunk retrieval (`query`, optional `k` 1-50) |
-| `outline` | Hierarchical outline for a file (`path`, optional `depth`) |
-| `nodeSource` | Canonical snippet for a chunk/outline node id (`id`, optional `collapseBody`) |
+| `getProjectDetails` | Overview of project configuration and statistics |
+| `listFiles` | Explore the project file tree (relative paths and sizes) |
+| `search` | Semantic natural language search (results grouped by file) |
+| `outline` | Hierarchical symbol tree (classes, functions) for a file |
+| `nodeSource` | Precise source snippets for identified symbols/chunks |
 
 Example Codex CLI config (`~/.codex/config.toml`):
 
