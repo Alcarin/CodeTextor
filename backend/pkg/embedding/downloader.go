@@ -2,17 +2,42 @@ package embedding
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"CodeTextor/backend/pkg/models"
 	"CodeTextor/backend/pkg/utils"
+
+	_ "embed"
 )
+
+//go:embed runtime_manifest.json
+var runtimeManifestData []byte
+
+type RuntimeAsset struct {
+	Name         string   `json:"name"`
+	URL          string   `json:"url"`
+	Hash         string   `json:"hash"`
+	HashType     string   `json:"hash_type"`
+	ExtractFiles []string `json:"extract_files"`
+}
+
+type RuntimeManifest struct {
+	Version string                    `json:"version"`
+	Assets  map[string][]RuntimeAsset `json:"assets"`
+}
 
 // DownloadProgress represents the current state of a model download.
 type DownloadProgress struct {
@@ -23,7 +48,154 @@ type DownloadProgress struct {
 }
 
 // DownloadProgressCallback receives progress updates for a download.
-type DownloadProgressCallback func(DownloadProgress)
+type DownloadProgressCallback func(p DownloadProgress)
+
+func (d *Downloader) DownloadONNXRuntime(progress DownloadProgressCallback) error {
+	var manifest RuntimeManifest
+	if err := json.Unmarshal(runtimeManifestData, &manifest); err != nil {
+		return fmt.Errorf("failed to parse embedded manifest: %w", err)
+	}
+
+	platform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
+	assets, ok := manifest.Assets[platform]
+	if !ok {
+		return fmt.Errorf("unsupported platform: %s", platform)
+	}
+
+	log.Printf("[Downloader] Platform identified: %s. %d assets to download.", platform, len(assets))
+
+	configDir, err := utils.GetConfigDir()
+	if err != nil {
+		return err
+	}
+	binDir := filepath.Join(configDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return err
+	}
+
+	for _, asset := range assets {
+		tempPath := filepath.Join(os.TempDir(), asset.Name+".download")
+		log.Printf("[Downloader] Downloading %s from %s...", asset.Name, asset.URL)
+		if err := downloadFileWithProgress(asset.Name, asset.URL, tempPath, "runtime:download", progress); err != nil {
+			return err
+		}
+		defer os.Remove(tempPath)
+
+		log.Printf("[Downloader] Verifying hash for %s...", asset.Name)
+		if err := verifyHash(tempPath, asset.Hash, asset.HashType); err != nil {
+			return fmt.Errorf("hash verification failed for %s: %w", asset.Name, err)
+		}
+
+		log.Printf("[Downloader] Extracting %s to %s...", asset.Name, binDir)
+
+		if strings.HasSuffix(asset.URL, ".zip") || strings.HasSuffix(asset.URL, "/package/") || strings.Contains(asset.URL, "nuget.org") {
+			if err := unzipArchive(tempPath, binDir, asset.ExtractFiles); err != nil {
+				return err
+			}
+		} else if strings.HasSuffix(asset.URL, ".tgz") || strings.HasSuffix(asset.URL, ".tar.gz") {
+			f, err := os.Open(tempPath)
+			if err != nil {
+				return err
+			}
+			// Note: untarArchive extracts everything, we might want to filter like unzip
+			if err := untarArchive(f, binDir); err != nil {
+				f.Close()
+				return err
+			}
+			f.Close()
+		}
+	}
+
+	return nil
+}
+
+func verifyHash(filePath, expectedHash, hashType string) error {
+	if expectedHash == "" {
+		return nil
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var h io.Writer
+	var hasher interface {
+		Sum(b []byte) []byte
+	}
+
+	if hashType == "sha512" {
+		s512 := sha512.New()
+		h = s512
+		hasher = s512
+	} else {
+		s256 := sha256.New()
+		h = s256
+		hasher = s256
+	}
+
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	if actualHash != expectedHash {
+		return fmt.Errorf("expected hash %s, got %s", expectedHash, actualHash)
+	}
+	return nil
+}
+
+func unzipArchive(src, dest string, filter []string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		shouldExtract := false
+		if len(filter) == 0 {
+			shouldExtract = true
+		} else {
+			for _, pattern := range filter {
+				if f.Name == pattern || strings.HasSuffix(f.Name, "/"+pattern) {
+					shouldExtract = true
+					break
+				}
+			}
+		}
+
+		if !shouldExtract {
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		// Flatten the path if it's a specific file we want (like DLLs)
+		targetPath := filepath.Join(dest, filepath.Base(f.Name))
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(targetPath, 0755)
+		} else {
+			os.MkdirAll(filepath.Dir(targetPath), 0755)
+			outFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+			if err != nil {
+				rc.Close()
+				return err
+			}
+			_, err = io.Copy(outFile, rc)
+			outFile.Close()
+			if err != nil {
+				rc.Close()
+				return err
+			}
+		}
+		rc.Close()
+	}
+	return nil
+}
 
 // Downloader handles fetching embedding model files locally.
 type Downloader struct{}
@@ -340,6 +512,7 @@ func reportProgress(cb DownloadProgressCallback, modelID, stage string, download
 	if cb == nil {
 		return
 	}
+	// log.Printf("[Downloader] Progress [%s]: %d/%d bytes", stage, downloaded, total)
 	cb(DownloadProgress{
 		ModelID:    modelID,
 		Stage:      stage,

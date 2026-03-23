@@ -351,6 +351,14 @@ func (a *App) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, e
 	return a.projectService.TestONNXRuntimePath(path)
 }
 
+// DownloadONNXRuntime downloads and installs the ONNX Runtime library.
+func (a *App) DownloadONNXRuntime() error {
+	if a.projectService == nil {
+		return fmt.Errorf("application service is still initializing")
+	}
+	return a.projectService.DownloadONNXRuntime()
+}
+
 // ListEmbeddingModels returns the embedding model catalog.
 func (a *App) ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error) {
 	if a.projectService == nil {

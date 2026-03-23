@@ -77,10 +77,10 @@ docs/            → Developer documentation & API references
 - [Node.js ≥ 20](https://nodejs.org/)  
 - [Wails ≥ 3](https://wails.io/)  
 - A compiler toolchain for your OS (gcc / clang)
-- [ONNX Runtime 1.24.3](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.3) (configure the shared library path in **Settings → Projects → ONNX runtime path**)
-  - **Windows**: Supports DirectML (GPU DirectX 12) e CUDA 12.x.
+- **ONNX Runtime 1.24.4**: The application handles the installation of required libraries for your platform automatically.
+  - **Windows**: Supports DirectML (GPU DirectX 12).
   - **macOS**: Supports CoreML (Apple Silicon via `CoreML_V2`).
-  - **Linux**: Supports CUDA 12.x.
+  - **Linux**: Standard CPU/OpenVINO or CUDA (manual config).
 
 ### Build
 
@@ -106,34 +106,33 @@ CodeTextor will launch both the local web UI and the MCP server.
 
 ### ONNX Runtime & GPU Setup
 
-If you see the message **"Hardware Acceleration: CPU (Falling back to CPU)"**, it means the loaded ONNX Runtime library does not support hardware acceleration or required components are missing.
+CodeTextor simplifies the hardware acceleration setup by automating the management of ONNX Runtime libraries.
 
-#### 1. Recommended: DirectML (Universal for Windows GPU)
+#### 1. Recommended: Automatic Setup (UI)
 
-DirectML is the most compatible way to enable GPU acceleration on Windows (works with NVIDIA, AMD, and Intel).
+The most efficient way to configure the environment on **Windows**, **macOS**, and **Linux** is:
 
-- **Download**: Do **NOT** use the standard GitHub ZIP. Instead, download the NuGet package [Microsoft.ML.OnnxRuntime.DirectML v1.24.3](https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime.DirectML/1.24.3).
-- **Extract**: Rename the downloaded `.nupkg` to `.zip`, extract it, and find `onnxruntime.dll` in `runtimes/win-x64/native/`.
-- **Dependency**: Also download [Microsoft.AI.DirectML](https://www.nuget.org/packages/Microsoft.AI.DirectML/) and extract `DirectML.dll` from `bin/x64-win/`.
-- **Configure**: Place both `onnxruntime.dll` and `DirectML.dll` in the same folder. In CodeTextor (**Settings → Projects → ONNX runtime path**), select the absolute path to your `onnxruntime.dll`.
+1. Launch CodeTextor.
+2. Go to **Settings → Projects**.
+3. Click the **"Download and Install Runtime"** button.
+4. **Restart CodeTextor** to apply the changes.
 
-#### 2. Advanced: NVIDIA CUDA
+The application securely fetches the appropriate NuGet or GitHub assets (including `DirectML.dll` on Windows), verifies their integrity via SHA256, and installs them in the local configuration folder.
 
-For high-performance on NVIDIA hardware:
+#### 2. Advanced: NVIDIA CUDA (Manual)
 
-- **Download**: Use the `onnxruntime-win-x64-gpu-1.24.3.zip` from [GitHub Releases](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.3).
-- **Requirements**: Requires [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) and [cuDNN 9.x](https://developer.nvidia.com/cudnn) to be installed on your system.
-- **Environment**: Ensure the `bin` directories for both CUDA and cuDNN are in your system `PATH`.
+For high-performance scenarios on NVIDIA hardware:
 
-#### 3. Apple Silicon (macOS)
+- **Download**: Use the `onnxruntime-win-x64-gpu-1.24.4.zip` from [GitHub Releases](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4).
+- **Requirements**: Requires [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads) and [cuDNN 9.x](https://developer.nvidia.com/cudnn) installed on your system.
+- **Environment**: Ensure CUDA and cuDNN `bin` directories are in your system `PATH`.
+- **Configure**: Manually select the `onnxruntime.dll` path in the Settings modal.
 
-CoreML is used automatically to leverage the Apple Neural Engine. Download the standard `.dylib` from [GitHub Releases](https://github.com/microsoft/onnxruntime/releases/tag/v1.24.3).
+#### 3. Setup Summary
 
-#### 4. Setup Steps
-
-1. Configure the **ONNX runtime path** in Settings.
+1. Configure **ONNX runtime path** (automatic via "Download" or manual via file picker).
 2. **Restart CodeTextor** to apply changes.
-3. Download models from **Indexing → Embedding model**.
+3. Download embedding models from **Indexing → Embedding model**.
 
 ---
 

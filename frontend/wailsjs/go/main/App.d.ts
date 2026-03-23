@@ -10,6 +10,8 @@ export function DeleteProject(arg1:string):Promise<void>;
 
 export function DownloadEmbeddingModel(arg1:string):Promise<models.EmbeddingModelInfo>;
 
+export function DownloadONNXRuntime():Promise<void>;
+
 export function GetAllProjectsStats():Promise<models.ProjectStats>;
 
 export function GetEmbeddingCapabilities():Promise<models.EmbeddingCapabilities>;

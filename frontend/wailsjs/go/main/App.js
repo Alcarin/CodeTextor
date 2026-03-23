@@ -18,6 +18,10 @@ export function DownloadEmbeddingModel(arg1) {
   return window['go']['main']['App']['DownloadEmbeddingModel'](arg1);
 }
 
+export function DownloadONNXRuntime() {
+  return window['go']['main']['App']['DownloadONNXRuntime']();
+}
+
 export function GetAllProjectsStats() {
   return window['go']['main']['App']['GetAllProjectsStats']();
 }

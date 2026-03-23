@@ -42,6 +42,10 @@ type MockProjectServiceAPI struct {
 	SaveEmbeddingModelFunc       func(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error)
 	DownloadEmbeddingModelFunc   func(modelID string) (*models.EmbeddingModelInfo, error)
 	GetEmbeddingCapabilitiesFunc func() (*models.EmbeddingCapabilities, error)
+	GetONNXRuntimeSettingsFunc   func() (*models.ONNXRuntimeSettings, error)
+	UpdateONNXRuntimeSettingsFunc func(path string) (*models.ONNXRuntimeSettings, error)
+	TestONNXRuntimePathFunc      func(path string) (*models.ONNXRuntimeTestResult, error)
+	DownloadONNXRuntimeFunc      func() error
 	SearchFunc                   func(projectID, query string, k int) (*models.SearchResponse, error)
 	CloseFunc                    func() error
 }
@@ -223,13 +227,28 @@ func (m *MockProjectServiceAPI) GetEmbeddingCapabilities() (*models.EmbeddingCap
 	return &models.EmbeddingCapabilities{}, nil
 }
 func (m *MockProjectServiceAPI) GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error) {
+	if m.GetONNXRuntimeSettingsFunc != nil {
+		return m.GetONNXRuntimeSettingsFunc()
+	}
 	return &models.ONNXRuntimeSettings{}, nil
 }
 func (m *MockProjectServiceAPI) UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error) {
+	if m.UpdateONNXRuntimeSettingsFunc != nil {
+		return m.UpdateONNXRuntimeSettingsFunc(path)
+	}
 	return &models.ONNXRuntimeSettings{}, nil
 }
 func (m *MockProjectServiceAPI) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error) {
+	if m.TestONNXRuntimePathFunc != nil {
+		return m.TestONNXRuntimePathFunc(path)
+	}
 	return &models.ONNXRuntimeTestResult{}, nil
+}
+func (m *MockProjectServiceAPI) DownloadONNXRuntime() error {
+	if m.DownloadONNXRuntimeFunc != nil {
+		return m.DownloadONNXRuntimeFunc()
+	}
+	return nil
 }
 func (m *MockProjectServiceAPI) Search(projectID, query string, k int) (*models.SearchResponse, error) {
 	if m.SearchFunc != nil {

@@ -15,6 +15,7 @@ import ProjectCard from '../components/ProjectCard.vue';
 import ProjectTable from '../components/ProjectTable.vue';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.vue';
 import ProjectFormModal from '../components/ProjectFormModal.vue';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 // Get composables
 const { currentProject, setCurrentProject, clearCurrentProject } = useCurrentProject();
@@ -32,6 +33,10 @@ const showSettingsModal = ref<boolean>(false);
 const runtimeSettings = ref<ONNXRuntimeSettings | null>(null);
 const runtimePathInput = ref<string>('');
 const runtimeTestResult = ref<ONNXRuntimeTestResult | null>(null);
+const isDownloadingRuntime = ref(false);
+const isDownloadSuccess = ref(false);
+const runtimeDownloadProgress = ref<any>(null);
+const runtimeDownloadError = ref('');
 const runtimeError = ref<string>('');
 const settingsLoading = ref<boolean>(false);
 const settingsSaving = ref<boolean>(false);
@@ -348,9 +353,41 @@ const saveMCPConfig = async () => {
   }
 };
 
+const formatBytes = (bytes: number = 0): string => {
+  const normalized = Math.max(bytes, 0);
+  if (normalized === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(normalized) / Math.log(k)));
+  const value = normalized / Math.pow(k, i);
+  return `${Math.round(value * 100) / 100} ${sizes[i]}`;
+};
+
+const downloadRuntime = async () => {
+  isDownloadingRuntime.value = true;
+  runtimeDownloadError.value = '';
+  runtimeDownloadProgress.value = null;
+
+  try {
+    await backend.DownloadONNXRuntime();
+    await refreshRuntimeSettings();
+    isDownloadSuccess.value = true;
+    setTimeout(() => { isDownloadSuccess.value = false; }, 5000);
+  } catch (err: any) {
+    runtimeDownloadError.value = err?.message || 'Download failed.';
+  } finally {
+    isDownloadingRuntime.value = false;
+  }
+};
+
 // Load projects on mount
 onMounted(() => {
   loadProjects();
+
+  // Listen for runtime download progress
+  EventsOn('runtime_download_progress', (p: any) => {
+    runtimeDownloadProgress.value = p;
+  });
 });
 </script>
 
@@ -527,17 +564,52 @@ onMounted(() => {
               type="button"
               class="btn btn-ghost"
               @click="clearRuntimePath"
-              :disabled="settingsSaving || settingsTesting"
+              :disabled="settingsSaving || settingsTesting || isDownloadingRuntime"
             >
               Clear path
             </button>
-            <button @click="testRuntimePath" :disabled="settingsTesting" class="btn btn-secondary">
-              {{ settingsTesting ? 'Testing...' : 'Test path' }}
+            <button 
+              @click="downloadRuntime" 
+              :disabled="isDownloadingRuntime || settingsSaving || settingsTesting" 
+              class="btn btn-secondary"
+            >
+              {{ isDownloadingRuntime ? 'Downloading...' : 'Download and Install Runtime' }}
             </button>
             <div class="spacer"></div>
-            <button @click="saveRuntimeSettings" :disabled="settingsSaving" class="btn btn-primary">
+            <button @click="testRuntimePath" :disabled="settingsTesting || isDownloadingRuntime" class="btn btn-secondary">
+              {{ settingsTesting ? 'Testing...' : 'Test path' }}
+            </button>
+            <button @click="saveRuntimeSettings" :disabled="settingsSaving || isDownloadingRuntime" class="btn btn-primary">
               {{ settingsSaving ? 'Saving...' : 'Save runtime' }}
             </button>
+          </div>
+
+          <!-- Progress overlay for runtime download -->
+          <div v-if="isDownloadingRuntime" class="runtime-download-overlay">
+            <div class="progress-card">
+              <h5>{{ runtimeDownloadProgress?.stage || 'Preparing download...' }}</h5>
+              <div class="progress-bar-container">
+                <div 
+                  class="progress-bar-fill" 
+                  :style="{ width: (runtimeDownloadProgress?.total > 0 ? (runtimeDownloadProgress?.downloaded / runtimeDownloadProgress?.total * 100) : 0) + '%' }"
+                ></div>
+              </div>
+              <div class="progress-details">
+                <span>{{ formatBytes(runtimeDownloadProgress?.downloaded || 0) }} / {{ formatBytes(runtimeDownloadProgress?.total || 0) }}</span>
+                <span v-if="runtimeDownloadProgress?.total > 0" class="percent-label">
+                  {{ Math.round((runtimeDownloadProgress?.downloaded / runtimeDownloadProgress?.total) * 100) }}%
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="isDownloadSuccess" class="alert alert-success" style="margin-top: 1rem">
+            <strong>Download Complete!</strong> The ONNX Runtime and DirectML libraries have been installed. 
+            Please <strong>restart the application</strong> to apply the changes.
+          </div>
+
+          <div v-if="runtimeDownloadError" class="alert alert-error" style="margin-top: 1rem">
+            <strong>Download Error:</strong> {{ runtimeDownloadError }}
           </div>
         </section>
 
@@ -1070,5 +1142,44 @@ onMounted(() => {
 
 .spacer {
   flex: 1;
+}
+.runtime-download-overlay {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+}
+
+.progress-card h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  color: #d4d4d4;
+}
+
+.progress-bar-container {
+  height: 8px;
+  background: #3e3e42;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: #007acc;
+  transition: width 0.3s ease;
+}
+
+.progress-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #858585;
+}
+
+.percent-label {
+  color: #007acc;
+  font-weight: 600;
 }
 </style>

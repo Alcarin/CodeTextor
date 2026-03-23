@@ -1,0 +1,39 @@
+{
+  "version": "1.24.4",
+  "assets": {
+    "windows-amd64": [
+      {
+        "name": "Microsoft.ML.OnnxRuntime.DirectML",
+        "url": "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/1.24.4",
+        "hash": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681",
+        "hash_type": "sha256",
+        "extract_files": ["runtimes/win-x64/native/onnxruntime.dll"]
+      },
+      {
+        "name": "Microsoft.AI.DirectML",
+        "url": "https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/1.15.4",
+        "hash": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9",
+        "hash_type": "sha256",
+        "extract_files": ["bin/x64-win/DirectML.dll"]
+      }
+    ],
+    "linux-amd64": [
+      {
+        "name": "onnxruntime-linux-x64",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz",
+        "hash": "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747",
+        "hash_type": "sha256",
+        "extract_files": ["onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4"]
+      }
+    ],
+    "darwin-arm64": [
+      {
+        "name": "onnxruntime-osx-arm64",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-osx-arm64-1.24.4.tgz",
+        "hash": "93787795f47e1eee369182e43ed51b9e5da0878ab0346aecf4258979b8bba989",
+        "hash_type": "sha256",
+        "extract_files": ["onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib"]
+      }
+    ]
+  }
+}

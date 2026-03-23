@@ -97,6 +97,7 @@ type ProjectServiceAPI interface {
 	GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error)
 	UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error)
 	TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error)
+	DownloadONNXRuntime() error
 	Search(projectID string, query string, k int) (*models.SearchResponse, error)
 	Close() error
 }
@@ -1026,7 +1027,44 @@ func (s *ProjectService) DownloadEmbeddingModel(modelID string) (*models.Embeddi
 	return cloned, nil
 }
 
-// Search executes a semantic search over indexed chunks for a project.
+// DownloadONNXRuntime downloads and installs the ONNX Runtime library.
+func (s *ProjectService) DownloadONNXRuntime() error {
+	log.Printf("[ProjectService] Starting ONNX Runtime download...")
+	progressCb := func(p embedding.DownloadProgress) {
+		if s.eventEmitter != nil {
+			s.eventEmitter("runtime_download_progress", p)
+		}
+	}
+
+	if err := s.modelDownloader.DownloadONNXRuntime(progressCb); err != nil {
+		log.Printf("[ProjectService] Error downloading ONNX Runtime: %v", err)
+		return err
+	}
+
+	log.Printf("[ProjectService] ONNX Runtime download and extraction completed successfully.")
+
+	// Update the path in settings to the newly downloaded location
+	configDir, err := utils.GetConfigDir()
+	if err != nil {
+		return err
+	}
+
+	var libName string
+	switch stdruntime.GOOS {
+	case "windows":
+		libName = "onnxruntime.dll"
+	case "darwin":
+		libName = "libonnxruntime.1.24.4.dylib"
+	default:
+		libName = "libonnxruntime.so.1.24.4"
+	}
+
+	newPath := filepath.Join(configDir, "bin", libName)
+	_, err = s.UpdateONNXRuntimeSettings(newPath)
+	return err
+}
+
+// Search performs a semantic search across a project's index.
 func (s *ProjectService) Search(projectID string, query string, k int) (*models.SearchResponse, error) {
 	start := time.Now()
 	trimmed := strings.TrimSpace(query)

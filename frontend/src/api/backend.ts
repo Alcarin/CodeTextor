@@ -243,6 +243,9 @@ export const backend = {
   async testONNXRuntimePath(path: string): Promise<ONNXRuntimeTestResult> {
     return App.TestONNXRuntimePath(path) as unknown as ONNXRuntimeTestResult
   },
+  async DownloadONNXRuntime(): Promise<void> {
+    return (App as any).DownloadONNXRuntime()
+  },
   async listEmbeddingModels(): Promise<models.EmbeddingModelInfo[]> {
     return safeCall(() => App.ListEmbeddingModels())
   },

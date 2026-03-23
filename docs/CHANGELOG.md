@@ -10,10 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **ONNX Runtime 1.24.3 Update**: Improved GPU support and simplified cross-platform configuration
-  - **Windows**: Introduced native **DirectML** support (GPU acceleration without CUDA/cuDNN)
+- **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
+  - Automatic platform detection and NuGet (ZIP) / GitHub (TGZ) asset selection
+  - Mandatory SHA256 integrity verification via an embedded runtime manifest
+  - Automatic configuration update and "Restart Required" notifications
+- **ONNX Runtime 1.24.4 Update**: Improved GPU support and simplified cross-platform configuration
+  - **Windows**: Native **DirectML** support (GPU acceleration without CUDA/cuDNN)
   - **macOS**: Optimized **CoreML** support for Apple Silicon (M1/M2/M3)
-  - **Linux/Windows**: Updated support for **CUDA 12.x** and **CUDA Graph**
+  - **Linux/Windows**: Support for **CUDA 12.x** and **CUDA Graph**
 - Shared `utils.ShouldSkipPath` utility for consistent file/directory exclusion (hidden, `.git`, `.gitignore`, custom patterns) across both indexing and live watchers
 - Concurrency semaphore for indexing to limit CPU usage and maintain system responsiveness (50% target core utilization)
 - Live MCP server status in the application footer via Wails events (`mcp:status`)
@@ -119,8 +123,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **StatsView refactored**: Removed Database Location and Indexing Status banners, now shows only essential statistics
 - **API migration**: Replaced mockBackend with real backend calls throughout the application
 
-
 ### Fixed
+
 - Resolved "nil pointer dereference" errors during project loading and startup by improving ONNX environment initialization checks
 - Fixed MCP status label in the footer incorrectly displaying "Stopped" when the server was active
 - Improved project selection robustness when no projects exist or during simultaneous initialization
