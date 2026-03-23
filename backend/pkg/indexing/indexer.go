@@ -687,7 +687,7 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 	i.emitFileUpdate(relativePath)
 }
 
-// cleanupRemovedFiles deletes stored artifacts for files missing from disk.
+// cleanupRemovedFiles deletes stored artifacts for files missing from disk or excluded from index.
 func (i *Indexer) cleanupRemovedFiles(currentFiles []*models.FilePreview) {
 	if i.vectorStore == nil {
 		return
@@ -707,16 +707,15 @@ func (i *Indexer) cleanupRemovedFiles(currentFiles []*models.FilePreview) {
 		if _, ok := current[path]; ok {
 			continue
 		}
-		abs := filepath.Join(i.project.Config.RootPath, path)
-		if _, err := os.Stat(abs); err == nil {
-			// File still exists but not in current scope; skip removal.
-			continue
-		}
+		
+		// If a file is tracked in the database but is NOT in the currentFiles list,
+		// it means it was either deleted physically OR it has been excluded via
+		// project configuration/gitignore patterns. We should remove its artifacts.
 		if err := i.vectorStore.RemoveFileAndArtifacts(path); err != nil {
 			log.Printf("Failed to remove stale artifacts for %s: %v", path, err)
 			continue
 		}
-		log.Printf("Removed stale artifacts for missing file %s", path)
+		log.Printf("Removed stale artifacts for missing or excluded file %s", path)
 	}
 }
 
