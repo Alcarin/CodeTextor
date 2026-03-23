@@ -538,6 +538,48 @@ func (s *VectorStore) DeleteFileOutline(filePath string) error {
 	return nil
 }
 
+// GetRecentFiles retrieves the last N files updated in the database.
+func (s *VectorStore) GetRecentFiles(limit int) ([]*models.File, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, path, hash, last_modified, chunk_count, created_at, updated_at
+		FROM files
+		ORDER BY updated_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent files: %w", err)
+	}
+	defer rows.Close()
+
+	var files []*models.File
+	for rows.Next() {
+		file := &models.File{}
+		err := rows.Scan(
+			&file.ID,
+			&file.Path,
+			&file.Hash,
+			&file.LastModified,
+			&file.ChunkCount,
+			&file.CreatedAt,
+			&file.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan recent file: %w", err)
+		}
+		files = append(files, file)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating recent files: %w", err)
+	}
+
+	return files, nil
+}
+
 // ListAllFilePaths returns all file paths tracked in the files table.
 func (s *VectorStore) ListAllFilePaths() ([]string, error) {
 	rows, err := s.db.Query(`SELECT path FROM files`)

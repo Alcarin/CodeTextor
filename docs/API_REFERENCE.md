@@ -13,6 +13,7 @@ CodeTextor ships a streamable **HTTP** MCP server powered by the official
 index; requests are read-only.
 
 ### Transport & URLs
+
 - Protocol: `http`
 - Default bind: `127.0.0.1:3030` (configurable in the MCP tab)
 - Base path: `http://<host>:<port>/mcp/<projectId>`
@@ -30,6 +31,7 @@ index; requests are read-only.
 | `semanticSearchFiles`| High-level exploration: suggests the most relevant files for a concept |
 | `outline`           | Hierarchical symbol tree (classes, functions) for a file                |
 | `nodeSource`        | Precise source snippets for identified symbols/chunks                    |
+| `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)        |
 
 #### `getProjectDetails`
 
@@ -70,7 +72,16 @@ index; requests are read-only.
   - Focuses on the snippet content and precise boundaries.
   - If `collapseBody` is true, long snippets are truncated with a placeholder.
 
+#### `getRecentChanges`
+
+- **Input**: `{ limit?: number (default 10) }`
+- **Response**: `{ indexed: { p, t }[], workingCopy: { p, s }[], vcs?: string }`
+  - `indexed`: Files recently updated in the CodeTextor index (`p`: path, `t`: unix timestamp).
+  - `workingCopy`: Real-time modifications from Git or SVN (`p`: path, `s`: VCS status code).
+  - `vcs`: The active Version Control System detected (e.g., "git", "svn").
+
 ### Status & Tool Events
+
 - `mcp:status`: emitted periodically with `{ isRunning, uptime, activeConnections, totalRequests, averageResponseTime, lastError? }`.
 - `mcp:tools`: emitted when tool enablement changes.
 

@@ -54,3 +54,22 @@ type MCPTool struct {
 	Enabled     bool   `json:"enabled"`
 	CallCount   int64  `json:"callCount"`
 }
+
+// RecentChangesResponse contains both indexed and working copy changes.
+type RecentChangesResponse struct {
+	Indexed     []IndexedFile `json:"indexed"`
+	WorkingCopy []VCSFile     `json:"workingCopy"`
+	VCSType     string        `json:"vcs,omitempty"`
+}
+
+// IndexedFile represents a file that was recently indexed.
+type IndexedFile struct {
+	Path string `json:"p"`
+	Time int64  `json:"t"` // Unix timestamp
+}
+
+// VCSFile represents a modified file in the working tree.
+type VCSFile struct {
+	Path   string `json:"p"`
+	Status string `json:"s"` // git/svn status code (e.g. "M", "A", "D", "??")
+}

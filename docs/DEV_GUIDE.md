@@ -386,6 +386,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | `search`            | Semantic natural language search (results grouped by file)            |
 | `outline`           | Hierarchical symbol tree (classes, functions) for a file             |
 | `nodeSource`        | Precise source snippets for identified symbols/chunks (uses IDs)      |
+| `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)    |
 
 ### 🔹 MCP Server Requirements
 

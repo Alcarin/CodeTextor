@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	stdruntime "runtime"
 	"sort"
@@ -99,6 +100,7 @@ type ProjectServiceAPI interface {
 	TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error)
 	DownloadONNXRuntime() error
 	Search(projectID string, query string, k int) (*models.SearchResponse, error)
+	GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error)
 	Close() error
 }
 
@@ -1113,6 +1115,97 @@ func (s *ProjectService) Search(projectID string, query string, k int) (*models.
 		QueryTimeMs:  time.Since(start).Milliseconds(),
 	}
 	return resp, nil
+}
+
+// GetRecentChanges returns both recently indexed files and current VCS modifications.
+func (s *ProjectService) GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	res := &models.RecentChangesResponse{
+		Indexed:     make([]models.IndexedFile, 0),
+		WorkingCopy: make([]models.VCSFile, 0),
+	}
+
+	// 1. Get indexed files from DB
+	vs, err := s.GetVectorStore(projectID)
+	if err == nil {
+		dbFiles, err := vs.GetRecentFiles(limit)
+		if err == nil {
+			for _, f := range dbFiles {
+				res.Indexed = append(res.Indexed, models.IndexedFile{
+					Path: f.Path,
+					Time: f.UpdatedAt,
+				})
+			}
+		}
+	}
+
+	// 2. Detect VCS and get working copy changes
+	root := project.Config.RootPath
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		res.VCSType = "git"
+		s.fillGitChanges(root, res)
+	} else if _, err := os.Stat(filepath.Join(root, ".svn")); err == nil {
+		res.VCSType = "svn"
+		s.fillSvnChanges(root, res)
+	}
+
+	return res, nil
+}
+
+func (s *ProjectService) fillGitChanges(root string, res *models.RecentChangesResponse) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if len(line) < 4 {
+			continue
+		}
+		status := strings.TrimSpace(line[:2])
+		path := strings.TrimSpace(line[3:])
+		if path != "" {
+			res.WorkingCopy = append(res.WorkingCopy, models.VCSFile{
+				Path:   path,
+				Status: status,
+			})
+		}
+	}
+}
+
+func (s *ProjectService) fillSvnChanges(root string, res *models.RecentChangesResponse) {
+	cmd := exec.Command("svn", "status")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if len(line) < 8 {
+			continue
+		}
+		status := string(line[0])
+		path := strings.TrimSpace(line[8:])
+		if path != "" {
+			res.WorkingCopy = append(res.WorkingCopy, models.VCSFile{
+				Path:   path,
+				Status: status,
+			})
+		}
+	}
 }
 
 // GetEmbeddingCapabilities reports which embedding backends are currently available.

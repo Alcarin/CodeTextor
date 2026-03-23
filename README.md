@@ -155,6 +155,7 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `semanticSearchFiles` | High-level exploration: suggests the most relevant files for a concept |
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
 | `nodeSource` | Precise source snippets for identified symbols/chunks |
+| `getRecentChanges` | Recently modified (VCS) and indexed (DB) files |
 
 Example Codex CLI config (`~/.codex/config.toml`):
 

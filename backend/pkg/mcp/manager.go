@@ -486,6 +486,10 @@ func (m *Manager) initTools() {
 			name:        "nodeSource",
 			description: "Fetch the source code for a specific symbol or chunk ID. Use this for precise code reading.",
 		},
+		"getRecentChanges": {
+			name:        "getRecentChanges",
+			description: "Show recently modified files via Git/SVN integration or search the database for recently indexed files.",
+		},
 	}
 
 	for name, state := range m.tools {
@@ -550,6 +554,14 @@ func (m *Manager) initTools() {
 					Description: desc,
 				}, wrapTool(m, "nodeSource", m.handleNodeSource(boundProjectID)))
 			}
+		case "getRecentChanges":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "getRecentChanges",
+					Description: desc,
+				}, wrapTool(m, "getRecentChanges", m.handleGetRecentChanges(boundProjectID)))
+			}
 		}
 
 		if disabled := m.disabledTools[name]; disabled {
@@ -561,6 +573,26 @@ func (m *Manager) initTools() {
 
 	m.toolsMu.Unlock()
 	m.emitTools()
+}
+
+type getRecentChangesInput struct {
+	Limit int `json:"limit,omitempty" jsonschema_description:"Max files to return for both indexed and working copy results (default 10)"`
+}
+
+func (m *Manager) handleGetRecentChanges(boundProjectID string) sdkmcp.ToolHandlerFor[getRecentChangesInput, *models.RecentChangesResponse] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input getRecentChangesInput) (*sdkmcp.CallToolResult, *models.RecentChangesResponse, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		res, err := m.projectService.GetRecentChanges(projectID, input.Limit)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, res, nil
+	}
 }
 
 func wrapTool[In, Out any](m *Manager, name string, handler sdkmcp.ToolHandlerFor[In, Out]) sdkmcp.ToolHandlerFor[In, Out] {
