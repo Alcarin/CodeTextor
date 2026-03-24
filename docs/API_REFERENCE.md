@@ -32,11 +32,14 @@ index; requests are read-only.
 | `outline`           | Hierarchical symbol tree (classes, functions) for a file                |
 | `nodeSource`        | Precise source snippets for identified symbols/chunks                    |
 | `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)        |
+| `grepSearch`        | Literal or regex search across files (precise and OS-independent)        |
 
 #### `getProjectDetails`
 
 - **Input**: `{}` (empty object)
-- **Response**: `{ id, name, description, rootPath, includePaths, excludePatterns, fileExtensions, stats }`
+- **Response**: `{ id, name, description, rootPath, fileExtensions, summary, stats }`
+  - `summary` provides a high-level overview (main languages, entry points, packages).
+  - `stats` provides concise numeric metrics.
 
 #### `listFiles`
 
@@ -76,9 +79,18 @@ index; requests are read-only.
 
 - **Input**: `{ limit?: number (default 10) }`
 - **Response**: `{ indexed: { p, t }[], workingCopy: { p, s }[], vcs?: string }`
-  - `indexed`: Files recently updated in the CodeTextor index (`p`: path, `t`: unix timestamp).
-  - `workingCopy`: Real-time modifications from Git or SVN (`p`: path, `s`: VCS status code).
+  - `indexed`: Files recently updated in the CodeTextor index (`p`: relative path, `t`: unix timestamp).
+  - `workingCopy`: Real-time modifications from Git or SVN (`p`: relative path, `s`: status code like "M", "A").
   - `vcs`: The active Version Control System detected (e.g., "git", "svn").
+
+#### `grepSearch`
+
+- **Input**: `{ query: string, isRegex?: boolean, path?: string (relative), limit?: number (default 100) }`
+- **Response**: `{ results: { path, matches: { line, content }[] }[], total: number, timeMs: number }`
+  - High-precision search for exact terms or regex patterns.
+  - Results are grouped by file to minimize path redundancy.
+  - `content` is automatically truncated to 500 characters to reduce token consumption.
+  - Maximum of 50 matches per file.
 
 ### Status & Tool Events
 

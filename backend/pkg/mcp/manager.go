@@ -490,6 +490,10 @@ func (m *Manager) initTools() {
 			name:        "getRecentChanges",
 			description: "Show recently modified files via Git/SVN integration or search the database for recently indexed files.",
 		},
+		"grepSearch": {
+			name:        "grepSearch",
+			description: "Literal or regex search across project files. Precise and OS-independent.",
+		},
 	}
 
 	for name, state := range m.tools {
@@ -562,6 +566,14 @@ func (m *Manager) initTools() {
 					Description: desc,
 				}, wrapTool(m, "getRecentChanges", m.handleGetRecentChanges(boundProjectID)))
 			}
+		case "grepSearch":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "grepSearch",
+					Description: desc,
+				}, wrapTool(m, "grepSearch", m.handleGrepSearch(boundProjectID)))
+			}
 		}
 
 		if disabled := m.disabledTools[name]; disabled {
@@ -587,6 +599,22 @@ func (m *Manager) handleGetRecentChanges(boundProjectID string) sdkmcp.ToolHandl
 		}
 
 		res, err := m.projectService.GetRecentChanges(projectID, input.Limit)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, res, nil
+	}
+}
+
+func (m *Manager) handleGrepSearch(boundProjectID string) sdkmcp.ToolHandlerFor[grepSearchInput, *models.GrepSearchResponse] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input grepSearchInput) (*sdkmcp.CallToolResult, *models.GrepSearchResponse, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		res, err := m.projectService.GrepSearch(projectID, input.Query, input.IsRegex, input.Path, input.Limit)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -785,6 +813,13 @@ type outlineOutput struct {
 type nodeSourceInput struct {
 	ID           string `json:"id" jsonschema_description:"ID from search or outline results"`
 	CollapseBody bool   `json:"collapseBody,omitempty" jsonschema_description:"Collapse large bodies for brevity"`
+}
+
+type grepSearchInput struct {
+	Query   string `json:"query" jsonschema_description:"Literal or regex search pattern"`
+	IsRegex bool   `json:"isRegex,omitempty" jsonschema_description:"If true, treats query as a regular expression (default false)"`
+	Path    string `json:"path,omitempty" jsonschema_description:"Optional sub-path to limit search within (relative to project root)"`
+	Limit   int    `json:"limit,omitempty" jsonschema_description:"Maximum number of total matches to return (default 100)" jsonschema_extras:"minimum=1,maximum=500"`
 }
 
 type nodeSourceOutput struct {

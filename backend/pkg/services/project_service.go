@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	stdruntime "runtime"
 	"sort"
 	"strings"
@@ -100,6 +101,7 @@ type ProjectServiceAPI interface {
 	TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error)
 	DownloadONNXRuntime() error
 	Search(projectID string, query string, k int) (*models.SearchResponse, error)
+	GrepSearch(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error)
 	GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error)
 	GetProjectSummary(projectID string) (*models.ProjectSummary, error)
 	Close() error
@@ -1920,4 +1922,144 @@ func (s *ProjectService) Close() error {
 	}
 	s.clientsMu.Unlock()
 	return firstErr
+}
+
+// GrepSearch performs a literal or regex search across project files.
+func (s *ProjectService) GrepSearch(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	root := project.Config.RootPath
+	searchPath := root
+	if subPath != "" {
+		absSubPath := filepath.Join(root, subPath)
+		if isPathWithinRoot(root, absSubPath) {
+			searchPath = absSubPath
+		}
+	}
+
+	var re *regexp.Regexp
+	if isRegex {
+		re, err = regexp.Compile(query)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex: %w", err)
+		}
+	}
+
+	res := &models.GrepSearchResponse{
+		Results: []models.GrepFileMatch{},
+	}
+	startTime := time.Now()
+
+	patterns := project.Config.ExcludePatterns
+	if project.Config.UseGitIgnore {
+		if giPatterns, err := s.GetGitIgnorePatterns(projectID); err == nil {
+			patterns = append(patterns, giPatterns...)
+		}
+	}
+
+	totalMatches := 0
+	err = filepath.WalkDir(searchPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip files with errors
+		}
+		if totalMatches >= limit {
+			return filepath.SkipDir
+		}
+
+		if utils.ShouldSkipPath(root, path, patterns, project.Config.AutoExcludeHidden) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		// Perform search in file
+		fileMatches, count, searchErr := s.searchInFile(path, root, query, isRegex, re)
+		if searchErr != nil {
+			return nil
+		}
+
+		if count > 0 {
+			res.Results = append(res.Results, *fileMatches)
+			totalMatches += count
+		}
+
+		if totalMatches >= limit {
+			return filepath.SkipAll
+		}
+
+		return nil
+	})
+
+	if err != nil && err != filepath.SkipAll && err != filepath.SkipDir {
+		return nil, err
+	}
+
+	res.TotalMatches = totalMatches
+	res.QueryTimeMs = time.Since(startTime).Milliseconds()
+
+	return res, nil
+}
+
+func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re *regexp.Regexp) (*models.GrepFileMatch, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+
+	relPath, _ := utils.RelativePathWithinRoot(root, path)
+	fileMatch := &models.GrepFileMatch{
+		Path:    relPath,
+		Matches: []models.GrepLine{},
+	}
+
+	scanner := bufio.NewScanner(f)
+	// Limit line length to prevent issues with huge files/binary
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	lineNum := 0
+	count := 0
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Text()
+		
+		matched := false
+		if isRegex {
+			matched = re.MatchString(line)
+		} else {
+			matched = strings.Contains(strings.ToLower(line), strings.ToLower(query))
+		}
+
+		if matched {
+			count++
+			// Token optimization: truncate long lines
+			content := strings.TrimSpace(line)
+			if len(content) > 500 {
+				content = content[:497] + "..."
+			}
+			fileMatch.Matches = append(fileMatch.Matches, models.GrepLine{
+				Line:    lineNum,
+				Content: content,
+			})
+		}
+		
+		if count >= 50 { // Max 50 matches per file to avoid huge responses
+			break
+		}
+	}
+
+	return fileMatch, count, scanner.Err()
 }

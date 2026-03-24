@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
+- Structural Project Summary: `getProjectDetails` now provides a high-level overview including main languages, entry points, and detected packages.
+- Automatic Package Extraction: Added metadata extraction to parsers (starting with Go) to identify package/module names during indexing.
+- Grep Search MCP Tool: Precise, OS-independent textual search with regex support now available for AI agents.
+- Lean MCP Output: Optimized `getProjectDetails` response by removing redundant technical metadata and configuration paths (`includePaths`, `excludePatterns`) for maximum token efficiency.
   - Automatic platform detection and NuGet (ZIP) / GitHub (TGZ) asset selection
   - Mandatory SHA256 integrity verification via an embedded runtime manifest
   - Automatic configuration update and "Restart Required" notifications
