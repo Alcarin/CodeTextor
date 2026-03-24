@@ -350,6 +350,11 @@ func (m *MarkdownParser) ExtractImports(tree *sitter.Tree, source []byte) ([]str
 	return imports, nil
 }
 
+// ExtractMetadata extracts file-level metadata.
+func (m *MarkdownParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	return make(map[string]string)
+}
+
 // isExternalURL checks if a URL is external (http/https).
 func (m *MarkdownParser) isExternalURL(url string) bool {
 	return len(url) > 7 && (url[:7] == "http://" || url[:8] == "https://")

@@ -95,11 +95,10 @@ type LanguageParser interface {
 	ExtractSymbols(tree *sitter.Tree, source []byte) ([]Symbol, error)
 
 	// ExtractImports extracts all import statements from the AST.
-	// Parameters:
-	//   - tree: The parsed tree-sitter AST
-	//   - source: The original source code as byte slice
-	// Returns a slice of import strings (module/package names).
 	ExtractImports(tree *sitter.Tree, source []byte) ([]string, error)
+
+	// ExtractMetadata extracts file-level metadata (e.g., package name, encoding).
+	ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string
 
 	// GetFileExtensions returns the file extensions this parser handles.
 	// For example: [".go"] for Go, [".py"] for Python, [".ts", ".tsx"] for TypeScript.

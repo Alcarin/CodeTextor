@@ -707,15 +707,21 @@ type listFileOutput struct {
 	Files []mcpFilePreview `json:"files" jsonschema_description:"List of files matching the criteria"`
 }
 
+type leanProjectStats struct {
+	TotalFiles        int   `json:"totalFiles"`
+	TotalChunks       int   `json:"totalChunks"`
+	TotalSymbols      int   `json:"totalSymbols"`
+	LastIndexedAtUnix int64 `json:"lastIndexedAtUnix,omitempty"`
+}
+
 type projectDetailsOutput struct {
-	ID              string               `json:"id"`
-	Name            string               `json:"name"`
-	Description     string               `json:"description"`
-	RootPath        string               `json:"rootPath" jsonschema_description:"Project absolute root path"`
-	IncludePaths    []string             `json:"includePaths"`
-	ExcludePatterns []string             `json:"excludePatterns"`
-	FileExtensions  []string             `json:"fileExtensions"`
-	Stats           *models.ProjectStats `json:"stats,omitempty"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	Description    string                `json:"description"`
+	RootPath       string                `json:"rootPath" jsonschema_description:"Project absolute root path"`
+	FileExtensions []string              `json:"fileExtensions"`
+	Summary        *models.ProjectSummary `json:"summary,omitempty"`
+	Stats          *leanProjectStats     `json:"stats,omitempty"`
 }
 
 type searchInput struct {
@@ -869,15 +875,26 @@ func (m *Manager) handleProjectDetails(boundProjectID string) sdkmcp.ToolHandler
 
 		stats, _ := m.projectService.GetProjectStats(projectID)
 
+		var leanStats *leanProjectStats
+		var summary *models.ProjectSummary
+		if stats != nil {
+			leanStats = &leanProjectStats{
+				TotalFiles:        stats.TotalFiles,
+				TotalChunks:       stats.TotalChunks,
+				TotalSymbols:      stats.TotalSymbols,
+				LastIndexedAtUnix: stats.LastIndexedAtUnix,
+			}
+			summary = stats.Summary
+		}
+
 		return nil, projectDetailsOutput{
-			ID:              project.ID,
-			Name:            project.Name,
-			Description:     project.Description,
-			RootPath:        project.Config.RootPath,
-			IncludePaths:    project.Config.IncludePaths,
-			ExcludePatterns: project.Config.ExcludePatterns,
-			FileExtensions:  project.Config.FileExtensions,
-			Stats:           stats,
+			ID:             project.ID,
+			Name:           project.Name,
+			Description:    project.Description,
+			RootPath:       project.Config.RootPath,
+			FileExtensions: project.Config.FileExtensions,
+			Summary:        summary,
+			Stats:          leanStats,
 		}, nil
 	}
 }

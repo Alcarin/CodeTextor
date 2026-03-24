@@ -314,6 +314,24 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class ProjectSummary {
+	    languages: string[];
+	    packages: string[];
+	    entryPoints: string[];
+	    mainComponents: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.languages = source["languages"];
+	        this.packages = source["packages"];
+	        this.entryPoints = source["entryPoints"];
+	        this.mainComponents = source["mainComponents"];
+	    }
+	}
 	export class ProjectEmbeddingModelUsage {
 	    modelId: string;
 	    chunkCount: number;
@@ -360,6 +378,7 @@ export namespace models {
 	    lastEmbeddingModel?: EmbeddingModelInfo;
 	    isIndexing: boolean;
 	    indexingProgress: number;
+	    summary?: ProjectSummary;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProjectStats(source);
@@ -377,6 +396,7 @@ export namespace models {
 	        this.lastEmbeddingModel = this.convertValues(source["lastEmbeddingModel"], EmbeddingModelInfo);
 	        this.isIndexing = source["isIndexing"];
 	        this.indexingProgress = source["indexingProgress"];
+	        this.summary = this.convertValues(source["summary"], ProjectSummary);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -495,6 +515,7 @@ export namespace models {
 		    return a;
 		}
 	}
+	
 	
 	
 	

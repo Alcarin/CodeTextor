@@ -173,6 +173,14 @@ type IndexingProgress struct {
 	Error          string         `json:"error,omitempty"`
 }
 
+// ProjectSummary provides a structural overview of the project for AI understanding.
+type ProjectSummary struct {
+	Languages      []string `json:"languages"`
+	Packages       []string `json:"packages"`
+	EntryPoints    []string `json:"entryPoints"`
+	MainComponents []string `json:"mainComponents"`
+}
+
 // ProjectStats contains current statistics about a project's index.
 // These are computed from the index database, not stored in the config.
 type ProjectStats struct {
@@ -205,6 +213,9 @@ type ProjectStats struct {
 
 	// IndexingProgress is the current indexing progress (0.0 to 1.0)
 	IndexingProgress float64 `json:"indexingProgress"`
+
+	// Summary provides a structural map of the project (languages, entry points, etc.)
+	Summary *ProjectSummary `json:"summary,omitempty"`
 }
 
 // EmbeddingCapabilities describes available embedding backends on this machine.

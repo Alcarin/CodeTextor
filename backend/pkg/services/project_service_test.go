@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -11,7 +12,7 @@ func setupTestService(t *testing.T) (*ProjectService, func()) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 
-    service, err := NewProjectService(nil)
+    service, err := NewProjectService(context.Background())
 	if err != nil {
 		t.Fatalf("failed to create project service: %v", err)
 	}

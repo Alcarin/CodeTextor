@@ -1269,5 +1269,115 @@ func (s *VectorStore) GetStats() (*models.ProjectStats, error) {
 		return nil, fmt.Errorf("failed to iterate embedding model usage: %w", err)
 	}
 
+	// Add summary
+	summary, err := s.GetProjectSummary()
+	if err == nil {
+		stats.Summary = summary
+	}
+
 	return stats, nil
+}
+
+// GetProjectSummary aggregates structural information about the project.
+func (s *VectorStore) GetProjectSummary() (*models.ProjectSummary, error) {
+	summary := &models.ProjectSummary{
+		Languages:      []string{},
+		Packages:       []string{},
+		EntryPoints:    []string{},
+		MainComponents: []string{},
+	}
+
+	// 1. Get top 5 languages
+	rows, err := s.db.Query(`
+		SELECT language, COUNT(*) as count 
+		FROM chunks 
+		WHERE language IS NOT NULL AND language != "" 
+		GROUP BY language 
+		ORDER BY count DESC 
+		LIMIT 5
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var lang string
+			var count int
+			if err := rows.Scan(&lang, &count); err == nil {
+				summary.Languages = append(summary.Languages, lang)
+			}
+		}
+	}
+
+	// 2. Get top 8 packages
+	rows, err = s.db.Query(`
+		SELECT package_name, COUNT(*) as count 
+		FROM chunks 
+		WHERE package_name IS NOT NULL AND package_name != "" 
+		GROUP BY package_name 
+		ORDER BY count DESC 
+		LIMIT 8
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var pkg string
+			var count int
+			if err := rows.Scan(&pkg, &count); err == nil {
+				summary.Packages = append(summary.Packages, pkg)
+			}
+		}
+	}
+
+	// 3. Get potential entry points
+	// Look for main functions or files named main/index/app
+	rows, err = s.db.Query(`
+		SELECT DISTINCT f.path 
+		FROM symbols s 
+		JOIN files f ON f.pk = s.file_id 
+		WHERE s.name IN ('main', 'main.go', 'index.ts', 'app.py') 
+		   OR f.path LIKE 'main.%' 
+		   OR f.path LIKE 'index.%' 
+		   OR f.path LIKE 'app.%'
+		   OR f.path LIKE '%/main.%'
+		   OR f.path LIKE '%/index.%'
+		   OR f.path LIKE '%/app.%'
+		LIMIT 10
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var path string
+			if err := rows.Scan(&path); err == nil {
+				summary.EntryPoints = append(summary.EntryPoints, path)
+			}
+		}
+	}
+
+	// 4. Get main components (top-level directories)
+	rows, err = s.db.Query(`
+		SELECT DISTINCT 
+			CASE 
+				WHEN instr(path, '/') > 0 THEN substr(path, 1, instr(path, '/') - 1)
+				ELSE path 
+			END as root_dir,
+			COUNT(*) as count
+		FROM files 
+		GROUP BY root_dir 
+		ORDER BY count DESC 
+		LIMIT 6
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var dir string
+			var count int
+			if err := rows.Scan(&dir, &count); err == nil {
+				// Avoid adding single files as components unless they are the only things
+				if !strings.Contains(dir, ".") || len(summary.MainComponents) < 2 {
+					summary.MainComponents = append(summary.MainComponents, dir)
+				}
+			}
+		}
+	}
+
+	return summary, nil
 }

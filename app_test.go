@@ -47,6 +47,8 @@ type MockProjectServiceAPI struct {
 	TestONNXRuntimePathFunc      func(path string) (*models.ONNXRuntimeTestResult, error)
 	DownloadONNXRuntimeFunc      func() error
 	SearchFunc                   func(projectID, query string, k int) (*models.SearchResponse, error)
+	GetRecentChangesFunc         func(projectID string, limit int) (*models.RecentChangesResponse, error)
+	GetProjectSummaryFunc        func(projectID string) (*models.ProjectSummary, error)
 	CloseFunc                    func() error
 }
 
@@ -255,6 +257,18 @@ func (m *MockProjectServiceAPI) Search(projectID, query string, k int) (*models.
 		return m.SearchFunc(projectID, query, k)
 	}
 	return &models.SearchResponse{}, nil
+}
+func (m *MockProjectServiceAPI) GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error) {
+	if m.GetRecentChangesFunc != nil {
+		return m.GetRecentChangesFunc(projectID, limit)
+	}
+	return &models.RecentChangesResponse{}, nil
+}
+func (m *MockProjectServiceAPI) GetProjectSummary(projectID string) (*models.ProjectSummary, error) {
+	if m.GetProjectSummaryFunc != nil {
+		return m.GetProjectSummaryFunc(projectID)
+	}
+	return &models.ProjectSummary{}, nil
 }
 func (m *MockProjectServiceAPI) Close() error {
 	if m.CloseFunc != nil {

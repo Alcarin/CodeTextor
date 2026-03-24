@@ -101,6 +101,7 @@ type ProjectServiceAPI interface {
 	DownloadONNXRuntime() error
 	Search(projectID string, query string, k int) (*models.SearchResponse, error)
 	GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error)
+	GetProjectSummary(projectID string) (*models.ProjectSummary, error)
 	Close() error
 }
 
@@ -1811,6 +1812,16 @@ func (s *ProjectService) GetProjectStats(projectID string) (*models.ProjectStats
 	}
 
 	return stats, nil
+}
+
+// GetProjectSummary returns structural information about the project.
+func (s *ProjectService) GetProjectSummary(projectID string) (*models.ProjectSummary, error) {
+	vectorStore, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vector store: %w", err)
+	}
+
+	return vectorStore.GetProjectSummary()
 }
 
 // Close releases vector stores.

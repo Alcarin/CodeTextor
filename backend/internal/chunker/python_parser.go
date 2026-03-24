@@ -165,6 +165,11 @@ func (p *PythonParser) ExtractImports(tree *sitter.Tree, source []byte) ([]strin
 	return imports, nil
 }
 
+// ExtractMetadata extracts file-level metadata.
+func (p *PythonParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	return make(map[string]string)
+}
+
 // walkImports recursively finds all import statements.
 func (p *PythonParser) walkImports(node *sitter.Node, source []byte, imports []string) []string {
 	nodeType := node.Kind()

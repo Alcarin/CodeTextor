@@ -271,6 +271,11 @@ func (h *HTMLParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string,
 	return imports, nil
 }
 
+// ExtractMetadata extracts file-level metadata.
+func (h *HTMLParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	return make(map[string]string)
+}
+
 // walkImports recursively finds all link and script src attributes.
 func (h *HTMLParser) walkImports(node *sitter.Node, source []byte, imports []string) []string {
 	nodeType := node.Kind()

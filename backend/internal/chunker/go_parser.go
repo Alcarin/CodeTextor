@@ -270,6 +270,26 @@ func (g *GoParser) walkImports(node *sitter.Node, source []byte, imports []strin
 	return imports
 }
 
+// ExtractMetadata extracts file-level metadata (e.g., package name).
+func (g *GoParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	metadata := make(map[string]string)
+	rootNode := tree.RootNode()
+
+	// Look for package declaration
+	for i := uint(0); i < rootNode.ChildCount(); i++ {
+		child := rootNode.Child(i)
+		if child.Kind() == "package_clause" {
+			nameNode := g.findChildByType(child, "package_identifier")
+			if nameNode != nil {
+				metadata["package"] = nameNode.Utf8Text(source)
+			}
+			break
+		}
+	}
+
+	return metadata
+}
+
 // Helper functions
 
 // findChildByType finds the first child node of a specific type.

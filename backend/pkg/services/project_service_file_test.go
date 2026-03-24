@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,7 @@ func TestReadFileContent(t *testing.T) {
 	}
 
 	// Create test service
-    service, err := NewProjectService(nil)
+	service, err := NewProjectService(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to create project service: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestReadFileContent_SecurityCheck(t *testing.T) {
 	}
 
 	// Create test service
-    service, err := NewProjectService(nil)
+	service, err := NewProjectService(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to create project service: %v", err)
 	}

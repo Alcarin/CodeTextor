@@ -117,6 +117,9 @@ func (p *Parser) ParseFile(filePath string, source []byte) (*ParseResult, error)
 		imports = []string{}
 	}
 
+	// Extract metadata
+	metadata := parser.ExtractMetadata(tree, source)
+
 	// Build result
 	result := &ParseResult{
 		FilePath: filePath,
@@ -124,7 +127,7 @@ func (p *Parser) ParseFile(filePath string, source []byte) (*ParseResult, error)
 		Symbols:  symbols,
 		Imports:  imports,
 		Errors:   parseErrors,
-		Metadata: make(map[string]string),
+		Metadata: metadata,
 	}
 
 	return result, nil

@@ -281,3 +281,8 @@ func (s *SQLParser) isStatement(kind string) bool {
 func (s *SQLParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, error) {
 	return []string{}, nil
 }
+
+// ExtractMetadata extracts file-level metadata.
+func (s *SQLParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	return make(map[string]string)
+}

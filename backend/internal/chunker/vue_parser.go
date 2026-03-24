@@ -399,3 +399,8 @@ func (v *VueParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, 
 
 	return imports, nil
 }
+
+// ExtractMetadata extracts file-level metadata.
+func (v *VueParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	return make(map[string]string)
+}

@@ -164,6 +164,11 @@ func (c *CSSParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, 
 	return imports, nil
 }
 
+// ExtractMetadata extracts file-level metadata.
+func (c *CSSParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
+	return make(map[string]string)
+}
+
 // walkImports recursively finds all @import statements.
 func (c *CSSParser) walkImports(node *sitter.Node, source []byte, imports []string) []string {
 	if node.Kind() == "import_statement" {
