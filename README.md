@@ -150,13 +150,13 @@ http://127.0.0.1:3030/mcp/<projectId>
 | Tool | Description |
 | ---- | ----------- |
 | `getProjectDetails` | High-level overview (main languages, packages, entry points) and project statistics |
-| `listFiles` | Explore the project file tree (relative paths and sizes) |
+| `listFiles` | Explore the file tree. Validates path existence. |
 | `search` | Semantic natural language search (results grouped by file) |
-| `semanticSearchFiles` | High-level exploration: suggests the most relevant files for a concept |
+| `semanticSearchFiles` | Suggests the most relevant files (returns node IDs and similarity) |
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
-| `nodeSource` | Precise source snippets for identified symbols/chunks |
+| `nodeSource` | Precise source snippets for an ARRAY of IDs |
 | `getRecentChanges` | Recently modified (VCS) and indexed (DB) files |
-| `grepSearch` | Literal or regex search across project files (precise and OS-independent) |
+| `grepSearch` | Literal or regex search. Validates path existence. |
 
 Example Codex CLI config (`~/.codex/config.toml`):
 

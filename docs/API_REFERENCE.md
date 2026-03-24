@@ -46,6 +46,7 @@ index; requests are read-only.
 - **Input**: `{ path?: string, extension?: string, recursive?: boolean }`
 - **Response**: `{ files: { path, size }[] }`
   - `path` is relative to the project root.
+  - Validates that `path` exists; returns an error with the project root if it does not.
 
 #### `search`
 
@@ -57,10 +58,10 @@ index; requests are read-only.
 #### `semanticSearchFiles`
 
 - **Input**: `{ query: string, k?: number (1-20, default 5) }`
-- **Response**: `{ results: { path, score, summary }[] }`
+- **Response**: `{ results: { path, score, nodes: { id, score }[] }[] }`
   - Returns the most relevant files for a conceptual query (e.g., "Where is authentication?").
   - `score` indicates relevance (highest similarity of any chunk in the file).
-  - `summary` provides context (e.g., matching chunks count and top snippet preview).
+  - `nodes` contains the top 5 relevant node IDs and their individual scores for direct fetching.
 
 #### `outline`
 
@@ -70,10 +71,11 @@ index; requests are read-only.
 
 #### `nodeSource`
 
-- **Input**: `{ id: string, collapseBody?: boolean }` where `id` is an identifier from `search`/`outline`.
-- **Response**: `{ path, source, start, end, language?, symbol? }`
-  - Focuses on the snippet content and precise boundaries.
+- **Input**: `{ id: string[], collapseBody?: boolean }` where `id` is an array of identifiers.
+- **Response**: `{ results: { id, path, source, start, end, language?, symbol? }[] }`
+  - Fetches source snippets for one or more identifiers.
   - If `collapseBody` is true, long snippets are truncated with a placeholder.
+  - Each result object includes the original `id` to clarify multiple requests.
 
 #### `getRecentChanges`
 
@@ -88,6 +90,7 @@ index; requests are read-only.
 - **Input**: `{ query: string, isRegex?: boolean, path?: string (relative), limit?: number (default 100) }`
 - **Response**: `{ results: { path, matches: { line, content }[] }[], total: number, timeMs: number }`
   - High-precision search for exact terms or regex patterns.
+  - Validates that `path` exists; returns an error with the project root if it does not.
   - Results are grouped by file to minimize path redundancy.
   - `content` is automatically truncated to 500 characters to reduce token consumption.
   - Maximum of 50 matches per file.

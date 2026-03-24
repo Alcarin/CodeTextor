@@ -394,8 +394,9 @@ All endpoints must:
 
 * **Require projectId**: Validate that the project exists and is accessible (URL path `/mcp/<projectId>`)
 * **Query correct database**: Use `indexes/<projectId>.db` for the specified project
-* **Enforce path boundaries**: Only return results for files within the project's configured include paths
-* **Return bounded results**: Limited by byte size (configurable per project)
+* **Enforce path boundaries**: Only return results for files within the project's configured include paths.
+* **Validate path existence**: Tools like `listFiles` and `grepSearch` must validate that the provided sub-path exists relative to the project root and return a clear error otherwise.
+* **Return bounded results**: Limited by byte size (configurable per project).
 * **Support pagination**: When returning large result sets
 * **Never leak cross-project data**: Results must be strictly scoped to the requested project
 * **Concurrent serving**: Support serving multiple projects simultaneously

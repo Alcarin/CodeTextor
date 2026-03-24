@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -432,11 +433,11 @@ func (m *Manager) buildServerInstructions(boundProjectID string) string {
 	b.WriteString("Preferred Workflow:\n")
 	b.WriteString("1. 'getProjectDetails': Overview of scope and indexed extensions.\n")
 	b.WriteString("2. 'listFiles': Explore file tree (use recursive=false for bread-first browsing).\n")
-	b.WriteString("3. 'semanticSearchFiles': High-level exploration. Suggests the most relevant FILES for a concept (e.g. 'Where is authentication?').\n")
+	b.WriteString("3. 'semanticSearchFiles': High-level exploration. Suggests the most relevant FILES for a concept (e.g. 'Where is authentication?'). Returns node IDs and similarity.\n")
 	b.WriteString("4. 'search': SEMANTIC search for CONTEXT. Finds relevant code snippets (chunks) by intent.\n")
 	b.WriteString("5. 'outline': Map the symbols (classes, functions) of a specific file.\n")
-	b.WriteString("6. 'nodeSource': Fetch actual code snippets for identified symbols/chunks.\n")
-	b.WriteString("\nNote: All responses use RELATIVE paths from the project root. Tools are read-only.")
+	b.WriteString("6. 'nodeSource': Fetch source code for an ARRAY of node IDs.\n")
+	b.WriteString("\nNote: All responses use RELATIVE paths from the project root. listFiles and grepSearch validate path existence. Tools are read-only.")
 	return b.String()
 }
 
@@ -468,7 +469,7 @@ func (m *Manager) initTools() {
 		},
 		"listFiles": {
 			name:        "listFiles",
-			description: "Explore the project file tree. Returns relative paths and sizes. Use recursive=false for shallow browsing.",
+			description: "Explore the project file tree. Returns relative paths and sizes. Validates path existence. Use recursive=false for shallow browsing.",
 		},
 		"search": {
 			name:        "search",
@@ -476,7 +477,7 @@ func (m *Manager) initTools() {
 		},
 		"semanticSearchFiles": {
 			name:        "semanticSearchFiles",
-			description: "Suggests the most relevant files for a concept. Best for high-level exploration of unknown projects.",
+			description: "Suggests the most relevant files for a concept. Returns node IDs and similarity scores for direct fetching.",
 		},
 		"outline": {
 			name:        "outline",
@@ -484,7 +485,7 @@ func (m *Manager) initTools() {
 		},
 		"nodeSource": {
 			name:        "nodeSource",
-			description: "Fetch the source code for a specific symbol or chunk ID. Use this for precise code reading.",
+			description: "Fetch the source code for an array of node IDs. Returns an array of source snippets.",
 		},
 		"getRecentChanges": {
 			name:        "getRecentChanges",
@@ -492,7 +493,7 @@ func (m *Manager) initTools() {
 		},
 		"grepSearch": {
 			name:        "grepSearch",
-			description: "Literal or regex search across project files. Precise and OS-independent.",
+			description: "Literal or regex search across project files. Precise, OS-independent, and validates path existence.",
 		},
 	}
 
@@ -612,6 +613,18 @@ func (m *Manager) handleGrepSearch(boundProjectID string) sdkmcp.ToolHandlerFor[
 		projectID, err := m.resolveProjectID(boundProjectID)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		project, err := m.projectService.GetProject(projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if input.Path != "" {
+			absPath := filepath.Join(project.Config.RootPath, input.Path)
+			if _, err := os.Stat(absPath); err != nil {
+				return nil, nil, fmt.Errorf("the provided path '%s' does not exist in the project root '%s'. Please provide a valid relative path, or leave 'path' empty to search the whole project", input.Path, project.Config.RootPath)
+			}
 		}
 
 		res, err := m.projectService.GrepSearch(projectID, input.Query, input.IsRegex, input.Path, input.Limit)
@@ -782,10 +795,15 @@ type semanticSearchFilesInput struct {
 	K     int    `json:"k,omitempty" jsonschema_description:"Max files to return (default 5)" jsonschema_extras:"minimum=1,maximum=20"`
 }
 
+type chunkScore struct {
+	ID    string  `json:"id"`
+	Score float64 `json:"score"`
+}
+
 type mcpFileScoreResult struct {
-	Path    string  `json:"path"`
-	Score   float64 `json:"score"`
-	Summary string  `json:"summary"`
+	Path   string       `json:"path"`
+	Score  float64      `json:"score"`
+	Nodes  []chunkScore `json:"nodes" jsonschema_description:"List of nodes with their similarity score (sorted descending)"`
 }
 
 type semanticSearchFilesOutput struct {
@@ -811,8 +829,8 @@ type outlineOutput struct {
 }
 
 type nodeSourceInput struct {
-	ID           string `json:"id" jsonschema_description:"ID from search or outline results"`
-	CollapseBody bool   `json:"collapseBody,omitempty" jsonschema_description:"Collapse large bodies for brevity"`
+	ID           []string `json:"id" jsonschema_description:"List of chunk/symbol IDs to fetch from search or outline results"`
+	CollapseBody bool     `json:"collapseBody,omitempty" jsonschema_description:"Collapse large bodies for brevity"`
 }
 
 type grepSearchInput struct {
@@ -823,6 +841,11 @@ type grepSearchInput struct {
 }
 
 type nodeSourceOutput struct {
+	Results []nodeSourceResult `json:"results" jsonschema_description:"List of source snippets for the requested IDs"`
+}
+
+type nodeSourceResult struct {
+	ID        string `json:"id"`
 	FilePath  string `json:"path"`
 	Source    string `json:"source"`
 	StartLine int    `json:"start"`
@@ -844,6 +867,18 @@ func (m *Manager) handleListFiles(boundProjectID string) sdkmcp.ToolHandlerFor[l
 		projectID, err := m.resolveProjectID(boundProjectID)
 		if err != nil {
 			return nil, listFileOutput{}, err
+		}
+
+		project, err := m.projectService.GetProject(projectID)
+		if err != nil {
+			return nil, listFileOutput{}, err
+		}
+
+		if input.Path != "" {
+			absPath := filepath.Join(project.Config.RootPath, input.Path)
+			if _, err := os.Stat(absPath); err != nil {
+				return nil, listFileOutput{}, fmt.Errorf("the provided path '%s' does not exist in the project root '%s'. Please provide a valid relative path, or leave 'path' empty to list the whole project", input.Path, project.Config.RootPath)
+			}
 		}
 
 		// We use GetFilePreviews which already handles filtering and exclusion patterns
@@ -959,8 +994,7 @@ func (m *Manager) handleSemanticSearchFiles(boundProjectID string) sdkmcp.ToolHa
 		type fileAccumulator struct {
 			path     string
 			maxScore float64
-			count    int
-			topMatch string
+			chunks   []chunkScore
 		}
 		scores := make(map[string]*fileAccumulator)
 		var order []string
@@ -974,9 +1008,8 @@ func (m *Manager) handleSemanticSearchFiles(boundProjectID string) sdkmcp.ToolHa
 			}
 			if chunk.Similarity > s.maxScore {
 				s.maxScore = chunk.Similarity
-				s.topMatch = chunk.Content
 			}
-			s.count++
+			s.chunks = append(s.chunks, chunkScore{ID: chunk.ID, Score: chunk.Similarity})
 		}
 
 		// Sort files by their maximum similarity score
@@ -992,16 +1025,20 @@ func (m *Manager) handleSemanticSearchFiles(boundProjectID string) sdkmcp.ToolHa
 		for i, path := range order {
 			acc := scores[path]
 			
-			// Build a concise summary
-			snippet := strings.ReplaceAll(acc.topMatch, "\n", " ")
-			if len(snippet) > 100 {
-				snippet = snippet[:97] + "..."
+			// Sort chunks by score descending
+			sort.Slice(acc.chunks, func(a, b int) bool {
+				return acc.chunks[a].Score > acc.chunks[b].Score
+			})
+			
+			// Limit to top 5 chunks per file
+			if len(acc.chunks) > 5 {
+				acc.chunks = acc.chunks[:5]
 			}
 
 			results[i] = mcpFileScoreResult{
-				Path:  path,
-				Score: acc.maxScore,
-				Summary: fmt.Sprintf("Matches %d chunks. Top match: %s", acc.count, snippet),
+				Path:   path,
+				Score:  acc.maxScore,
+				Nodes:  acc.chunks,
 			}
 		}
 
@@ -1104,32 +1141,44 @@ func (m *Manager) handleNodeSource(boundProjectID string) sdkmcp.ToolHandlerFor[
 		if err != nil {
 			return nil, nodeSourceOutput{}, err
 		}
-		if strings.TrimSpace(input.ID) == "" {
-			return nil, nodeSourceOutput{}, fmt.Errorf("id cannot be empty")
-		}
-		chunk, err := m.projectService.GetChunkByID(projectID, input.ID)
-		if err != nil {
-			return nil, nodeSourceOutput{}, err
+		if len(input.ID) == 0 {
+			return nil, nodeSourceOutput{}, fmt.Errorf("id array cannot be empty")
 		}
 
-		source := strings.TrimSpace(chunk.SourceCode)
-		if source == "" {
-			source = chunk.Content
-		}
-
-		if input.CollapseBody {
-			if collapsed, ok := collapseSourceBody(source, 120, 60, 40); ok {
-				source = collapsed
+		var results []nodeSourceResult
+		for _, id := range input.ID {
+			if strings.TrimSpace(id) == "" {
+				continue
 			}
+			chunk, err := m.projectService.GetChunkByID(projectID, id)
+			if err != nil {
+				return nil, nodeSourceOutput{}, fmt.Errorf("error fetching id %s: %w", id, err)
+			}
+	
+			source := strings.TrimSpace(chunk.SourceCode)
+			if source == "" {
+				source = chunk.Content
+			}
+	
+			if input.CollapseBody {
+				if collapsed, ok := collapseSourceBody(source, 120, 60, 40); ok {
+					source = collapsed
+				}
+			}
+	
+			results = append(results, nodeSourceResult{
+				ID:        id,
+				FilePath:  chunk.FilePath,
+				Source:    source,
+				StartLine: chunk.LineStart,
+				EndLine:   chunk.LineEnd,
+				Language:  chunk.Language,
+				Symbol:    chunk.SymbolName,
+			})
 		}
-
+		
 		output := nodeSourceOutput{
-			FilePath:  chunk.FilePath,
-			Source:    source,
-			StartLine: chunk.LineStart,
-			EndLine:   chunk.LineEnd,
-			Language:  chunk.Language,
-			Symbol:    chunk.SymbolName,
+			Results: results,
 		}
 		return nil, output, nil
 	}
