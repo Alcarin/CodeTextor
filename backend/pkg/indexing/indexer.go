@@ -174,6 +174,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 					// Prepare chunk for database storage
 					dbChunks[idx] = &models.Chunk{
+						ID:               chunk.ID,
 						FilePath:         file.RelativePath,
 						Content:          chunk.Content,
 						LineStart:        int(chunk.StartLine),
@@ -212,6 +213,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 					// Prepare simple chunk for database
 					dbChunks[idx] = &models.Chunk{
+						ID:               utils.GenerateSymbolID(file.RelativePath, uint32(chunk.LineStart), uint32(chunk.LineEnd), "chunk", idx+1),
 						FilePath:         file.RelativePath,
 						Content:          chunk.Content,
 						LineStart:        chunk.LineStart,
@@ -665,8 +667,13 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 		}
 
 		// Insert new symbols
+		idCounters := make(map[string]int)
 		for _, parsedSymbol := range result.Symbols {
+			idKey := fmt.Sprintf("%s:%d:%d:%s", relativePath, parsedSymbol.StartLine, parsedSymbol.EndLine, parsedSymbol.Name)
+			idCounters[idKey]++
+
 			symbol := &models.Symbol{
+				ID:        utils.GenerateSymbolID(relativePath, parsedSymbol.StartLine, parsedSymbol.EndLine, parsedSymbol.Name, idCounters[idKey]),
 				FilePath:  relativePath,
 				Name:      parsedSymbol.Name,
 				Kind:      string(parsedSymbol.Kind),

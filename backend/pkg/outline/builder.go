@@ -13,6 +13,7 @@ import (
 
 	"CodeTextor/backend/internal/chunker"
 	"CodeTextor/backend/pkg/models"
+	"CodeTextor/backend/pkg/utils"
 )
 
 // BuildOutlineNodes constructs a tree of OutlineNode values from the ordered list of symbols.
@@ -32,7 +33,7 @@ func BuildOutlineNodes(filePath string, symbols []chunker.Symbol) []*models.Outl
 		idCounters[idKey]++
 
 		node := &models.OutlineNode{
-			ID:        fmt.Sprintf("%s:%d", idKey, idCounters[idKey]),
+			ID:        utils.GenerateSymbolID(filePath, symbol.StartLine, symbol.EndLine, symbol.Name, idCounters[idKey]),
 			Name:      symbol.Name,
 			Kind:      string(symbol.Kind),
 			FilePath:  filePath,

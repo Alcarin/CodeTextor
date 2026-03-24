@@ -189,7 +189,9 @@ func (s *VectorStore) Close() error {
 // InsertChunk inserts a new chunk into the database with semantic metadata.
 // If a chunk with the same file and line range already exists, it will be replaced.
 func (s *VectorStore) InsertChunk(chunk *models.Chunk) error {
-	chunk.ID = uuid.New().String()
+	if chunk.ID == "" {
+		chunk.ID = uuid.New().String()
+	}
 	chunk.CreatedAt = time.Now().Unix()
 	chunk.UpdatedAt = time.Now().Unix()
 	if strings.TrimSpace(chunk.EmbeddingModelID) == "" {
@@ -343,7 +345,9 @@ func (s *VectorStore) GetFile(path string) (*models.File, error) {
 
 // InsertSymbol inserts a new symbol record into the database.
 func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
-	symbol.ID = uuid.New().String()
+	if symbol.ID == "" {
+		symbol.ID = uuid.New().String()
+	}
 	symbol.CreatedAt = time.Now().Unix()
 	symbol.UpdatedAt = time.Now().Unix()
 
@@ -806,8 +810,10 @@ func (s *VectorStore) GetChunkByID(chunkID string) (*models.Chunk, error) {
 			c.created_at, c.updated_at
 		FROM chunks c
 		JOIN files f ON f.pk = c.file_id
-		WHERE c.id = ?
-	`, trimmed)
+		LEFT JOIN chunk_symbols cs ON c.id = cs.chunk_id
+		WHERE c.id = ? OR cs.symbol_id = ?
+		LIMIT 1
+	`, trimmed, trimmed)
 
 	chunk := &models.Chunk{}
 	var language, symbolName, symbolKind, parent, signature, visibility sql.NullString

@@ -8,6 +8,7 @@
 package chunker
 
 import (
+	"CodeTextor/backend/pkg/utils"
 	"fmt"
 	"strings"
 )
@@ -20,6 +21,9 @@ type ChunkSymbol struct {
 }
 
 type CodeChunk struct {
+	// Unique identifier (Hash of semantic metadata)
+	ID string `json:"id"`
+
 	// Core content
 	Content    string `json:"content"`     // Enriched content with metadata headers
 	SourceCode string `json:"source_code"` // Raw source code without enrichment
@@ -154,6 +158,9 @@ func (e *ChunkEnricher) EnrichParseResult(result *ParseResult) []CodeChunk {
 
 	skipSymbol := computeSkippableSymbols(result.Symbols)
 
+	// Track occurrences of the same span/name to keep IDs unique (same as outline builder)
+	idCounters := make(map[string]int)
+
 	// Process each symbol and convert to enriched chunk
 	for idx, symbol := range result.Symbols {
 		// Skip link-only symbols (handled within their parent sections)
@@ -170,7 +177,11 @@ func (e *ChunkEnricher) EnrichParseResult(result *ParseResult) []CodeChunk {
 			continue
 		}
 
+		idKey := fmt.Sprintf("%s:%d:%d:%s", result.FilePath, symbol.StartLine, symbol.EndLine, symbol.Name)
+		idCounters[idKey]++
+
 		chunk := e.symbolToChunk(symbol, result)
+		chunk.ID = utils.GenerateSymbolID(result.FilePath, symbol.StartLine, symbol.EndLine, symbol.Name, idCounters[idKey])
 		chunk.PackageName = packageName
 		chunk.Imports = result.Imports
 		chunks = append(chunks, chunk)
@@ -351,6 +362,9 @@ func (e *ChunkEnricher) MergeSmallChunks(chunks []CodeChunk) []CodeChunk {
 // Returns a new chunk that combines both inputs.
 func (e *ChunkEnricher) mergeTwoChunks(first, second CodeChunk) CodeChunk {
 	merged := first
+	// Maintain the ID of the first chunk for the merged one
+	// (or we could generate a new composite ID, but sticking to one is simpler)
+	merged.ID = first.ID
 	merged.Symbols = append(append([]ChunkSymbol{}, merged.Symbols...), second.Symbols...)
 
 	// Update range to span both chunks - ensure we always have min/max lines
@@ -626,6 +640,9 @@ func (e *ChunkEnricher) createSplitChunk(original CodeChunk, lines []string, sta
 	split.SourceCode = sourceCode
 	split.StartLine = startLine
 	split.EndLine = endLine
+	
+	// Create a sub-id for split chunks to keep them unique
+	split.ID = fmt.Sprintf("%s:%d-%d", original.ID, startLine, endLine)
 	split.SymbolName = fmt.Sprintf("%s[%d-%d]", original.SymbolName, startLine, endLine)
 
 	// Reset byte positions as we cannot accurately calculate them after splitting
