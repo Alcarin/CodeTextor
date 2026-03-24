@@ -127,7 +127,7 @@ Per-Project Database Contents:
 **Purpose:** Transform raw code into semantically meaningful retrieval units.
 
 **Design Principles:**
-- **Tree-sitter Parsing**: Language-agnostic AST extraction with 9+ language support
+- **Tree-sitter Parsing**: Language-agnostic AST extraction with 10+ language support
 - **Semantic Boundaries**: Chunks align with code structure (functions, classes, modules)
 - **Context Enrichment**: Attach file/package info, merge comments, include metadata headers
 - **Adaptive Sizing**: Split large chunks toward ~400 tokens (hard max 800), merge small ones (<100 tokens)
@@ -145,7 +145,7 @@ The semantic chunking system consists of three main components:
    - Language-specific parsers implementing `LanguageParser` interface
    - Extract symbols: functions, classes, methods, top-level variables/constants (local variables are intentionally skipped to reduce noise)
    - Extract imports and documentation
-   - Supported languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON
+   - Supported languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON, PHP
 
 2. **Enricher** (`backend/internal/chunker/enrichment.go`)
    - `CodeChunk`: Structure containing enriched content + raw source code
@@ -354,7 +354,7 @@ User Opens File → OutlineView.vue
 **Backend:**
 - `backend/internal/chunker/*_parser.go`: Tree-sitter language parsers
   - Extract symbols with parent-child relationships
-  - Support: Go, Python, TypeScript, JavaScript, Vue, HTML, CSS, Markdown
+  - Support: Go, Python, TypeScript, JavaScript, Vue, HTML, CSS, Markdown, PHP
 - `backend/pkg/outline/builder.go`: Convert flat symbols to hierarchical tree
   - Matches parents by name + line range containment
   - Handles duplicate names (e.g., multiple `div` elements)

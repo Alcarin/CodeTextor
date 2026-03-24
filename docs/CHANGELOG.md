@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
+- **PHP Language Support**: Added full support for PHP parsing and chunking.
+  - Extracts namespaces, classes, interfaces, traits, functions, methods, and `use` statements.
+  - Hierarchical outline support for PHP files.
+- **Permanent Tokenizer Fixes**: Integrated safety patches for `sugarme/tokenizer` directly into `fix_vendor.ps1`.
+  - Prevents "index out of range" panics during normalization.
+  - Fixes are automatically reapplied after `go mod vendor` updates.
 - Structural Project Summary: `getProjectDetails` now provides a high-level overview including main languages, entry points, and detected packages.
 - Automatic Package Extraction: Added metadata extraction to parsers (starting with Go) to identify package/module names during indexing.
 - Grep Search MCP Tool: Precise, OS-independent textual search with regex support now available for AI agents.
@@ -50,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grid/table view toggle for project list with persistent selection
 - Modular component architecture (ProjectCard, ProjectTable, ProjectFormModal, DeleteConfirmModal)
 - **Outline System**: Hierarchical code structure visualization
-  - Tree-sitter parsers for Go, Python, TypeScript, JavaScript, Vue, HTML, CSS, Markdown
+  - Tree-sitter parsers for Go, Python, TypeScript, JavaScript, Vue, HTML, CSS, Markdown, PHP
 - Cached outline trees in SQLite (`outline_nodes` + `outline_metadata` tables)
   - File tree browser with per-file outline loading
   - Recursive symbol tree rendering with expand/collapse
@@ -66,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Context enrichment with metadata headers (file, language, symbol info, comments)
   - Adaptive sizing: merge small chunks (<100 tokens), split large chunks toward ~400 tokens (hard max 800)
   - Local variables/constants are pruned; only semantically relevant top-level symbols become chunks
-  - Support for 9+ languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON
+  - Support for 10+ languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON, PHP
   - Token estimation with enrichment overhead accounting (~50 tokens for metadata)
   - Configurable via `ChunkConfig` (MaxChunkSize, MinChunkSize, MergeSmallChunks, IncludeComments)
   - Public API: `SemanticChunker.ChunkFile()` with fallback to line-based chunking for unsupported formats
@@ -139,11 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IndexingView toggle now correctly reflects database state on mount and project switch
 - "Go to Indexing" button now selects project before navigation
 - Project switching in IndexingView now refreshes and displays correct indexing state
-- **MCP `listFiles` Root Fix**: Corrected path normalization to properly list files in the root directory when calling the tool with `.` or `./`
-- **Unit tests for indexing operations**: Fixed mock implementations and test logic to properly validate all indexing API methods
-- **Markdown links**: Now include correct line numbers (was missing position tracking)
-- **Markdown heading ranges**: EndLine now extends to next same/higher-level heading for proper containment
-- **Outline builder**: Fixed parent matching for duplicate symbol names (e.g., multiple `div` tags)
+- **Outline builder**: Fixed parent matching for duplicate symbol names (e.g., multiple `div` tags) in XML-based and PHP files.
   - Now matches by both name AND line range containment instead of just name
   - Prevents incorrect parent assignment in files with many elements of same type
 - **Vue template hierarchy**: Fixed flat structure issue where all HTML tags appeared as direct children of file instead of nested tree

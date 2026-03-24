@@ -29,7 +29,8 @@ chmod +x fix_vendor.sh
 
 1.  **Fix `go-tree-sitter`**: Restores the `include` and `src` directories from the local Go module cache into the vendor folder.
 2.  **Fix SQL Grammar**: Automatically downloads the missing `parser.c`, `scanner.c`, and headers for the SQL grammar from the official sources.
-3.  **Repair other grammars**: Scans all `tree-sitter-*` folders in `vendor/` and ensures they have the necessary `src` and `queries` folders by copying them from your local Go cache.
+3.  **Repair other grammars**: Scans all `tree-sitter-*` folders in `vendor/` and ensures they have the necessary `src` and `queries` folders by copying them from your local Go cache. It also handles special subfolder structures for PHP and TypeScript.
+4.  **Patch Tokenizer**: Automatically applies safety checks to `vendor/github.com/sugarme/tokenizer/normalizer/normalized.go` to prevent runtime panics.
 
 ## Permanent Fix
 
