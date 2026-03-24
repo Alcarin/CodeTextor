@@ -104,6 +104,17 @@ foreach ($g in $grammars) {
                     Copy-Item -Path $srcPath -Destination $destPath -Recurse -Force
                 }
             }
+        } elseif ($moduleName -eq "tree-sitter-php") {
+            Write-Host "    Handling php subfolders..."
+            foreach ($sub in @("php", "php_only")) {
+                $srcPath = Join-Path $moduleSource.FullName "$sub\src"
+                $destPath = Join-Path $g.FullName "$sub"
+                if (Test-Path $srcPath) {
+                    Write-Host "      Restoring $sub\src..."
+                    if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Force -Path $destPath | Out-Null }
+                    Copy-Item -Path $srcPath -Destination $destPath -Recurse -Force
+                }
+            }
         } else {
             $srcPath = Join-Path $moduleSource.FullName "src"
             $queriesPath = Join-Path $moduleSource.FullName "queries"
@@ -146,6 +157,43 @@ if ($mgSource) {
                 Copy-Item -Path $srcPath -Destination $destPath -Recurse -Force
             }
         }
+    }
+}
+
+# 5. TOKENIZER PATCHES
+# These patches fix index out of bound panics in sugarme/tokenizer
+Write-Host "[5/5] Patching sugarme/tokenizer..." -ForegroundColor Yellow
+$normFile = Join-Path $vendorDir "github.com\sugarme\tokenizer\normalizer\normalized.go"
+if (Test-Path $normFile) {
+    Write-Host "  Patching normalized.go..."
+    $content = [System.IO.File]::ReadAllText($normFile)
+    
+    # Define tabs for indentation
+    $t3 = "`t`t`t"
+    $t4 = "`t`t`t`t"
+    
+    # Patch 1 & 2 use a similar pattern. We'll use regex to match even if spacing differs slightly.
+    # Note: Regex uses \r?\n for line endings
+    $pattern = "(?m)^(\s*)start := n\.alignments\[idx\]\[1\]\r?\n(\s*)end := n\.alignments\[idx\+totalBytesToRemove\]\[1\]"
+    
+    $replacement = "`$1var start, end int`r`n" +
+                   "`$1if idx >= len(n.alignments) {`r`n" +
+                   "`$1`tstart = n.alignments[len(n.alignments)-1][1]`r`n" +
+                   "`$1} else {`r`n" +
+                   "`$1`tstart = n.alignments[idx][1]`r`n" +
+                   "`$1}`r`n`r`n" +
+                   "`$1if idx+totalBytesToRemove >= len(n.alignments) {`r`n" +
+                   "`$1`tend = n.alignments[len(n.alignments)-1][1]`r`n" +
+                   "`$1} else {`r`n" +
+                   "`$1`tend = n.alignments[idx+totalBytesToRemove][1]`r`n" +
+                   "`$1}"
+
+    if ($content -match "start := n\.alignments\[idx\]\[1\]") {
+        $content = [System.Text.RegularExpressions.Regex]::Replace($content, $pattern, $replacement)
+        [System.IO.File]::WriteAllText($normFile, $content)
+        Write-Host "    Successfully applied protections via regex."
+    } else {
+        Write-Host "    Protections already present or file structure changed." -ForegroundColor DarkGray
     }
 }
 

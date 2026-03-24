@@ -52,6 +52,7 @@ func NewParser(config ChunkConfig) *Parser {
 	p.registerParser(&MarkdownParser{})
 	p.registerParser(&SQLParser{})
 	p.registerParser(&JSONParser{})
+	p.registerParser(&PhpParser{})
 
 	// TODO: Add more parsers as they are implemented
 	// p.registerParser(&RustParser{})
@@ -176,6 +177,7 @@ func (p *Parser) detectLanguage(ext string) string {
 		".markdown": "markdown",
 		".json":     "json",
 		".sql":      "sql",
+		".php":      "php",
 		".rs":       "rust",
 		".java":     "java",
 	}
