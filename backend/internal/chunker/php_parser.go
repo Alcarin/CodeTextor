@@ -15,7 +15,14 @@ import (
 )
 
 // PhpParser implements the LanguageParser interface for PHP source code.
-type PhpParser struct{}
+type PhpParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (p *PhpParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	p.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for PHP.
 func (p *PhpParser) GetLanguage() *sitter.Language {
@@ -75,6 +82,25 @@ func (p *PhpParser) walkNode(node *sitter.Node, source []byte, parentName string
 	case "method_declaration":
 		symbol := p.extractFunction(node, source, parentName, SymbolMethod)
 		symbols = append(symbols, symbol)
+
+	case "text", "string", "encapsed_string", "heredoc_body":
+		// Delegate embedded languages (HTML, JS, SQL, etc) inside strings or raw text blocks
+		if p.subLangManager != nil {
+			startByte := uint32(node.StartByte())
+			endByte := uint32(node.EndByte())
+			if endByte-startByte > 15 {
+				content := source[startByte:endByte]
+				startPoint := node.StartPosition()
+				endPoint := node.EndPosition()
+
+				subSymbols := p.subLangManager.ProcessEmbeddedCode(
+					source, content, startByte, endByte, startPoint, endPoint, parentName,
+				)
+				if len(subSymbols) > 0 {
+					symbols = append(symbols, subSymbols...)
+				}
+			}
+		}
 	}
 
 	// Recursively process child nodes for other cases

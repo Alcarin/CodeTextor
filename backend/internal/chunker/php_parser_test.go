@@ -6,11 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 func TestPhpParser_ExtractSymbols(t *testing.T) {
 	parser := &PhpParser{}
-	source, err := os.ReadFile("test_example.php")
+	source, err := os.ReadFile("testdata/test_example.php")
 	require.NoError(t, err)
 
 	tree := sitterNewParser(parser.GetLanguage(), source)
@@ -36,7 +37,7 @@ func TestPhpParser_ExtractSymbols(t *testing.T) {
 
 func TestPhpParser_ExtractImports(t *testing.T) {
 	parser := &PhpParser{}
-	source, err := os.ReadFile("test_example.php")
+	source, err := os.ReadFile("testdata/test_example.php")
 	require.NoError(t, err)
 
 	tree := sitterNewParser(parser.GetLanguage(), source)

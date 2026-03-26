@@ -58,6 +58,16 @@ func NewParser(config ChunkConfig) *Parser {
 	// p.registerParser(&RustParser{})
 	// p.registerParser(&JavaParser{})
 
+	// Initialize the sub-language manager with the registered parsers
+	subLangManager := NewSubLanguageManager(p.parsers)
+
+	// Inject the manager into any parser that needs it (avoids circular dependency in Initialization)
+	for _, parser := range p.parsers {
+		if aware, ok := parser.(SubLanguageAware); ok {
+			aware.SetSubLanguageManager(subLangManager)
+		}
+	}
+
 	return p
 }
 

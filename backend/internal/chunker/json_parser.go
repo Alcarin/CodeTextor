@@ -14,8 +14,15 @@ import (
 	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 )
 
-// JSONParser implements the LanguageParser interface for JSON files.
-type JSONParser struct{}
+// JSONParser implements the LanguageParser interface for JSON.
+type JSONParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (j *JSONParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	j.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for JSON.
 func (j *JSONParser) GetLanguage() *sitter.Language {

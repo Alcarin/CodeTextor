@@ -25,6 +25,17 @@ github.com/emirpasic/gods/utils
 ## explicit; go 1.17
 github.com/fsnotify/fsnotify
 github.com/fsnotify/fsnotify/internal
+# github.com/go-enry/go-enry/v2 v2.9.5
+## explicit; go 1.14
+github.com/go-enry/go-enry/v2
+github.com/go-enry/go-enry/v2/data
+github.com/go-enry/go-enry/v2/data/rule
+github.com/go-enry/go-enry/v2/internal/tokenizer
+github.com/go-enry/go-enry/v2/internal/tokenizer/flex
+github.com/go-enry/go-enry/v2/regex
+# github.com/go-enry/go-oniguruma v1.2.1
+## explicit; go 1.14
+github.com/go-enry/go-oniguruma
 # github.com/go-ole/go-ole v1.3.0
 ## explicit; go 1.12
 github.com/go-ole/go-ole

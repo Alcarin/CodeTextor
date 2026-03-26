@@ -16,9 +16,15 @@ import (
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
-// TypeScriptParser implements the LanguageParser interface for TypeScript and JavaScript.
+// TypeScriptParser implements the LanguageParser interface for TypeScript/JavaScript source code.
 type TypeScriptParser struct {
-	isTypeScript bool // true for .ts/.tsx, false for .js/.jsx
+	isTypeScript   bool
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (t *TypeScriptParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	t.subLangManager = manager
 }
 
 // GetLanguage returns the tree-sitter Language for TypeScript or JavaScript.
@@ -109,6 +115,23 @@ func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName
 			symbols = t.walkNode(child, source, parentName, arrow.Name, symbols)
 		}
 		return symbols
+	case "string", "template_string":
+		if t.subLangManager != nil {
+			startByte := uint32(node.StartByte())
+			endByte := uint32(node.EndByte())
+			if endByte-startByte > 15 {
+				content := source[startByte:endByte]
+				startPoint := node.StartPosition()
+				endPoint := node.EndPosition()
+
+				subSymbols := t.subLangManager.ProcessEmbeddedCode(
+					source, content, startByte, endByte, startPoint, endPoint, parentName,
+				)
+				if len(subSymbols) > 0 {
+					symbols = append(symbols, subSymbols...)
+				}
+			}
+		}
 	}
 
 	// Recursively process child nodes (except for nodes we've already processed)

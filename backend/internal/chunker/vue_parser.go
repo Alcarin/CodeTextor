@@ -19,9 +19,15 @@ import (
 // VueParser implements the LanguageParser interface for Vue.js SFC files.
 // It extracts <template>, <script>, and <style> sections and parses each appropriately.
 type VueParser struct {
-	htmlParser *HTMLParser
-	jsParser   *TypeScriptParser
-	cssParser  *CSSParser
+	htmlParser     *HTMLParser
+	jsParser       *TypeScriptParser
+	cssParser      *CSSParser
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (v *VueParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	v.subLangManager = manager
 }
 
 // sectionInfo holds information about a Vue SFC section

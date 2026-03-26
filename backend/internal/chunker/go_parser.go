@@ -15,7 +15,14 @@ import (
 )
 
 // GoParser implements the LanguageParser interface for Go source code.
-type GoParser struct{}
+type GoParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (g *GoParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	g.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for Go.
 func (g *GoParser) GetLanguage() *sitter.Language {
@@ -73,6 +80,23 @@ func (g *GoParser) walkNode(node *sitter.Node, source []byte, parentName string,
 		symbols = append(symbols, g.extractTypeDeclaration(node, source)...)
 	case "const_declaration", "var_declaration":
 		symbols = append(symbols, g.extractVariableDeclaration(node, source, nodeType, parentName)...)
+	case "raw_string_literal", "interpreted_string_literal":
+		if g.subLangManager != nil {
+			startByte := uint32(node.StartByte())
+			endByte := uint32(node.EndByte())
+			if endByte-startByte > 15 {
+				content := source[startByte:endByte]
+				startPoint := node.StartPosition()
+				endPoint := node.EndPosition()
+
+				subSymbols := g.subLangManager.ProcessEmbeddedCode(
+					source, content, startByte, endByte, startPoint, endPoint, parentName,
+				)
+				if len(subSymbols) > 0 {
+					symbols = append(symbols, subSymbols...)
+				}
+			}
+		}
 	}
 
 	// Recursively process child nodes

@@ -16,7 +16,14 @@ import (
 )
 
 // SQLParser implements the LanguageParser interface for SQL files.
-type SQLParser struct{}
+type SQLParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (s *SQLParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	s.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for SQL.
 func (s *SQLParser) GetLanguage() *sitter.Language {

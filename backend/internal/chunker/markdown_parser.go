@@ -14,8 +14,15 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// MarkdownParser implements the LanguageParser interface for Markdown documents.
-type MarkdownParser struct{}
+// MarkdownParser implements the LanguageParser interface for Markdown files.
+type MarkdownParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (m *MarkdownParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	m.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for Markdown.
 func (m *MarkdownParser) GetLanguage() *sitter.Language {

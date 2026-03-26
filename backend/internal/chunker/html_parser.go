@@ -13,7 +13,14 @@ import (
 )
 
 // HTMLParser implements the LanguageParser interface for HTML source code.
-type HTMLParser struct{}
+type HTMLParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (h *HTMLParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	h.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for HTML.
 func (h *HTMLParser) GetLanguage() *sitter.Language {

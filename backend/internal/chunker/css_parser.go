@@ -13,7 +13,14 @@ import (
 )
 
 // CSSParser implements the LanguageParser interface for CSS source code.
-type CSSParser struct{}
+type CSSParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (c *CSSParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	c.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for CSS.
 func (c *CSSParser) GetLanguage() *sitter.Language {

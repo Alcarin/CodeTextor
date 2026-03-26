@@ -105,6 +105,12 @@ type LanguageParser interface {
 	GetFileExtensions() []string
 }
 
+// SubLanguageAware is implemented by parsers that can delegate nested code blocks
+// to the SubLanguageManager for statistical detection and precise extraction.
+type SubLanguageAware interface {
+	SetSubLanguageManager(manager *SubLanguageManager)
+}
+
 // ChunkConfig defines configuration for chunking behavior.
 type ChunkConfig struct {
 	MaxChunkSize      int  // Maximum size in tokens for a single chunk (default: 800)

@@ -15,7 +15,14 @@ import (
 )
 
 // PythonParser implements the LanguageParser interface for Python source code.
-type PythonParser struct{}
+type PythonParser struct {
+	subLangManager *SubLanguageManager
+}
+
+// SetSubLanguageManager implements the SubLanguageAware interface.
+func (p *PythonParser) SetSubLanguageManager(manager *SubLanguageManager) {
+	p.subLangManager = manager
+}
 
 // GetLanguage returns the tree-sitter Language for Python.
 func (p *PythonParser) GetLanguage() *sitter.Language {
@@ -70,6 +77,23 @@ func (p *PythonParser) walkNode(node *sitter.Node, source []byte, parentName str
 	case "decorated_definition":
 		// Handle decorated functions/classes (e.g., @property, @staticmethod)
 		symbols = p.walkNode(node, source, parentName, symbols)
+	case "string":
+		if p.subLangManager != nil {
+			startByte := uint32(node.StartByte())
+			endByte := uint32(node.EndByte())
+			if endByte-startByte > 15 {
+				content := source[startByte:endByte]
+				startPoint := node.StartPosition()
+				endPoint := node.EndPosition()
+
+				subSymbols := p.subLangManager.ProcessEmbeddedCode(
+					source, content, startByte, endByte, startPoint, endPoint, parentName,
+				)
+				if len(subSymbols) > 0 {
+					symbols = append(symbols, subSymbols...)
+				}
+			}
+		}
 	default:
 		// Recursively process child nodes
 		for i := uint(0); i < node.ChildCount(); i++ {
