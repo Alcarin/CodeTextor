@@ -146,8 +146,14 @@ The semantic chunking system consists of three main components:
    - Extract symbols: functions, classes, methods, top-level variables/constants (local variables are intentionally skipped to reduce noise)
    - Extract imports and documentation
    - Supported languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON, PHP
+   - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager`.
 
-2. **Enricher** (`backend/internal/chunker/enrichment.go`)
+2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
+   - **Statistical Detection**: Uses `github.com/go-enry/go-enry/v2` (Markov-chain based) to identify the language of embedded snippets. This provides a robust, data-driven approach to determine the language of code within a larger file (e.g., JavaScript inside an HTML script tag).
+   - **Precision Parsing**: Leverages Tree-sitter's `SetIncludedRanges` API. This powerful feature allows a sub-parser to focus on a specific byte range within the parent file while still having access to the full file's context. This is crucial for maintaining absolute line/byte offsets for symbols and chunks, eliminating the need for manual recalculation and ensuring accurate mapping back to the original source.
+   - **Fallback Heuristics**: Custom rules for common short fragments (HTML, SQL) where statistical detection might lack sufficient context. These heuristics provide a quick and reliable way to identify languages in cases where `go-enry` might not have enough data for a confident prediction.
+
+3. **Enricher** (`backend/internal/chunker/enrichment.go`)
    - `CodeChunk`: Structure containing enriched content + raw source code
    - `ChunkEnricher`: Transforms symbols into enriched chunks
    - Enrichment includes:
@@ -276,7 +282,6 @@ Return chunks with metadata
 **Component Structure:**
 
 ```
-```
 /frontend/src/
   /components/             ← Reusable UI components
     ProjectCard.vue         ← Project card for grid view
@@ -384,7 +389,8 @@ User Opens File → OutlineView.vue
 #### Vue Parser
 - **Sections**: `<template>`, `<script>`, `<style>` as root symbols
 - **Delegation**: Each section parsed by appropriate parser (HTML/JS/CSS)
-- **Line Offset**: Adjusts child symbol line numbers to match original file
+- **Automatic Sub-Language Hook**: Uses the same `SubLanguageManager` infrastructure as other parsers for consistency.
+- **Line Offset**: Adjusts child symbol line numbers to match original file (now mostly handled by `SetIncludedRanges` when applicable).
 - **Hierarchy Preservation**: Only root elements get section as parent, nested elements keep HTML/JS/CSS hierarchy
 
 #### HTML/CSS Parsers

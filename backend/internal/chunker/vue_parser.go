@@ -147,7 +147,7 @@ func (v *VueParser) extractSectionsWithPosition(source []byte) map[string]sectio
 	styleRe := regexp.MustCompile(`(?s)<style[^>]*>(.*?)</style>`)
 
 	// Extract template with position
-	if match := templateRe.FindSubmatchIndex(source); match != nil && len(match) >= 4 {
+	if match := templateRe.FindSubmatchIndex(source); len(match) >= 4 {
 		contentStart := match[2]
 		contentEnd := match[3]
 		content := source[contentStart:contentEnd]
@@ -164,7 +164,7 @@ func (v *VueParser) extractSectionsWithPosition(source []byte) map[string]sectio
 	}
 
 	// Extract script with position
-	if match := scriptRe.FindSubmatchIndex(source); match != nil && len(match) >= 6 {
+	if match := scriptRe.FindSubmatchIndex(source); len(match) >= 6 {
 		attrStart := match[2]
 		attrEnd := match[3]
 		contentStart := match[4]
@@ -191,7 +191,7 @@ func (v *VueParser) extractSectionsWithPosition(source []byte) map[string]sectio
 	}
 
 	// Extract style with position
-	if match := styleRe.FindSubmatchIndex(source); match != nil && len(match) >= 4 {
+	if match := styleRe.FindSubmatchIndex(source); len(match) >= 4 {
 		contentStart := match[2]
 		contentEnd := match[3]
 		content := source[contentStart:contentEnd]

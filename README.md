@@ -27,6 +27,7 @@ Specifiche CodeTextor:
 ## 🔍 Key Features
 
 - 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking
+- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation
 - 🧩 **Adaptive chunking strategy**
   - Collapses large functions/classes (`{ ... }`)
   - Merges small ones with comments and metadata

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
+- **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) across all 10 supported languages.
+  - Integration with `go-enry` for statistical language detection.
+  - Precision parsing using Tree-sitter's `SetIncludedRanges` to maintain absolute file offsets.
+  - Added `SubLanguageManager` as a central coordinator for cross-parser delegation.
 - **PHP Language Support**: Added full support for PHP parsing and chunking.
   - Extracts namespaces, classes, interfaces, traits, functions, methods, and `use` statements.
   - Hierarchical outline support for PHP files.
