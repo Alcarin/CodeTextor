@@ -49,8 +49,9 @@ func NewVectorStore(projectID, projectSlug string) (*VectorStore, error) {
 
 	dbPath := filepath.Join(projectIndexDir, fmt.Sprintf("project-%s.db", projectSlug))
 
-	// Open with WAL mode for better concurrent access and busy timeout
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	// Open with WAL mode for better concurrent access and busy timeout.
+	// We also enable foreign keys to support ON DELETE CASCADE.
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open vector database at %s: %w", dbPath, err)
 	}
@@ -112,7 +113,7 @@ func runVectorMigrations(db *sql.DB) error {
 
 // RunVectorMigrations applies the embedded vector migrations to the database at dbPath.
 func RunVectorMigrations(dbPath string) error {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
 	if err != nil {
 		return fmt.Errorf("failed to open vector database for migrations: %w", err)
 	}
@@ -628,21 +629,9 @@ func (s *VectorStore) RemoveFileAndArtifacts(filePath string) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM chunk_symbols WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)`, fileID); err != nil {
-		return fmt.Errorf("failed to delete chunk-symbol links for %s: %w", normalized, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to delete chunks for %s: %w", normalized, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM symbols WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to delete symbols for %s: %w", normalized, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM outline_nodes WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to delete outline nodes for %s: %w", normalized, err)
-	}
-	if _, err := tx.Exec(`DELETE FROM outline_metadata WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to delete outline metadata for %s: %w", normalized, err)
-	}
+	// Since we enabled foreign keys with ON DELETE CASCADE in the connection string,
+	// simply deleting the file from the 'files' table will remove chunks, symbols, 
+	// outlines, and chunk-symbol mappings automatically.
 	if _, err := tx.Exec(`DELETE FROM files WHERE pk = ?`, fileID); err != nil {
 		return fmt.Errorf("failed to delete file record for %s: %w", normalized, err)
 	}
@@ -650,6 +639,43 @@ func (s *VectorStore) RemoveFileAndArtifacts(filePath string) error {
 	s.fileIDMu.Lock()
 	delete(s.fileIDs, normalized)
 	s.fileIDMu.Unlock()
+
+	return tx.Commit()
+}
+
+// RemoveDirectoryAndArtifacts deletes all stored data for files within the given directory path.
+// dirPath should be the absolute path to the directory.
+func (s *VectorStore) RemoveDirectoryAndArtifacts(dirPath string) error {
+	normalized, err := normalizeOutlinePath(dirPath)
+	if err != nil {
+		return err
+	}
+
+	// Ensure prefix matching for directory paths (e.g., path/to/dir/file.txt)
+	if !strings.HasSuffix(normalized, "/") {
+		normalized += "/"
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin directory removal for %s: %w", normalized, err)
+	}
+	defer tx.Rollback()
+
+	// 1. Clear cached file IDs for all files under this directory
+	s.fileIDMu.Lock()
+	for path := range s.fileIDs {
+		if strings.HasPrefix(path, normalized) {
+			delete(s.fileIDs, path)
+		}
+	}
+	s.fileIDMu.Unlock()
+
+	// 2. Delete the directory entries and all Cascading children (chunks, symbols, etc.)
+	// We use LIKE to matches everything starting with the directory path.
+	if _, err := tx.Exec(`DELETE FROM files WHERE path LIKE ?`, normalized+"%"); err != nil {
+		return fmt.Errorf("failed to remove files for directory %s: %w", normalized, err)
+	}
 
 	return tx.Commit()
 }
