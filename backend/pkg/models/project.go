@@ -166,8 +166,8 @@ const (
 
 // IndexingProgress represents the current state of an indexing operation.
 type IndexingProgress struct {
-	TotalFiles     int            `json:"totalFiles"`
-	ProcessedFiles int            `json:"processedFiles"`
+	TotalFiles     int32          `json:"totalFiles"`
+	ProcessedFiles int32          `json:"processedFiles"`
 	CurrentFile    string         `json:"currentFile"`
 	Status         IndexingStatus `json:"status"` // e.g., "idle", "indexing", "completed", "error"
 	Error          string         `json:"error,omitempty"`

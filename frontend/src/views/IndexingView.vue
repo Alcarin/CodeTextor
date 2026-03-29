@@ -1119,7 +1119,6 @@ watch(currentProject, async (project, previous) => {
         await applyProjectConfigValues(refreshedProject);
         indexingEnabled.value = refreshedProject.isIndexing;
         stopProgressPolling();
-        await safeStopIndexing();
         progress.value = {
           totalFiles: 0,
           processedFiles: 0,
@@ -1145,7 +1144,6 @@ watch(currentProject, async (project, previous) => {
     gitignorePatterns.value = [];
     indexingEnabled.value = false;
     stopProgressPolling();
-    await safeStopIndexing();
     progress.value = {
       totalFiles: 0,
       processedFiles: 0,

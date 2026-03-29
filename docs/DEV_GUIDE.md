@@ -367,7 +367,15 @@ Each project maintains its own complete indexing state with concurrent indexing 
 * **Custom models**: The modal lets users record disk/RAM estimates, latency, multilingual flag, source URI (HTTP or local copy), and license notes. These values feed the download helper and are persisted in the catalog for reuse.
 * **Per-project snapshot**: `ProjectConfig.EmbeddingModelInfo` captures the metadata (id, label, dimension, download status, local path, etc.) inside `project_meta`. When a project `.db` moves to another machine, CodeTextor can recreate the catalog entry and re-download the artifact using this snapshot.
 * **FastEmbed backend**: Lightweight CPU-friendly models (BGE Small, GTE Small, etc.) ship preconfigured under the "FastEmbed" group. They still rely on ONNX Runtime (same requirement as the ONNX group), but cache/download artifacts automatically and expose a consistent API to the backend.
-* **Runtime detection & reuse**: At startup the backend tries to initialize the ONNX Runtime shared library using the path stored in the config database (set via the Projects view). If detection succeeds, only one ONNX session per model id is kept in memory and the UI enables both "FastEmbed" and "ONNX" groups; if it fails every ONNX-dependent option is disabled and projects fall back to the mock embedding client until the runtime is installed and the app restarted.
+* **Runtime detection & reuse**: At startup, the backend attempts to initialize the ONNX Runtime shared library. Upon success, a single session per model is maintained.
+- **Low Memory Footprint**: To ensure stability on systems with limited memory (e.g., 8-16GB RAM) or when multiple projects are indexed concurrently, use the `Priority` system to throttle resource-heavy operations.
+- **Dynamic Batch Scaling**: The batch size for GPU inference is no longer fixed. It is calculated upon each client creation based on the **available VRAM** detected on the system. The formula (`2^round(log2(Available_VRAM_GB * 8.0))`) ensures the batch is always a **power of 2**, optimizing thread alignment on the GPU and preventing out-of-memory errors.
+- **Priority-Based Embedding Tasks**: Indexing and retrieval tasks are assigned a priority to ensure UI responsiveness:
+  - `PriorityHigh (2)`: User-initiated searches and manual re-indexing.
+  - `PriorityNormal (1)`: Default for initial project indexing and startup synchronization.
+  - `PriorityLow (0)`: Background file modifications and continuous indexing updates.
+
+
 
 ---
 

@@ -99,7 +99,14 @@ Per-Project Database Contents:
 - **Per-project snapshot**: When a project selects a model, the entire metadata record (including download status and local path) is serialized inside `project_meta.config_json`. Moving the `.db` to another machine guarantees the new installation can recreate the catalog entry and (re)download the required files automatically.
 - **Download orchestration**: The backend download helper streams the configured source URI (HTTP(S) or local path) into `<AppDataDir>/models/<id>/model.onnx` (or custom filenames), updating the catalog status (`pending`, `downloading`, `ready`, `missing`, `error`). Download progress events are emitted to the frontend so the UI can show a determinate modal; FastEmbed models fall back to Hugging Face mirrors when the public CDN fails. When a repository does not publish ONNX assets (e.g., `nomic-ai/nomic-embed-code`), the user can still add custom entries with manual SourceURI/Tokenizer paths.
 - **Dual backend (FastEmbed + ONNX)**: Both FastEmbed and pure ONNX entries rely on the same ONNX Runtime shared library. Every model—FastEmbed included—is downloaded explicitly via the Indexing view before it becomes available. When the runtime is missing, both sets of models are disabled in the UI and the backend falls back to the mock embedding client.
-- **ONNX runtime detection**: During startup the backend attempts to initialize the `onnxruntime` shared library using the path stored in the config database (set from the Projects view). Detection success unlocks all embedding groups and reuses a single ONNX session per model id; failure greys out the dropdown, shows a warning, and keeps indexing functional via the mock client until the runtime is installed.
+- **ONNX runtime detection**: During startup, the backend attempts to initialize the `onnxruntime` shared library using the path stored in the config database. If successful, a single ONNX session per model ID is kept in memory.
+- **Dynamic VRAM-aware Batching (Native ONNX)**: For models using the native DirectML/CoreML backend, the system no longer uses a static batch size. The batch size is dynamically calculated using the formula `2^round(log2(Available_VRAM_GB * 8.0))` to ensure optimal power-of-2 alignment on modern GPUs.
+- **Embedding Task Priorities**: CodeTextor uses a priority-based queue in `models/priority.go` to ensure UI responsiveness:
+  - **PriorityHigh (2)**: User-initiated actions (e.g., semantic search/manual reindex) for immediate results.
+  - **PriorityNormal (1)**: Default for initial project indexing and startup sync.
+  - **PriorityLow (0)**: Background file-watcher updates during active editing.
+
+
 
 ---
 

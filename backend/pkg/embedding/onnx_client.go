@@ -2,7 +2,6 @@ package embedding
 
 import (
 	"CodeTextor/backend/pkg/models"
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -10,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/sugarme/tokenizer"
 	"github.com/sugarme/tokenizer/pretrained"
@@ -37,7 +38,84 @@ type ONNXEmbeddingClient struct {
 	outputNames      []string
 	expectTokenTypes bool
 	dimension        int
+	batchSize        int // Current batch size, can be rebalanced by ProjectService
+	modelID          string
 	mu               sync.Mutex
+	lastUsed         time.Time
+	jobChan          chan embeddingJob
+	stopChan         chan struct{}
+	wg               sync.WaitGroup
+	pendingCount     atomic.Int32
+}
+
+// computeOptimalBatchSize determines the batch size based on AVAILABLE GPU VRAM.
+func computeOptimalBatchSize() int {
+	provider := GetActiveExecutionProvider()
+	if provider == "CPU" {
+		return 4
+	}
+
+	// Important: we query the AVAILABLE VRAM at startup to avoid overlapping with other apps.
+	vramMB := detectAvailableGPUVRAM()
+	if vramMB <= 0 {
+		// Could not detect, use safe fallback
+		log.Printf("GPU VRAM: Detection failed or not implemented, using default batch size 32")
+		return 32
+	}
+
+	vramGB := float64(vramMB) / 1024.0
+	// Formula: target = vramGB * 8.0
+	// Then round to the nearest power of 2: 2^round(log2(vramGB * 8.0))
+
+	target := vramGB * 8.0
+	exponent := math.Round(math.Log2(target))
+	batchSize := int(math.Pow(2, exponent))
+
+	// Safety clamp: keep between 8 (min performance) and 128 (stability limit)
+	if batchSize < 8 {
+		batchSize = 8
+	}
+	if batchSize > 128 {
+		batchSize = 128
+	}
+
+	log.Printf("GPU VRAM Available: %.1f GB → Batch scaling factor: 8.0 → Batch size: %d", vramGB, batchSize)
+	return batchSize
+}
+
+// detectAvailableGPUVRAM returns the available dedicated GPU VRAM in megabytes.
+func detectAvailableGPUVRAM() int {
+	return DetectAvailableGPUVRAM()
+}
+
+// GetBatchSize returns the current batch size for this client instance.
+func (c *ONNXEmbeddingClient) GetBatchSize() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.batchSize
+}
+
+// SetBatchSize updates the batch size for this client instance.
+func (c *ONNXEmbeddingClient) SetBatchSize(batchSize int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	c.batchSize = batchSize
+}
+
+// ModelID returns the unique identifier for the model used by this client.
+func (c *ONNXEmbeddingClient) ModelID() string {
+	return c.modelID
+}
+
+// TokenizedChunk holds tokenized data for a single text, ready for batch assembly.
+// Created by TokenizeOne() in CPU workers, consumed by EmbedTokenizedBatch() in GPU worker.
+type TokenizedChunk struct {
+	IDs   []int64
+	Masks []int64
+	Types []int64
 }
 
 // NewONNXEmbeddingClient constructs an embedding client backed by an ONNX model.
@@ -56,6 +134,10 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		return nil, err
 	}
 	log.Printf("DEBUG: ONNX Runtime initialized successfully")
+
+	// Compute optimal batch size based on ACTUAL available VRAM at the moment of client creation.
+	// This helps adapt to changing GPU load (e.g. after model unloads/leaking memory).
+	batchSize := computeOptimalBatchSize()
 
 	tk, err := pretrained.FromFile(meta.TokenizerLocalPath)
 	if err != nil {
@@ -80,7 +162,12 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		padDirection = padParams.Direction
 	}
 
-	inputInfo, outputInfo, err := onnx.GetInputOutputInfo(meta.LocalPath)
+	// Forziamo l'ispezione dei metadati sulla CPU per evitare spike di VRAM all'avvio.
+	// Una SessionOptions appena creata senza provider aggiunti usa di default la CPU.
+	infoOptions, _ := onnx.NewSessionOptions()
+	defer infoOptions.Destroy()
+
+	inputInfo, outputInfo, err := onnx.GetInputOutputInfoWithOptions(meta.LocalPath, infoOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect ONNX file %s: %w", meta.LocalPath, err)
 	}
@@ -102,7 +189,6 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		log.Printf("DEBUG: newONNXSessionWithBestProvider failed: %v", err)
 		return nil, fmt.Errorf("failed to create ONNX session: %w", err)
 	}
-	log.Printf("DEBUG: ONNX session created successfully for %s", meta.LocalPath)
 
 	client := &ONNXEmbeddingClient{
 		session:          session,
@@ -116,28 +202,123 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		outputNames:      outputNames,
 		expectTokenTypes: hasTokenTypeInput(inputNames),
 		dimension:        meta.Dimension,
+		batchSize:        batchSize,
+		modelID:          meta.ID,
+		jobChan:          make(chan embeddingJob, 64),
+		stopChan:         make(chan struct{}),
+		lastUsed:         time.Now(),
 	}
+	client.wg.Add(1)
+	go client.batchWorker()
 	return client, nil
 }
 
-// GenerateEmbeddings converts each input string into a normalized embedding vector.
+// GenerateEmbeddings converts input strings into normalized embedding vectors.
+// Uses the batch worker for optimal GPU utilization.
 func (c *ONNXEmbeddingClient) GenerateEmbeddings(texts []string) ([][]float32, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	results := make([][]float32, len(texts))
-	for i, text := range texts {
-		vec, err := c.embedSingle(text)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = vec
+	if len(texts) == 0 {
+		return [][]float32{}, nil
 	}
-	return results, nil
+	c.updateActivity()
+	// Incrementiamo il carico pendente
+	c.pendingCount.Add(int32(len(texts)))
+
+	resultChan := make(chan jobResult, 1)
+	c.jobChan <- embeddingJob{texts: texts, resultChan: resultChan}
+	result := <-resultChan
+	return result.embeddings, result.err
+}
+
+func (c *ONNXEmbeddingClient) updateActivity() {
+	c.lastUsed = time.Now()
+}
+
+// LastActivity returns the time of the last embedding operation.
+func (c *ONNXEmbeddingClient) LastActivity() time.Time {
+	return c.lastUsed
+}
+
+// PendingWork returns the number of strings currently waiting to be embedded.
+func (c *ONNXEmbeddingClient) PendingWork() int {
+	return int(c.pendingCount.Load())
+}
+
+// batchWorker collects embedding requests and processes them in large batches.
+func (c *ONNXEmbeddingClient) batchWorker() {
+	defer c.wg.Done()
+
+	var pendingTexts []string
+	var pendingJobs []embeddingJob
+
+	var maxBatchSize = c.batchSize // Optimal batch for this instance
+
+	flush := func() {
+		if len(pendingTexts) == 0 {
+			return
+		}
+
+		// Perform batch embedding
+		log.Printf("GPU Batch (ONNX): Processing %d texts (from %d jobs)", len(pendingTexts), len(pendingJobs))
+		embeddings, err := c.embedBatch(pendingTexts)
+
+		// Distribute results back to original callers
+		offset := 0
+		for _, job := range pendingJobs {
+			count := len(job.texts)
+			var jobEmbeds [][]float32
+			var jobErr error
+
+			if err != nil {
+				jobErr = err
+			} else {
+				if offset+count <= len(embeddings) {
+					jobEmbeds = make([][]float32, count)
+					copy(jobEmbeds, embeddings[offset:offset+count])
+				} else {
+					jobErr = fmt.Errorf("onnx embedding count mismatch")
+				}
+			}
+
+			job.resultChan <- jobResult{embeddings: jobEmbeds, err: jobErr}
+			offset += count
+			// Decrementiamo il carico pendente quando il job è completato
+			c.pendingCount.Add(int32(-count))
+		}
+
+		pendingTexts = nil
+		pendingJobs = nil
+	}
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case job, ok := <-c.jobChan:
+			if !ok {
+				return
+			}
+			pendingTexts = append(pendingTexts, job.texts...)
+			pendingJobs = append(pendingJobs, job)
+
+			if len(pendingTexts) >= maxBatchSize {
+				flush()
+				ticker.Reset(50 * time.Millisecond)
+			}
+		case <-ticker.C:
+			flush()
+		case <-c.stopChan:
+			flush()
+			return
+		}
+	}
 }
 
 // Close releases ONNX runtime resources.
 func (c *ONNXEmbeddingClient) Close() error {
+	close(c.stopChan)
+	c.wg.Wait()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.session != nil {
@@ -149,160 +330,371 @@ func (c *ONNXEmbeddingClient) Close() error {
 	return nil
 }
 
-func (c *ONNXEmbeddingClient) embedSingle(text string) (result []float32, err error) {
-	// Defensively recover from panics in the external tokenizer library.
-	// Some versions of sugarme/tokenizer can panic for obscure string patterns.
+// embedBatch processes a batch of texts through ONNX with fixed batch shape.
+func (c *ONNXEmbeddingClient) embedBatch(texts []string) ([][]float32, error) {
+	actualCount := len(texts)
+	if actualCount == 0 {
+		return [][]float32{}, nil
+	}
+
+	// Split into sub-batches if needed
+	if actualCount > c.batchSize {
+		var allResults [][]float32
+		for i := 0; i < actualCount; i += c.batchSize {
+			end := i + c.batchSize
+			if end > actualCount {
+				end = actualCount
+			}
+			sub, err := c.embedBatch(texts[i:end])
+			if err != nil {
+				return nil, err
+			}
+			allResults = append(allResults, sub...)
+		}
+		return allResults, nil
+	}
+
+	batchSize := actualCount
+	if actualCount < c.batchSize {
+		batchSize = c.batchSize
+	}
+
+	c.updateActivity()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.session == nil {
+		return nil, fmt.Errorf("ONNX session is closed")
+	}
+
+	log.Printf("GPU Shape (ONNX): [%d, %d] (%d real texts, %d padding)",
+		batchSize, c.maxSeqLen, actualCount, batchSize-actualCount)
+
+	gpuStart := time.Now()
+
+	totalLen := int64(batchSize) * int64(c.maxSeqLen)
+	allIds := make([]int64, totalLen)
+	allMasks := make([]int64, totalLen)
+	allTypes := make([]int64, totalLen)
+
+	for i, text := range texts {
+		encoding, err := c.tokenizer.EncodeSingle(text, true)
+		if err != nil {
+			log.Printf("Tokenizer error for text %d: %v", i, err)
+			continue
+		}
+		c.normalizeEncoding(encoding)
+
+		if encoding.Len() > c.maxSeqLen {
+			truncated, _ := encoding.Truncate(c.maxSeqLen, 0)
+			if truncated != nil {
+				encoding = truncated
+			}
+		}
+		if encoding.Len() < c.maxSeqLen {
+			encoding = encoding.Pad(c.maxSeqLen, c.padID, c.padTypeID, c.padToken, c.padDirection)
+		}
+
+		ids := encoding.GetIds()
+		masks := encoding.GetAttentionMask()
+		types := encoding.GetTypeIds()
+
+		base := i * c.maxSeqLen
+		for j := 0; j < c.maxSeqLen; j++ {
+			if j < len(ids) {
+				allIds[base+j] = int64(ids[j])
+			} else {
+				allIds[base+j] = int64(c.padID)
+			}
+
+			if j < len(masks) {
+				allMasks[base+j] = int64(masks[j])
+			}
+
+			if c.expectTokenTypes && j < len(types) {
+				allTypes[base+j] = int64(types[j])
+			}
+		}
+	}
+
+	// Build Tensors
+	shape := onnx.NewShape(int64(batchSize), int64(c.maxSeqLen))
+	idTensor, err := onnx.NewTensor(shape, allIds)
+	if err != nil {
+		return nil, err
+	}
+	defer idTensor.Destroy()
+
+	maskTensor, err := onnx.NewTensor(shape, allMasks)
+	if err != nil {
+		return nil, err
+	}
+	defer maskTensor.Destroy()
+
+	var typeTensor *onnx.Tensor[int64]
+	if c.expectTokenTypes {
+		typeTensor, err = onnx.NewTensor(shape, allTypes)
+		if err != nil {
+			return nil, err
+		}
+		defer typeTensor.Destroy()
+	}
+
+	// Prepare inputs/outputs
+	inputValues := make([]onnx.Value, 0, len(c.inputNames))
+	for _, name := range c.inputNames {
+		switch strings.ToLower(name) {
+		case "input_ids":
+			inputValues = append(inputValues, idTensor)
+		case "attention_mask":
+			inputValues = append(inputValues, maskTensor)
+		case "token_type_ids":
+			if typeTensor != nil {
+				inputValues = append(inputValues, typeTensor)
+			}
+		}
+	}
+
+	outputValues := make([]onnx.Value, len(c.outputNames))
+	err = c.session.Run(inputValues, outputValues)
 	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("tokenizer panic for input of length %d: %v", len(text), r)
+		for _, v := range outputValues {
+			if v != nil {
+				v.Destroy()
+			}
 		}
 	}()
+	if err != nil {
+		return nil, err
+	}
 
+	log.Printf("GPU Inference: %dms (VRAM Sys: %d MB)", time.Since(gpuStart).Milliseconds(), GetProcessVRAMUsage())
+
+	// Post-process batch
+	tensor, ok := outputValues[0].(*onnx.Tensor[float32])
+	if !ok {
+		return nil, fmt.Errorf("unexpected output tensor type")
+	}
+
+	rawData := tensor.GetData()
+	outShape := tensor.GetShape()
+
+	results := make([][]float32, batchSize)
+
+	if len(outShape) == 2 {
+		hidden := int(outShape[1])
+		for i := 0; i < batchSize; i++ {
+			vec := make([]float32, hidden)
+			copy(vec, rawData[i*hidden:(i+1)*hidden])
+			normalizeVector(vec)
+			results[i] = vec
+		}
+	} else if len(outShape) == 3 {
+		seqLen := int(outShape[1])
+		hidden := int(outShape[2])
+		for i := 0; i < batchSize; i++ {
+			rowMask := make([]int, seqLen)
+			base := i * c.maxSeqLen
+			for j := 0; j < seqLen && j < c.maxSeqLen; j++ {
+				rowMask[j] = int(allMasks[base+j])
+			}
+
+			rowOutput := rawData[i*seqLen*hidden : (i+1)*seqLen*hidden]
+			vec, err := postProcessSingleEmbedding(rowOutput, seqLen, hidden, rowMask)
+			if err != nil {
+				return nil, err
+			}
+			normalizeVector(vec)
+			results[i] = vec
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported output shape: %v", outShape)
+	}
+
+	// Return only actual results, discarding padding entries
+	return results[:actualCount], nil
+}
+
+// TokenizeOne tokenizes a single text into a TokenizedChunk.
+// This is thread-safe: the tokenizer is read-only during encoding and each call
+// creates independent encoding objects. Safe for concurrent use from CPU workers.
+func (c *ONNXEmbeddingClient) TokenizeOne(text string) (*TokenizedChunk, error) {
 	encoding, err := c.tokenizer.EncodeSingle(text, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode text: %w", err)
+		return nil, err
 	}
-	if encoding == nil {
-		return nil, errors.New("tokenizer returned nil encoding")
-	}
-
-	// Older versions of sugarme/tokenizer sometimes return encodings whose
-	// auxiliary slices (Words, TypeIds, etc.) are shorter than Ids, which makes
-	// Truncate panic when asked to keep more items than they contain. Bring all
-	// slices to the same length before truncating/padding to avoid that crash.
 	c.normalizeEncoding(encoding)
 
 	if encoding.Len() > c.maxSeqLen {
-		truncated, err := encoding.Truncate(c.maxSeqLen, 0)
-		if err != nil {
-			return nil, fmt.Errorf("failed to truncate encoding: %w", err)
+		truncated, _ := encoding.Truncate(c.maxSeqLen, 0)
+		if truncated != nil {
+			encoding = truncated
 		}
-		encoding = truncated
 	}
 	if encoding.Len() < c.maxSeqLen {
 		encoding = encoding.Pad(c.maxSeqLen, c.padID, c.padTypeID, c.padToken, c.padDirection)
 	}
 
-	ids := encoding.GetIds()
-	attMask := encoding.GetAttentionMask()
-	if len(ids) > c.maxSeqLen {
-		ids = ids[:c.maxSeqLen]
-	}
-	if len(attMask) > c.maxSeqLen {
-		attMask = attMask[:c.maxSeqLen]
+	rawIDs := encoding.GetIds()
+	rawMasks := encoding.GetAttentionMask()
+	rawTypes := encoding.GetTypeIds()
+
+	ids := make([]int64, c.maxSeqLen)
+	masks := make([]int64, c.maxSeqLen)
+	types := make([]int64, c.maxSeqLen)
+
+	for j := 0; j < c.maxSeqLen; j++ {
+		if j < len(rawIDs) {
+			ids[j] = int64(rawIDs[j])
+		} else {
+			ids[j] = int64(c.padID)
+		}
+		if j < len(rawMasks) {
+			masks[j] = int64(rawMasks[j])
+		}
+		if c.expectTokenTypes && j < len(rawTypes) {
+			types[j] = int64(rawTypes[j])
+		}
 	}
 
-	tokenTypeIDs := make([]int, c.maxSeqLen)
-	if c.expectTokenTypes {
-		typeIDs := encoding.GetTypeIds()
-		copy(tokenTypeIDs, clampSlice(typeIDs, c.maxSeqLen))
+	return &TokenizedChunk{IDs: ids, Masks: masks, Types: types}, nil
+}
+
+// EmbedTokenizedBatch takes pre-tokenized chunks (from TokenizeOne), assembles them
+// into a GPU batch, and runs inference. The GPU worker calls ONLY this — zero CPU
+// tokenization overhead between batches.
+// chunks must have len <= fixedBatchSize. Padding to fixedBatchSize is automatic.
+func (c *ONNXEmbeddingClient) EmbedTokenizedBatch(chunks []*TokenizedChunk) ([][]float32, error) {
+	actualCount := len(chunks)
+	if actualCount == 0 {
+		return [][]float32{}, nil
 	}
 
-	inputTensors, cleanupInputs, err := c.buildInputTensors(ids, attMask, tokenTypeIDs)
+	c.updateActivity()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.session == nil {
+		return nil, fmt.Errorf("ONNX session is closed")
+	}
+
+	log.Printf("GPU Shape (ONNX): [%d, %d] (%d texts)",
+		actualCount, c.maxSeqLen, actualCount)
+
+	gpuStart := time.Now()
+
+	// Assemble pre-tokenized chunks into batch arrays
+	totalLen := int64(actualCount) * int64(c.maxSeqLen)
+	allIds := make([]int64, totalLen)
+	allMasks := make([]int64, totalLen)
+	allTypes := make([]int64, totalLen)
+
+	for i, chunk := range chunks {
+		base := i * c.maxSeqLen
+		copy(allIds[base:base+c.maxSeqLen], chunk.IDs)
+		copy(allMasks[base:base+c.maxSeqLen], chunk.Masks)
+		copy(allTypes[base:base+c.maxSeqLen], chunk.Types)
+	}
+
+	// Build Tensors
+	shape := onnx.NewShape(int64(actualCount), int64(c.maxSeqLen))
+	idTensor, err := onnx.NewTensor(shape, allIds)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanupInputs()
+	defer idTensor.Destroy()
+
+	maskTensor, err := onnx.NewTensor(shape, allMasks)
+	if err != nil {
+		return nil, err
+	}
+	defer maskTensor.Destroy()
+
+	var typeTensor *onnx.Tensor[int64]
+	if c.expectTokenTypes {
+		typeTensor, err = onnx.NewTensor(shape, allTypes)
+		if err != nil {
+			return nil, err
+		}
+		defer typeTensor.Destroy()
+	}
+
+	// Prepare inputs/outputs
+	inputValues := make([]onnx.Value, 0, len(c.inputNames))
+	for _, name := range c.inputNames {
+		switch strings.ToLower(name) {
+		case "input_ids":
+			inputValues = append(inputValues, idTensor)
+		case "attention_mask":
+			inputValues = append(inputValues, maskTensor)
+		case "token_type_ids":
+			if typeTensor != nil {
+				inputValues = append(inputValues, typeTensor)
+			}
+		}
+	}
 
 	outputValues := make([]onnx.Value, len(c.outputNames))
-	err = c.session.Run(inputTensors, outputValues)
+	err = c.session.Run(inputValues, outputValues)
 	defer func() {
-		for _, out := range outputValues {
-			if out != nil {
-				out.Destroy()
+		for _, v := range outputValues {
+			if v != nil {
+				v.Destroy()
 			}
 		}
 	}()
 	if err != nil {
-		return nil, fmt.Errorf("failed to run ONNX session: %w", err)
-	}
-
-	if len(outputValues) == 0 {
-		return nil, fmt.Errorf("model returned no outputs")
-	}
-
-	tensor, ok := outputValues[0].(*onnx.Tensor[float32])
-	if !ok {
-		return nil, fmt.Errorf("unexpected output tensor type %T", outputValues[0])
-	}
-
-	vec, err := c.postProcessEmbedding(tensor.GetData(), tensor.GetShape(), attMask)
-	if err != nil {
 		return nil, err
 	}
-	normalizeVector(vec)
-	return vec, nil
-}
 
-func (c *ONNXEmbeddingClient) buildInputTensors(ids []int, attMask []int, tokenTypeIDs []int) ([]onnx.Value, func(), error) {
-	shape := onnx.NewShape(1, int64(c.maxSeqLen))
-	idTensor, err := onnx.NewTensor(shape, toInt64(ids, c.maxSeqLen))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build input_ids tensor: %w", err)
+	log.Printf("GPU Inference: %dms (VRAM Sys: %d MB)", time.Since(gpuStart).Milliseconds(), GetProcessVRAMUsage())
+
+	// Post-process batch
+	tensor, ok := outputValues[0].(*onnx.Tensor[float32])
+	if !ok {
+		return nil, fmt.Errorf("unexpected output tensor type")
 	}
-	attTensor, err := onnx.NewTensor(shape, toInt64(attMask, c.maxSeqLen))
-	if err != nil {
-		idTensor.Destroy()
-		return nil, nil, fmt.Errorf("failed to build attention_mask tensor: %w", err)
-	}
-	var tokenTensor *onnx.Tensor[int64]
-	if c.expectTokenTypes {
-		tokenTensor, err = onnx.NewTensor(shape, toInt64(tokenTypeIDs, c.maxSeqLen))
-		if err != nil {
-			idTensor.Destroy()
-			attTensor.Destroy()
-			return nil, nil, fmt.Errorf("failed to build token_type_ids tensor: %w", err)
+
+	rawData := tensor.GetData()
+	outShape := tensor.GetShape()
+
+	results := make([][]float32, actualCount)
+
+	if len(outShape) == 2 {
+		hidden := int(outShape[1])
+		for i := 0; i < actualCount; i++ {
+			vec := make([]float32, hidden)
+			copy(vec, rawData[i*hidden:(i+1)*hidden])
+			normalizeVector(vec)
+			results[i] = vec
 		}
-	}
-
-	cleanup := func() {
-		idTensor.Destroy()
-		attTensor.Destroy()
-		if tokenTensor != nil {
-			tokenTensor.Destroy()
-		}
-	}
-
-	values := make([]onnx.Value, 0, len(c.inputNames))
-	for _, name := range c.inputNames {
-		switch strings.ToLower(name) {
-		case "input_ids":
-			values = append(values, idTensor)
-		case "attention_mask":
-			values = append(values, attTensor)
-		case "token_type_ids":
-			if tokenTensor == nil {
-				return nil, cleanup, fmt.Errorf("model expects token_type_ids but tokenizer did not provide them")
+	} else if len(outShape) == 3 {
+		seqLen := int(outShape[1])
+		hidden := int(outShape[2])
+		for i := 0; i < actualCount; i++ {
+			rowMask := make([]int, seqLen)
+			base := i * c.maxSeqLen
+			for j := 0; j < seqLen && j < c.maxSeqLen; j++ {
+				rowMask[j] = int(allMasks[base+j])
 			}
-			values = append(values, tokenTensor)
-		default:
-			return nil, cleanup, fmt.Errorf("unsupported ONNX input %s", name)
+
+			rowOutput := rawData[i*seqLen*hidden : (i+1)*seqLen*hidden]
+			vec, err := postProcessSingleEmbedding(rowOutput, seqLen, hidden, rowMask)
+			if err != nil {
+				return nil, err
+			}
+			normalizeVector(vec)
+			results[i] = vec
 		}
+	} else {
+		return nil, fmt.Errorf("unsupported output shape: %v", outShape)
 	}
-	return values, cleanup, nil
+
+	return results[:actualCount], nil
 }
 
-func (c *ONNXEmbeddingClient) postProcessEmbedding(data []float32, shape onnx.Shape, attMask []int) ([]float32, error) {
-	if len(shape) == 2 {
-		// shape: [1, hidden]
-		vec := append([]float32(nil), data...)
-		return vec, nil
-	}
-	if len(shape) != 3 {
-		return nil, fmt.Errorf("unsupported output shape %v", shape)
-	}
-	if len(shape) < 3 {
-		return nil, fmt.Errorf("invalid hidden state shape %v", shape)
-	}
-	seqLen := int(shape[1])
-	hidden := int(shape[2])
-	if seqLen <= 0 || hidden <= 0 {
-		return nil, fmt.Errorf("invalid output dimensions %v", shape)
-	}
-	if len(data) != seqLen*hidden {
-		return nil, fmt.Errorf("mismatched output size: got %d expected %d", len(data), seqLen*hidden)
-	}
-
+func postProcessSingleEmbedding(data []float32, seqLen, hidden int, attMask []int) ([]float32, error) {
 	result := make([]float32, hidden)
 	var count float32
 	for i := 0; i < seqLen && i < len(attMask); i++ {
@@ -332,17 +724,34 @@ func newONNXSessionWithBestProvider(modelPath string, inputNames, outputNames []
 	}
 	defer options.Destroy()
 
-	// Enable all graph optimizations for best performance
+	// Use Basic optimization for GPU (node fusion) to minimize the buffer count
+	// Impostiamo il livello di ottimizzazione massimo per massimizzare la fusione dei nodi e ridurre i buffer intermedi.
 	options.SetGraphOptimizationLevel(onnx.GraphOptimizationLevelEnableAll)
 
-	// Limit CPU usage: set internal thread pools to 50% of available CPUs
-	// This prevents ONNX from taking over all cores for a single operation.
+	// Enable Memory Pattern to pre-allocate and reuse buffers efficiently
+	options.SetMemPattern(true)
+
+	// Use Sequential execution to minimize concurrent activation buffers
+	options.SetExecutionMode(onnx.ExecutionModeSequential)
+
+	// Enable DirectML to use device allocator for initializers to reduce host->device copies
+	options.AddSessionConfigEntry("session.use_device_allocator_for_initializers", "1")
+
+	// Detect if we are using a GPU provider
+	isGPU := GetActiveExecutionProvider() != "CPU"
+
+	// Limit internal thread pool
 	numThreads := runtime.NumCPU() / 2
 	if numThreads < 1 {
 		numThreads = 1
 	}
+	if isGPU {
+		// For GPU, minimal threads reduce the DirectML workspace/arenas
+		numThreads = 1
+	}
 	options.SetIntraOpNumThreads(numThreads)
-	options.SetInterOpNumThreads(numThreads)
+	// Set Inter-Op threads to 1 for GPU stability and less memory overhead
+	options.SetInterOpNumThreads(1)
 
 	// Try to append specialized execution providers.
 	// We use the globally detected execution provider.
@@ -358,7 +767,15 @@ func newONNXSessionWithBestProvider(modelPath string, inputNames, outputNames []
 		}
 	}
 
-	return onnx.NewDynamicAdvancedSession(modelPath, inputNames, outputNames, options)
+	log.Printf("GPU Cache: VRAM total usage before session: %d MB", GetProcessVRAMUsage())
+
+	session, err := onnx.NewDynamicAdvancedSession(modelPath, inputNames, outputNames, options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ONNX session: %w", err)
+	}
+
+	log.Printf("GPU Cache: ONNX session created (VRAM total: %d MB) for %s", GetProcessVRAMUsage(), modelPath)
+	return session, nil
 }
 
 func detectBestExecutionProvider() {
@@ -407,7 +824,7 @@ func ensureONNXRuntimeInitialized() error {
 		} else {
 			log.Printf("DEBUG: No custom ONNX shared library path set. Using default search strategy.")
 		}
-		
+
 		onnxRuntimeInitErr = onnx.InitializeEnvironment()
 		if onnxRuntimeInitErr != nil {
 			log.Printf("ERROR: ONNX Runtime initialization failed: %v", onnxRuntimeInitErr)

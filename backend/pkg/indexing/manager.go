@@ -30,14 +30,17 @@ func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePrev
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// If an indexer is already running, stop it first
+	// If an indexer is already running, check if it's already busy with the same work
 	if existingIndexer, exists := m.projectIndexers[project.ID]; exists {
-		// Stop the existing indexer (this will cancel its context)
+		// If it's already indexing or in idle/watcher mode, don't stop it and don't restart it
+		// This prevents frontend "refresh" calls from killing a running indexer.
+		// Only stop if we specifically want to re-index (which is handled by StopIndexer calls before StartIndexer in ReindexProject).
+		if existingIndexer.progress.Status == models.IndexingStatusIndexing || existingIndexer.progress.Status == models.IndexingStatusIdle {
+			return nil
+		}
+		// Otherwise, stop it normally (e.g. if it's in Error or somehow stuck)
 		existingIndexer.Stop()
-		// Remove it from the map immediately to prevent race conditions
 		delete(m.projectIndexers, project.ID)
-		// Note: The goroutine will still try to delete from map when it finishes,
-		// but that's safe since we're holding the lock and it's already deleted
 	}
 
 	// Create and register the new indexer
@@ -91,4 +94,12 @@ func (m *Manager) GetIndexingProgress(projectID string) (*models.IndexingProgres
 		return nil, false
 	}
 	return progress.(*models.IndexingProgress), true
+}
+
+// IsProjectIndexing returns true if an indexer is currently active for the given project.
+func (m *Manager) IsProjectIndexing(projectID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, exists := m.projectIndexers[projectID]
+	return exists
 }

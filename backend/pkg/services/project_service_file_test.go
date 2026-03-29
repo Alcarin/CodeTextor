@@ -98,7 +98,7 @@ func TestReadFileContent_NonExistentFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	// Create test service
-    service, err := NewProjectService(nil)
+	service, err := NewProjectService(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to create project service: %v", err)
 	}

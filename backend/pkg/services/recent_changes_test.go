@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"CodeTextor/backend/pkg/utils"
 )
 
 func TestGetRecentChanges_Git(t *testing.T) {
@@ -17,6 +19,7 @@ func TestGetRecentChanges_Git(t *testing.T) {
 	
 	// Initialize git
 	cmd := exec.Command("git", "init")
+	utils.SetHideWindow(cmd)
 	cmd.Dir = root
 	if err := cmd.Run(); err != nil {
 		t.Skip("git not available or failed to init:", err)

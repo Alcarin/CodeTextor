@@ -120,10 +120,13 @@ type ProjectService struct {
 	eventEmitter      func(string, interface{})
 	modelDownloader   *embedding.Downloader
 	embeddingClients  map[string]embedding.EmbeddingClient
+	loadingClients    map[string]chan struct{} // ModelID -> Channel that closes when loading is done
 	clientsMu         sync.Mutex
 	enableONNXRuntime bool
 	onnxRuntimePath   string
 	activeONNXPath    string
+	heavyTasks        map[string]bool // ProjectID -> is running a heavy task (reindex)
+	initialSystemVRAM int             // VRAM baseline (system + non-app) in MB
 }
 
 // CreateProjectRequest contains data required to create a new project.
@@ -169,6 +172,8 @@ func NewProjectService(ctx context.Context) (*ProjectService, error) {
 		eventEmitter:      eventEmitter,
 		modelDownloader:   embedding.NewDownloader(),
 		embeddingClients:  make(map[string]embedding.EmbeddingClient),
+		loadingClients:    make(map[string]chan struct{}),
+		heavyTasks:        make(map[string]bool),
 		enableONNXRuntime: false,
 	}
 
@@ -193,6 +198,13 @@ func NewProjectService(ctx context.Context) (*ProjectService, error) {
 			log.Printf("Warning: failed to initialize auto-indexing: %v", err)
 		}
 	}()
+
+	// Inizializza la baseline VRAM del sistema (OS + altre app già aperte)
+	service.initialSystemVRAM = embedding.GetTotalVRAMUsage()
+	log.Printf("VRAM Initial Baseline: %d MB", service.initialSystemVRAM)
+
+	// Start Eco-Mode cleaner to free VRAM during inactivity
+	go service.startEcoModeCleaner()
 
 	return service, nil
 }
@@ -734,7 +746,26 @@ func (s *ProjectService) ReindexProject(projectID string) error {
 		return fmt.Errorf("failed to initialize embedding model: %w", err)
 	}
 
-	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, nil); err != nil {
+	// Activate heavy task mode for this project to boost VRAM budget
+	s.clientsMu.Lock()
+	s.heavyTasks[projectID] = true
+	s.clientsMu.Unlock()
+	s.rebalanceBatchSizes()
+
+	onComplete := func(status models.IndexingStatus) {
+		s.clientsMu.Lock()
+		delete(s.heavyTasks, projectID)
+		s.clientsMu.Unlock()
+		s.rebalanceBatchSizes()
+		log.Printf("Reindexing completed for project %s (Status: %v). Heavy mode deactivated.", projectID, status)
+	}
+
+	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, onComplete); err != nil {
+		// If indexing failed to even start, ensure heavyTasks is cleaned up
+		s.clientsMu.Lock()
+		delete(s.heavyTasks, projectID)
+		s.clientsMu.Unlock()
+		s.rebalanceBatchSizes()
 		return fmt.Errorf("failed to start indexer: %w", err)
 	}
 	return nil
@@ -836,11 +867,52 @@ func (s *ProjectService) getEmbeddingClient(project *models.Project) (embedding.
 		if !s.enableONNXRuntime {
 			return nil, fmt.Errorf("FastEmbed models require ONNX Runtime. Install the shared library, set its path in Settings → Projects, and restart CodeTextor to enable %s.", meta.ID)
 		}
-		client, err := embedding.NewFastEmbedClient(meta)
+
+		// 1. Check if already cached OR if it's currently loading
+		s.clientsMu.Lock()
+		client, ok := s.embeddingClients[meta.ID]
+		if ok {
+			s.clientsMu.Unlock()
+			log.Printf("GPU Cache: Reusing existing FastEmbed client for %s", meta.ID)
+			return client, nil
+		}
+
+		waitChan, isLoading := s.loadingClients[meta.ID]
+		if isLoading {
+			// Another thread is loading this model. Wait for it.
+			s.clientsMu.Unlock()
+			log.Printf("GPU Cache: Waiting for concurrent FastEmbed initialization of %s...", meta.ID)
+			<-waitChan
+
+			// Try again, now it should be in cache
+			return s.getEmbeddingClient(project)
+		}
+
+		// 2. Not cached and not loading, mark as "loading" and proceed
+		waitChan = make(chan struct{})
+		s.loadingClients[meta.ID] = waitChan
+		s.clientsMu.Unlock()
+
+		// Cleanup "loading" state and notify waiters
+		defer func() {
+			s.clientsMu.Lock()
+			delete(s.loadingClients, meta.ID)
+			close(waitChan)
+			s.clientsMu.Unlock()
+		}()
+
+		log.Printf("GPU Cache: Initializing NEW FastEmbed client for %s (VRAM will increase)", meta.ID)
+		newClient, err := embedding.NewFastEmbedClient(meta)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize FastEmbed client for %s: %w", meta.ID, err)
 		}
-		return client, nil
+
+		s.clientsMu.Lock()
+		s.embeddingClients[meta.ID] = newClient
+		s.clientsMu.Unlock()
+
+		s.rebalanceBatchSizes()
+		return newClient, nil
 	case "onnx":
 		log.Printf("DEBUG: getEmbeddingClient: Backend is ONNX. enableONNXRuntime=%v", s.enableONNXRuntime)
 		if !s.enableONNXRuntime {
@@ -862,13 +934,40 @@ func (s *ProjectService) getEmbeddingClient(project *models.Project) (embedding.
 			}
 		}
 
+		// 1. Check if already cached OR if it's currently loading
 		s.clientsMu.Lock()
 		client, ok := s.embeddingClients[meta.ID]
-		s.clientsMu.Unlock()
 		if ok {
+			s.clientsMu.Unlock()
+			log.Printf("GPU Cache: Reusing existing ONNX client for %s", meta.ID)
 			return client, nil
 		}
 
+		waitChan, isLoading := s.loadingClients[meta.ID]
+		if isLoading {
+			// Another thread is loading this model. Wait for it.
+			s.clientsMu.Unlock()
+			log.Printf("GPU Cache: Waiting for concurrent ONNX initialization of %s...", meta.ID)
+			<-waitChan
+
+			// Try again, now it should be in cache
+			return s.getEmbeddingClient(project)
+		}
+
+		// 2. Not cached and not loading, mark as "loading" and proceed
+		waitChan = make(chan struct{})
+		s.loadingClients[meta.ID] = waitChan
+		s.clientsMu.Unlock()
+
+		// Cleanup "loading" state and notify waiters
+		defer func() {
+			s.clientsMu.Lock()
+			delete(s.loadingClients, meta.ID)
+			close(waitChan)
+			s.clientsMu.Unlock()
+		}()
+
+		log.Printf("GPU Cache: Initializing NEW ONNX client for %s (VRAM will increase)", meta.ID)
 		newClient, err := embedding.NewONNXEmbeddingClient(meta)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize ONNX model %s: %w", meta.ID, err)
@@ -876,6 +975,8 @@ func (s *ProjectService) getEmbeddingClient(project *models.Project) (embedding.
 		s.clientsMu.Lock()
 		s.embeddingClients[meta.ID] = newClient
 		s.clientsMu.Unlock()
+
+		s.rebalanceBatchSizes()
 		return newClient, nil
 	default:
 		return nil, fmt.Errorf("embedding backend %s is not supported", meta.Backend)
@@ -1004,7 +1105,7 @@ func (s *ProjectService) DownloadEmbeddingModel(modelID string) (*models.Embeddi
 	// Force redownload by clearing local paths if we are explicitly calling DownloadEmbeddingModel
 	metaClone.LocalPath = ""
 	metaClone.TokenizerLocalPath = ""
-	
+
 	if err := s.configStore.UpsertEmbeddingModel(metaClone); err != nil {
 		return nil, err
 	}
@@ -1165,6 +1266,7 @@ func (s *ProjectService) GetRecentChanges(projectID string, limit int) (*models.
 
 func (s *ProjectService) fillGitChanges(root string, res *models.RecentChangesResponse) {
 	cmd := exec.Command("git", "status", "--porcelain")
+	utils.SetHideWindow(cmd)
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
@@ -1189,6 +1291,7 @@ func (s *ProjectService) fillGitChanges(root string, res *models.RecentChangesRe
 
 func (s *ProjectService) fillSvnChanges(root string, res *models.RecentChangesResponse) {
 	cmd := exec.Command("svn", "status")
+	utils.SetHideWindow(cmd)
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
@@ -2035,7 +2138,7 @@ func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		
+
 		matched := false
 		if isRegex {
 			matched = re.MatchString(line)
@@ -2055,11 +2158,219 @@ func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re
 				Content: content,
 			})
 		}
-		
+
 		if count >= 50 { // Max 50 matches per file to avoid huge responses
 			break
 		}
 	}
 
 	return fileMatch, count, scanner.Err()
+}
+
+// startEcoModeCleaner periodically checks for idle embedding clients and unloads them
+// to free up VRAM/RAM after 5 minutes of inactivity.
+func (s *ProjectService) startEcoModeCleaner() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.clientsMu.Lock()
+		now := time.Now()
+		unloaded := false
+		for id, client := range s.embeddingClients {
+			// If the model hasn't been used for more than 5 minutes, close it.
+			if now.Sub(client.LastActivity()) > 5*time.Minute {
+				log.Printf("Eco-Mode: Unloading idle embedding model %s to free resources", id)
+				if err := client.Close(); err != nil {
+					log.Printf("Error closing idle embedding client %s: %v", id, err)
+				}
+				delete(s.embeddingClients, id)
+				unloaded = true
+			}
+		}
+		if len(s.embeddingClients) == 0 {
+			// Se non ci sono modelli carichi, ricalibriamo la baseline del sistema
+			// Utile se l'utente ha aperto un video o un gioco mentre l'app era in idle
+			s.initialSystemVRAM = embedding.GetTotalVRAMUsage()
+			log.Printf("Eco-Mode: Recalibrated system VRAM baseline to %d MB", s.initialSystemVRAM)
+		}
+		s.clientsMu.Unlock()
+		if unloaded {
+			s.rebalanceBatchSizes()
+		}
+	}
+}
+
+// refreshVRAMBudget calculates the total batch capacity based on available GPU memory.
+// Returns an even number (multiple of 2) for cleaner partitioning.
+func (s *ProjectService) refreshVRAMBudget() int {
+	totalGPU := embedding.DetectGPUVRAM()
+	if totalGPU <= 0 {
+		return 16 // Fallback
+	}
+
+	// Calcoliamo quanto CodeTextor può occupare realmente
+	// Capacità = Totale - (Baseline di Sistema + Margine Sicurezza)
+	safetyBuffer := 256
+	availableForApp := totalGPU - s.initialSystemVRAM - safetyBuffer
+
+	// Minimo vitale: almeno 1GB se possibile, o 512MB
+	if availableForApp < 512 {
+		availableForApp = 512
+	}
+
+	vramGB := float64(availableForApp) / 1024.0
+	// 12 batches per ogni GB "dedicato" all'app
+	budget := int(vramGB * 12.0)
+
+	log.Printf("VRAM Budget Analysis: GPU Total=%dMB, System Baseline=%dMB -> Dedicated App Capacity=%dMB -> Budget=%d",
+		totalGPU, s.initialSystemVRAM, availableForApp, budget)
+
+	// Cap globale di sicurezza per evitare frammentazione eccessiva
+	if budget > 128 {
+		budget = 128
+	}
+	if budget < 16 {
+		budget = 16
+	}
+	return budget
+}
+
+// rebalanceBatchSizes redistributes the global VRAM budget among all active clients.
+func (s *ProjectService) rebalanceBatchSizes() {
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+
+	activeCount := len(s.embeddingClients)
+	if activeCount == 0 {
+		return
+	}
+
+	budget := s.refreshVRAMBudget()
+	now := time.Now()
+
+	// 1. Identifica modelli prioritari e modelli "attivi" con lavoro pendente
+	// heavyTasks usa projectID come chiave, dobbiamo mappare ai ModelID.
+	// Mappiamo anche se un modello ha un indicizzatore che sta producendo file.
+	projects, _ := s.ListProjects()
+	modelIsHeavy := make(map[string]bool)
+	modelHasIndexerWork := make(map[string]bool)
+	modelProjectCount := make(map[string]int)
+
+	for _, p := range projects {
+		if p.Config.EmbeddingModelInfo == nil {
+			continue
+		}
+		mID := p.Config.EmbeddingModelInfo.ID
+		modelProjectCount[mID]++
+		if s.heavyTasks[p.ID] {
+			modelIsHeavy[mID] = true
+		}
+		if s.indexerManager.IsProjectIndexing(p.ID) {
+			modelHasIndexerWork[mID] = true
+		}
+	}
+
+	type modelStatus struct {
+		isHeavy      bool
+		isActive     bool
+		projectCount int
+		client       embedding.EmbeddingClient
+	}
+
+	statuses := make(map[string]modelStatus)
+	heavyCount := 0
+	activeCountTotal := 0
+
+	for id, client := range s.embeddingClients {
+		isHeavy := modelIsHeavy[id]
+
+		// Un modello è attivo se: prova
+		// - Ha avuto attività negli ultimi 30 secondi
+		// - Ha dei chunk in attesa nel basket GPU (PendingWork)
+		// - Ha un indicizzatore che gli sta mandando file (modelHasIndexerWork)
+		// - È marcato come Heavy (reindex manuale)
+
+		hasGPUWork := client.PendingWork() > 0
+		hasIndexerWork := modelHasIndexerWork[id]
+		recentActivity := now.Sub(client.LastActivity()) < 30*time.Second
+
+		isActive := isHeavy || hasGPUWork || hasIndexerWork || recentActivity
+
+		statuses[id] = modelStatus{isHeavy, isActive, modelProjectCount[id], client}
+		if isHeavy {
+			heavyCount++
+		}
+		if isActive {
+			activeCountTotal++
+		}
+	}
+
+	if activeCountTotal == 0 {
+		activeCountTotal = len(s.embeddingClients)
+		// Se nessuno ha lavoro pendente né attività recente, li consideriamo tutti pronti
+		for id, status := range statuses {
+			status.isActive = true
+			statuses[id] = status
+		}
+	}
+
+	// 2. Calcola i batch size con priorità
+	// Regola: Heavy > Active > Idle
+	// Minimo assoluto: 2.
+
+	for id, status := range statuses {
+		targetBatch := 2 // Fallback minimo
+
+		if status.isHeavy {
+			// Il modello heavy cerca di prendersi la potenza di 2 massima che lasci almeno 2 a tutti gli altri
+			remainingBudget := budget - (len(s.embeddingClients)-1)*2
+			targetBatch = s.maxPowerOf2(remainingBudget)
+		} else if status.isActive && heavyCount == 0 {
+			// Se non ci sono heavy, i modelli attivi si dividono il budget
+			remainingBudget := budget / activeCountTotal
+			targetBatch = s.maxPowerOf2(remainingBudget)
+		} else {
+			// Idle o deprioritizzato da un heavy
+			targetBatch = 2
+		}
+
+		// Cap per singolo modello (evitiamo batch > 128 nel normale utilizzo se non richiesto)
+		if targetBatch > 128 {
+			targetBatch = 128
+		}
+		if targetBatch < 2 {
+			targetBatch = 2
+		}
+
+		oldBatch := status.client.GetBatchSize()
+		if oldBatch != targetBatch {
+			log.Printf("VRAM Budgeting: Modello %s -> Batch %d (era %d)", id, targetBatch, oldBatch)
+			status.client.SetBatchSize(targetBatch)
+		}
+	}
+
+	// 3. Log di riepilogo consolidato per trasparenza
+	log.Printf("VRAM Distribution Summary (Total Budget: %d):", budget)
+	for id, status := range statuses {
+		stateStr := "IDLE"
+		if status.isHeavy {
+			stateStr = "HEAVY"
+		} else if status.isActive {
+			stateStr = "ACTIVE"
+		}
+		log.Printf("  - %-30s: Batch %-3d [%s] (%d projects)", id, status.client.GetBatchSize(), stateStr, status.projectCount)
+	}
+}
+
+// maxPowerOf2 returns the largest power of 2 less than or equal to n.
+func (s *ProjectService) maxPowerOf2(n int) int {
+	if n < 2 {
+		return 2
+	}
+	p := 1
+	for p*2 <= n {
+		p *= 2
+	}
+	return p
 }

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
+- **Heavy Embedding Rework (GPU/CPU Optimization)**:
+  - **Dynamic Batch Scaling**: Automatically adjusts embedding batch sizes based on available VRAM to maximize GPU throughput while preventing Out-of-Memory (OOM) errors.
+  - **Power-of-2 Alignment**: Batch sizes are rounded to the nearest power of 2 for optimal hardware thread alignment and constant memory performance.
+  - **Embedding Task Priorities**: Introduced a priority-based queue (`PriorityHigh`, `PriorityNormal`, `PriorityLow`) to ensure real-time user actions (like search) always remain responsive during background indexing.
+  - **Improved Vector Store Concurrency**: Better handling of project indexing states and parallel processing.
 - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) across all 10 supported languages.
   - Integration with `go-enry` for statistical language detection.
   - Precision parsing using Tree-sitter's `SetIncludedRanges` to maintain absolute file offsets.

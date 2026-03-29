@@ -28,6 +28,7 @@ Specifiche CodeTextor:
 
 - 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking
 - 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation
+- ⚡ **Dynamic Batch Scaling**: VRAM-aware batching (power-of-2 aligned) to maximize GPU throughput and prevent OOM errors
 - 🧩 **Adaptive chunking strategy**
   - Collapses large functions/classes (`{ ... }`)
   - Merges small ones with comments and metadata
@@ -75,9 +76,9 @@ docs/            → Developer documentation & API references
 
 ### Prerequisites
 
-- [Go ≥ 1.23](https://go.dev/)  
-- [Node.js ≥ 20](https://nodejs.org/)  
-- [Wails ≥ 3](https://wails.io/)  
+- [Go ≥ 1.23](https://go.dev/)
+- [Node.js ≥ 20](https://nodejs.org/)
+- [Wails ≥ 2](https://wails.io/)
 - A compiler toolchain for your OS (gcc / clang)
 - **ONNX Runtime 1.24.4**: The application handles the installation of required libraries for your platform automatically.
   - **Windows**: Supports DirectML (GPU DirectX 12).
@@ -108,7 +109,11 @@ CodeTextor will launch both the local web UI and the MCP server.
 
 ### ONNX Runtime & GPU Setup
 
-CodeTextor simplifies the hardware acceleration setup by automating the management of ONNX Runtime libraries.
+CodeTextor simplifies the hardware acceleration setup by automating the management of ONNX Runtime libraries and **optimizing GPU resource allocation**.
+
+#### 🚀 GPU & VRAM Optimization
+
+CodeTextor includes a **VRAM-aware indexing engine** that automatically scales batch sizes based on available GPU memory (using power-of-2 alignment) and prioritizes real-time user actions (like semantic search) over background indexing to ensure maximum responsiveness.
 
 #### 1. Recommended: Automatic Setup (UI)
 
