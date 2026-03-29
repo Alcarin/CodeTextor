@@ -63,15 +63,26 @@ type Symbol struct {
 	DocString  string     `json:"doc_string,omitempty"` // Associated documentation/comment
 }
 
+// ParserSymbolUsage represents a raw symbol usage (function/method call)
+// extracted during the parsing phase.
+type ParserSymbolUsage struct {
+	Name      string // Target function/method name
+	Context   string // Target context (Receiver or Package name)
+	Line      uint32 // 1-indexed line number
+	Column    uint32 // 1-indexed column number
+	Caller    string // Name of the enclosing symbol (function/method)
+}
+
 // ParseResult represents the output of parsing a single file.
 // It contains all extracted symbols and any errors encountered.
 type ParseResult struct {
-	FilePath string            `json:"file_path"` // Path to the parsed file
-	Language string            `json:"language"`  // Detected language (go, python, typescript, etc.)
-	Symbols  []Symbol          `json:"symbols"`   // All extracted symbols
-	Imports  []string          `json:"imports"`   // List of imported modules/packages
-	Errors   []ParseError      `json:"errors"`    // Any parsing errors encountered
-	Metadata map[string]string `json:"metadata"`  // Additional metadata (encoding, package name, etc.)
+	FilePath string              `json:"file_path"` // Path to the parsed file
+	Language string              `json:"language"`  // Detected language (go, python, typescript, etc.)
+	Symbols  []Symbol            `json:"symbols"`   // All extracted symbols
+	Usages   []ParserSymbolUsage `json:"usages"`    // All extracted symbol usages
+	Imports  []string            `json:"imports"`   // List of imported modules/packages
+	Errors   []ParseError        `json:"errors"`    // Any parsing errors encountered
+	Metadata map[string]string   `json:"metadata"`  // Additional metadata (encoding, package name, etc.)
 }
 
 // ParseError represents an error encountered during parsing.
@@ -88,11 +99,14 @@ type LanguageParser interface {
 	GetLanguage() *sitter.Language
 
 	// ExtractSymbols extracts all symbols from the given AST tree.
+	ExtractSymbols(tree *sitter.Tree, source []byte) ([]Symbol, error)
+
+	// ExtractUsages extracts all symbol usages (function/method calls) from the AST.
 	// Parameters:
 	//   - tree: The parsed tree-sitter AST
-	//   - source: The original source code as byte slice
-	// Returns a slice of Symbol structs representing all extracted code symbols.
-	ExtractSymbols(tree *sitter.Tree, source []byte) ([]Symbol, error)
+	//   - source: The original source code
+	//   - symbols: The symbols already extracted (used to identify the caller)
+	ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage
 
 	// ExtractImports extracts all import statements from the AST.
 	ExtractImports(tree *sitter.Tree, source []byte) ([]string, error)

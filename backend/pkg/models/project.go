@@ -279,6 +279,7 @@ type File struct {
 	ProjectID    string `json:"projectId"`
 	Path         string `json:"path"`
 	Hash         string `json:"hash"`
+	IsVirtual    bool   `json:"isVirtual"`
 	LastModified int64  `json:"lastModified"`
 	ChunkCount   int    `json:"chunkCount"`
 	CreatedAt    int64  `json:"createdAt"`
@@ -296,6 +297,19 @@ type Symbol struct {
 	Character int    `json:"character"`
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
+}
+
+// SymbolUsage represents a reference to a symbol in the code.
+// The 'Raw' fields are internal and used by the Linker to resolve TargetNodeID.
+type SymbolUsage struct {
+	ID               int64  `json:"id"`
+	FilePath         string `json:"filePath"`              // Resolved file path where usage occurs
+	CallerNodeID     string `json:"callerNodeId"`         // Node containing the usage
+	TargetNodeID     string `json:"targetNodeId,omitempty"` // Resolved target symbol node ID
+	RawTargetName    string `json:"-"`                    // Raw name as it appears in code
+	RawTargetContext string `json:"-"`                    // Extra context for resolution (e.g. receiver)
+	Line             int    `json:"line"`
+	Column           int    `json:"column"`
 }
 
 // NewProject creates a new Project instance with default configuration.
@@ -364,4 +378,35 @@ type ValidationError struct {
 // Error implements the error interface for ValidationError.
 func (e *ValidationError) Error() string {
 	return e.Field + ": " + e.Message
+}
+
+// SymbolReference represents a location and content of a symbol usage.
+type SymbolReference struct {
+	Line    int    `json:"line"`
+	Content string `json:"content"`
+}
+
+// FileSymbolReferences groups all symbol references within a single file.
+type FileSymbolReferences struct {
+	Path       string            `json:"path"`
+	References []SymbolReference `json:"references"`
+}
+
+// SymbolReferencesResponse wraps grouped symbol references.
+type SymbolReferencesResponse struct {
+	Files []FileSymbolReferences `json:"files"`
+}
+
+// CallDetails represents a single call in the graph with context.
+type CallDetails struct {
+	Symbol   string        `json:"symbol"`
+	Location string        `json:"location"` // Format: "path:line"
+	Content  string        `json:"content,omitempty"`
+	Calls    []CallDetails `json:"calls,omitempty"`
+}
+
+// CallGraphResponse represents a hierarchical call graph.
+type CallGraphResponse struct {
+	Root      CallDetails `json:"root"`
+	Direction string      `json:"direction"`
 }

@@ -459,3 +459,8 @@ func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
 		}
 	}
 }
+
+// ExtractUsages is a stub for MarkdownParser.
+func (m *MarkdownParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

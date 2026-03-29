@@ -102,6 +102,65 @@ const MaxValue = 100
 	assert.Equal(t, SymbolConstant, maxConst.Kind)
 }
 
+// TestGoParserUsages tests the extraction of function calls (symbol usages).
+func TestGoParserUsages(t *testing.T) {
+	parser := NewParser(DefaultChunkConfig())
+
+	source := []byte(`package main
+
+import "fmt"
+
+func helper(x int) int {
+	return x + 1
+}
+
+func Main() {
+	a := helper(10)
+	fmt.Println(a)
+}
+
+type Greeter struct{}
+
+func (g *Greeter) Greet(name string) {
+	fmt.Printf("Hello, %s\n", name)
+	g.internal()
+}
+
+func (g *Greeter) internal() {}
+`)
+
+	result, err := parser.ParseFile("usage_test.go", source)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify usages
+	usages := result.Usages
+	// Expected: helper(10), fmt.Println(a), fmt.Printf(...), g.internal()
+	assert.GreaterOrEqual(t, len(usages), 4, "should extract at least 4 usages")
+
+	// Verify "helper" usage in "Main"
+	var helperUsage *ParserSymbolUsage
+	for i := range usages {
+		if usages[i].Name == "helper" && usages[i].Caller == "Main" {
+			helperUsage = &usages[i]
+			break
+		}
+	}
+	require.NotNil(t, helperUsage, "usage of helper in Main should be found")
+	assert.Equal(t, uint32(10), helperUsage.Line)
+
+	// Verify "g.internal" usage in "Greet"
+	var internalUsage *ParserSymbolUsage
+	for i := range usages {
+		if usages[i].Name == "internal" && usages[i].Caller == "Greet" {
+			internalUsage = &usages[i]
+			break
+		}
+	}
+	require.NotNil(t, internalUsage, "usage of internal in Greet should be found")
+	assert.Equal(t, "g", internalUsage.Context, "context should be 'g' for g.internal()")
+}
+
 // TestPythonParser tests the Python language parser.
 func TestPythonParser(t *testing.T) {
 	parser := NewParser(DefaultChunkConfig())

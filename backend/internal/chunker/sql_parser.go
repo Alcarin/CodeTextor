@@ -293,3 +293,8 @@ func (s *SQLParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, 
 func (s *SQLParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
 	return make(map[string]string)
 }
+
+// ExtractUsages is a stub for SQLParser.
+func (s *SQLParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

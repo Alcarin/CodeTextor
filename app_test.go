@@ -48,7 +48,10 @@ type MockProjectServiceAPI struct {
 	DownloadONNXRuntimeFunc      func() error
 	SearchFunc                   func(projectID, query string, k int) (*models.SearchResponse, error)
 	GetRecentChangesFunc         func(projectID string, limit int) (*models.RecentChangesResponse, error)
+	GrepSearchFunc               func(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error)
 	GetProjectSummaryFunc        func(projectID string) (*models.ProjectSummary, error)
+	FindReferencesFunc           func(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
+	GetCallGraphFunc             func(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
 	CloseFunc                    func() error
 }
 
@@ -262,13 +265,31 @@ func (m *MockProjectServiceAPI) GetRecentChanges(projectID string, limit int) (*
 	if m.GetRecentChangesFunc != nil {
 		return m.GetRecentChangesFunc(projectID, limit)
 	}
-	return &models.RecentChangesResponse{}, nil
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GrepSearch(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error) {
+	if m.GrepSearchFunc != nil {
+		return m.GrepSearchFunc(projectID, query, isRegex, subPath, limit)
+	}
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) GetProjectSummary(projectID string) (*models.ProjectSummary, error) {
 	if m.GetProjectSummaryFunc != nil {
 		return m.GetProjectSummaryFunc(projectID)
 	}
-	return &models.ProjectSummary{}, nil
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) FindReferences(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error) {
+	if m.FindReferencesFunc != nil {
+		return m.FindReferencesFunc(projectID, nodeID, symbolName, path)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error) {
+	if m.GetCallGraphFunc != nil {
+		return m.GetCallGraphFunc(projectID, nodeID, symbolName, path, direction, depth)
+	}
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) Close() error {
 	if m.CloseFunc != nil {

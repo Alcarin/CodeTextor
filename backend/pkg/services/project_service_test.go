@@ -11,6 +11,9 @@ import (
 func setupTestService(t *testing.T) (*ProjectService, func()) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("APPDATA", tempHome)
+	t.Setenv("LOCALAPPDATA", tempHome)
+	t.Setenv("XDG_CONFIG_HOME", tempHome)
 
     service, err := NewProjectService(context.Background())
 	if err != nil {

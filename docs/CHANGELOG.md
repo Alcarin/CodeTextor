@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structural Project Summary: `getProjectDetails` now provides a high-level overview including main languages, entry points, and detected packages.
 - Automatic Package Extraction: Added metadata extraction to parsers (starting with Go) to identify package/module names during indexing.
 - Grep Search MCP Tool: Precise, OS-independent textual search with regex support now available for AI agents.
+- **Static Analysis Tools**: Added `findReferences` and `getCallGraph` MCP tools.
+  - `findReferences` pinpoints accurate definitions and usages across the codebase by parsing explicit call edges.
+  - `getCallGraph` returns an LLM-friendly nested JSON tree representing the architectural call hierarchy.
+  - Workaround implemented to handle recursive schemas with the MCP Go SDK.
 - Lean MCP Output: Optimized `getProjectDetails` response by removing redundant technical metadata and configuration paths (`includePaths`, `excludePatterns`) for maximum token efficiency.
   - Automatic platform detection and NuGet (ZIP) / GitHub (TGZ) asset selection
   - Mandatory SHA256 integrity verification via an embedded runtime manifest

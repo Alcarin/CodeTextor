@@ -116,7 +116,7 @@ export function add(a: number, b: number): number {
 			require.NotNil(t, result)
 			require.Empty(t, result.Errors, "valid snippet should not produce parse errors")
 
-			nodes := BuildOutlineNodes(tt.filePath, result.Symbols)
+			nodes, _ := BuildOutlineNodes(tt.filePath, result.Symbols)
 			require.NotNil(t, nodes)
 			require.NotEmpty(t, nodes, "outline should contain nodes for %s", tt.name)
 
@@ -151,7 +151,7 @@ func TestBuildOutlineNodesHandlesMissingParentsAndDuplicates(t *testing.T) {
 		{Name: "div", Parent: "div", StartLine: 8, EndLine: 9},
 	}
 
-	nodes := BuildOutlineNodes("test.txt", symbols)
+	nodes, _ := BuildOutlineNodes("test.txt", symbols)
 	require.NotNil(t, nodes)
 
 	orphan := findOutlineNode(nodes, "Orphan")

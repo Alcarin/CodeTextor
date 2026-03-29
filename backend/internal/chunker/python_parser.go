@@ -291,3 +291,8 @@ func (p *PythonParser) determineVisibility(name string) string {
 	}
 	return "public"
 }
+
+// ExtractUsages is a stub for PythonParser.
+func (p *PythonParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

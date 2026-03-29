@@ -46,7 +46,7 @@ Specifiche CodeTextor:
   - Semantic chunks browser with metadata
   - File tree with per-file loading
 - 🧠 **MCP Server mode** for use with IDEs and LLM agents
-  - Streamable HTTP server with `getProjectDetails`, `listFiles`, `search`, `outline`, `nodeSource` tools
+  - Streamable HTTP server with `getProjectDetails`, `listFiles`, `search`, `outline`, `nodeSource`, `findReferences`, and `getCallGraph` tools
   - Per-project routing via `/mcp/<projectId>`
   - Optimized output for token efficiency
 - 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search
@@ -163,6 +163,8 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `nodeSource` | Precise source snippets for an ARRAY of IDs |
 | `getRecentChanges` | Recently modified (VCS) and indexed (DB) files |
 | `grepSearch` | Literal or regex search. Validates path existence. |
+| `findReferences` | Find all locations where a symbol is referenced or used |
+| `getCallGraph` | Get the hierarchical call relationships for a specific function |
 
 Example Codex CLI config (`~/.codex/config.toml`):
 

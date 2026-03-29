@@ -355,3 +355,8 @@ func (h *HTMLParser) walkImports(node *sitter.Node, source []byte, imports []str
 
 	return imports
 }
+
+// ExtractUsages is a stub for HTMLParser.
+func (h *HTMLParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

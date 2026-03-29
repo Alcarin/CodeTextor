@@ -37,12 +37,15 @@ type VectorStore struct {
 // NewVectorStore creates a new VectorStore instance for a given project.
 // It initializes the SQLite database and runs migrations if necessary.
 func NewVectorStore(projectID, projectSlug string) (*VectorStore, error) {
-	dataDir, err := utils.GetAppDataDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get data directory: %w", err)
+	projectIndexDir := os.Getenv("CODETEXTOR_INDEXES_DIR")
+	if projectIndexDir == "" {
+		dataDir, err := utils.GetAppDataDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get data directory: %w", err)
+		}
+		projectIndexDir = filepath.Join(dataDir, "indexes")
 	}
 
-	projectIndexDir := filepath.Join(dataDir, "indexes")
 	if err := os.MkdirAll(projectIndexDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create project index directory: %w", err)
 	}
@@ -148,7 +151,7 @@ func (s *VectorStore) resolveFileID(path string, create bool) (int64, string, er
 			if !create {
 				return 0, "", fmt.Errorf("file not found: %s", normalized)
 			}
-			if fileID, err = s.createPlaceholderFile(normalized); err != nil {
+			if fileID, err = s.createPlaceholderFile(normalized, false); err != nil {
 				return 0, "", err
 			}
 		} else {
@@ -160,14 +163,14 @@ func (s *VectorStore) resolveFileID(path string, create bool) (int64, string, er
 	return fileID, normalized, nil
 }
 
-func (s *VectorStore) createPlaceholderFile(path string) (int64, error) {
+func (s *VectorStore) createPlaceholderFile(path string, isVirtual bool) (int64, error) {
 	now := time.Now().Unix()
 	result, err := s.db.Exec(`
-		INSERT INTO files (id, path, hash, last_modified, chunk_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, uuid.New().String(), path, "unknown", 0, 0, now, now)
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, uuid.New().String(), path, "unknown", isVirtual, 0, 0, now, now)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create placeholder for %s: %w", path, err)
+		return 0, fmt.Errorf("failed to create placeholder for %s (virtual=%v): %w", path, isVirtual, err)
 	}
 
 	fileID, err := result.LastInsertId()
@@ -272,11 +275,12 @@ func (s *VectorStore) InsertFile(file *models.File) error {
 	file.Path = normalizedPath
 
 	stmt, err := s.db.Prepare(`
-		INSERT INTO files (id, path, hash, last_modified, chunk_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET
 			id = excluded.id,
 			hash = excluded.hash,
+			is_virtual = excluded.is_virtual,
 			last_modified = excluded.last_modified,
 			chunk_count = excluded.chunk_count,
 			updated_at = excluded.updated_at
@@ -290,6 +294,7 @@ func (s *VectorStore) InsertFile(file *models.File) error {
 		file.ID,
 		file.Path,
 		file.Hash,
+		file.IsVirtual,
 		file.LastModified,
 		file.ChunkCount,
 		file.CreatedAt,
@@ -315,7 +320,7 @@ func (s *VectorStore) GetFile(path string) (*models.File, error) {
 	}
 
 	row := s.db.QueryRow(`
-		SELECT id, path, hash, last_modified, chunk_count, created_at, updated_at
+		SELECT id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at
 		FROM files
 		WHERE path = ?
 	`, normalizedPath)
@@ -325,6 +330,7 @@ func (s *VectorStore) GetFile(path string) (*models.File, error) {
 		&file.ID,
 		&file.Path,
 		&file.Hash,
+		&file.IsVirtual,
 		&file.LastModified,
 		&file.ChunkCount,
 		&file.CreatedAt,
@@ -432,6 +438,21 @@ func (s *VectorStore) UpsertFileOutline(filePath string, outline []*models.Outli
 		return fmt.Errorf("failed to commit outline for %s: %w", normalizedPath, err)
 	}
 	return nil
+}
+
+// InsertOutlineNodes persists a forest of outline nodes for a file.
+func (s *VectorStore) InsertOutlineNodes(fileID int64, nodes []*models.OutlineNode) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := s.insertOutlineNodes(tx, fileID, nodes, sql.NullString{}); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *VectorStore) insertOutlineNodes(tx *sql.Tx, fileID int64, nodes []*models.OutlineNode, parent sql.NullString) error {
@@ -1412,4 +1433,253 @@ func (s *VectorStore) GetProjectSummary() (*models.ProjectSummary, error) {
 	}
 
 	return summary, nil
+}
+
+// InsertSymbolUsage inserts a new symbol usage record into the database.
+func (s *VectorStore) InsertSymbolUsage(usage *models.SymbolUsage) error {
+	stmt, err := s.db.Prepare(`
+		INSERT INTO symbol_usages (
+			caller_node_id, target_node_id, raw_target_name, raw_target_context, line, column
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert symbol usage statement: %w", err)
+	}
+	defer stmt.Close()
+
+	result, err := stmt.Exec(
+		usage.CallerNodeID,
+		sql.NullString{String: usage.TargetNodeID, Valid: usage.TargetNodeID != ""},
+		usage.RawTargetName,
+		sql.NullString{String: usage.RawTargetContext, Valid: usage.RawTargetContext != ""},
+		usage.Line,
+		usage.Column,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert symbol usage: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err == nil {
+		usage.ID = id
+	}
+
+	return nil
+}
+
+// GetSymbolUsages retrieves all usages (references) for a specific target symbol.
+func (s *VectorStore) GetSymbolUsages(targetNodeID string) ([]*models.SymbolUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT 
+			u.id, f.path, u.caller_node_id, u.target_node_id, 
+			u.line, u.column
+		FROM symbol_usages u
+		JOIN outline_nodes n ON n.id = u.caller_node_id
+		JOIN files f ON f.pk = n.file_id
+		WHERE u.target_node_id = ?
+		ORDER BY f.path, u.line
+	`, targetNodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query symbol usages for %s: %w", targetNodeID, err)
+	}
+	defer rows.Close()
+
+	var usages []*models.SymbolUsage
+	for rows.Next() {
+		usage := &models.SymbolUsage{}
+		var targetID sql.NullString
+		err := rows.Scan(
+			&usage.ID, &usage.FilePath, &usage.CallerNodeID, &targetID,
+			&usage.Line, &usage.Column,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan symbol usage: %w", err)
+		}
+		if targetID.Valid {
+			usage.TargetNodeID = targetID.String
+		}
+		usages = append(usages, usage)
+	}
+
+	return usages, nil
+}
+
+// GetOutgoingCalls returns all symbol usage records initiated by the specified caller node.
+func (s *VectorStore) GetOutgoingCalls(callerNodeID string) ([]*models.SymbolUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT id, target_node_id, line
+		FROM symbol_usages
+		WHERE caller_node_id = ? AND target_node_id IS NOT NULL
+	`, callerNodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query outgoing calls for %s: %w", callerNodeID, err)
+	}
+	defer rows.Close()
+
+	var usages []*models.SymbolUsage
+	for rows.Next() {
+		u := &models.SymbolUsage{CallerNodeID: callerNodeID}
+		if err := rows.Scan(&u.ID, &u.TargetNodeID, &u.Line); err != nil {
+			return nil, err
+		}
+		usages = append(usages, u)
+	}
+	return usages, nil
+}
+
+// GetOutlineNodes returns the details for a list of node IDs.
+func (s *VectorStore) GetOutlineNodes(ids []string) ([]*models.OutlineNode, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT n.id, f.path, n.parent_id, n.name, n.kind, n.start_line, n.end_line, n.position
+		FROM outline_nodes n
+		JOIN files f ON f.pk = n.file_id
+		WHERE n.id IN (%s)
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query outline nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var nodes []*models.OutlineNode
+	for rows.Next() {
+		n := &models.OutlineNode{}
+		var parentID sql.NullString
+		var position int
+		if err := rows.Scan(&n.ID, &n.FilePath, &parentID, &n.Name, &n.Kind, &n.StartLine, &n.EndLine, &position); err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, nil
+}
+
+// ListUnresolvedUsages returns all symbol usages that haven't been linked to a target node yet.
+func (s *VectorStore) ListUnresolvedUsages() ([]*models.SymbolUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT id, caller_node_id, raw_target_name, raw_target_context, line, column
+		FROM symbol_usages
+		WHERE target_node_id IS NULL
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unresolved usages: %w", err)
+	}
+	defer rows.Close()
+
+	var usages []*models.SymbolUsage
+	for rows.Next() {
+		u := &models.SymbolUsage{}
+		var context sql.NullString
+		if err := rows.Scan(&u.ID, &u.CallerNodeID, &u.RawTargetName, &context, &u.Line, &u.Column); err != nil {
+			return nil, err
+		}
+		if context.Valid {
+			u.RawTargetContext = context.String
+		}
+		usages = append(usages, u)
+	}
+	return usages, nil
+}
+
+// ListUnresolvedUsagesForFile returns all symbol usages in a specific file that haven't been linked yet.
+func (s *VectorStore) ListUnresolvedUsagesForFile(filePath string) ([]*models.SymbolUsage, error) {
+	rows, err := s.db.Query(`
+		SELECT u.id, u.caller_node_id, u.raw_target_name, u.raw_target_context, u.line, u.column
+		FROM symbol_usages u
+		JOIN outline_nodes n ON n.id = u.caller_node_id
+		JOIN files f ON f.pk = n.file_id
+		WHERE u.target_node_id IS NULL AND f.path = ?
+	`, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unresolved usages for file %s: %w", filePath, err)
+	}
+	defer rows.Close()
+
+	var usages []*models.SymbolUsage
+	for rows.Next() {
+		u := &models.SymbolUsage{}
+		var context sql.NullString
+		if err := rows.Scan(&u.ID, &u.CallerNodeID, &u.RawTargetName, &context, &u.Line, &u.Column); err != nil {
+			return nil, err
+		}
+		if context.Valid {
+			u.RawTargetContext = context.String
+		}
+		usages = append(usages, u)
+	}
+	return usages, nil
+}
+
+// UpdateSymbolUsageTarget sets the target node ID for an existing usage record.
+func (s *VectorStore) UpdateSymbolUsageTarget(usageID int64, targetNodeID string) error {
+	_, err := s.db.Exec(`
+		UPDATE symbol_usages 
+		SET target_node_id = ? 
+		WHERE id = ?
+	`, targetNodeID, usageID)
+	return err
+}
+
+// FindSymbolNodesByName searches for all outline nodes matching a given name across the project.
+func (s *VectorStore) FindSymbolNodesByName(name string) ([]*models.OutlineNode, error) {
+	rows, err := s.db.Query(`
+		SELECT id, file_id, parent_id, name, kind, start_line, end_line, position
+		FROM outline_nodes
+		WHERE name = ?
+	`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []*models.OutlineNode
+	for rows.Next() {
+		n := &models.OutlineNode{}
+		var parentID sql.NullString
+		var fileID int64
+		var position int
+		if err := rows.Scan(&n.ID, &fileID, &parentID, &n.Name, &n.Kind, &n.StartLine, &n.EndLine, &position); err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, nil
+}
+
+// InsertVirtualSymbol adds a new virtual symbol (for external dependencies) to the outline.
+func (s *VectorStore) InsertVirtualSymbol(path string, node *models.OutlineNode) error {
+	fileID, _, err := s.resolveFileID(path, true) // create if doesn't exist
+	if err != nil {
+		return err
+	}
+
+	// Update file to be virtual if it wasn't already
+	_, _ = s.db.Exec(`UPDATE files SET is_virtual = 1 WHERE pk = ?`, fileID)
+
+	_, err = s.db.Exec(`
+		INSERT INTO outline_nodes (id, file_id, parent_id, name, kind, start_line, end_line, position)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			kind = excluded.kind
+	`, node.ID, fileID, nil, node.Name, node.Kind, node.StartLine, node.EndLine, 0)
+	
+	return err
+}
+
+// GetDB returns the underlying database handle (for testing).
+func (s *VectorStore) GetDB() *sql.DB {
+	return s.db
 }

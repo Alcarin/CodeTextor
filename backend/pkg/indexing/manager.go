@@ -26,7 +26,7 @@ func NewManager(eventEmitter func(string, interface{})) *Manager {
 // StartIndexer starts a new indexing job for a given project.
 // If an indexer is already running for the project, the existing one will be stopped first.
 // This method ensures that only one indexer runs per project at a time.
-func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview, vectorStore *store.VectorStore, client embedding.EmbeddingClient, onComplete func(models.IndexingStatus)) error {
+func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePreview, vectorStore *store.VectorStore, client embedding.EmbeddingClient, onComplete func(models.IndexingStatus), onInitialScanComplete func(), onFileIndexed func(string)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -48,6 +48,8 @@ func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePrev
 	if err != nil {
 		return err
 	}
+	newIndexer.OnInitialScanComplete = onInitialScanComplete
+	newIndexer.OnFileIndexed = onFileIndexed
 	m.projectIndexers[project.ID] = newIndexer
 	m.progressMap.Store(project.ID, newIndexer.progress)
 

@@ -391,10 +391,13 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | ------------------- | -------------------------------------------------------------------- |
 | `getProjectDetails` | Overview of project scope, configuration, and statistics             |
 | `listFiles`         | Explore project file tree with relative paths and sizes              |
-| `search`            | Semantic natural language search (results grouped by file)            |
+| `search`            | Semantic natural language search (results grouped by file)           |
 | `outline`           | Hierarchical symbol tree (classes, functions) for a file             |
-| `nodeSource`        | Precise source snippets for identified symbols/chunks (uses IDs)      |
-| `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)    |
+| `nodeSource`        | Precise source snippets for identified symbols/chunks (uses IDs)     |
+| `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)   |
+| `grepSearch`        | Literal or regex search across files (precise and OS-independent)    |
+| `findReferences`    | Find all locations where a symbol is referenced or used              |
+| `getCallGraph`      | Get the hierarchical call relationships for a specific function      |
 
 ### 🔹 MCP Server Requirements
 

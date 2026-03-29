@@ -449,3 +449,8 @@ func (t *TypeScriptParser) extractVisibility(node *sitter.Node, source []byte) s
 	}
 	return "public"
 }
+
+// ExtractUsages is a stub for TypeScriptParser.
+func (t *TypeScriptParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

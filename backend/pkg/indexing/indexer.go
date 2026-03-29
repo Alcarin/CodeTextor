@@ -41,6 +41,10 @@ type Indexer struct {
 	eventEmitter     func(string, interface{})
 	embeddingModelID string
 	taskChan         chan *embeddingTask // Centralized GPU queue for both initial and live indexing
+	
+	// Callbacks for external components (e.g. Symbol Linker)
+	OnInitialScanComplete func()
+	OnFileIndexed         func(filePath string)
 }
 
 // embeddingTask holds pre-processed file data ready for GPU embedding.
@@ -184,6 +188,11 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 	initialScanWg.Wait()
 
 	log.Printf("Initial indexing completed for project %s", i.project.Name)
+	
+	// Trigger the initial scan complete callback (Symbol Linker)
+	if i.OnInitialScanComplete != nil {
+		i.OnInitialScanComplete()
+	}
 
 	// --- Continuous Indexing (File Watching) ---
 	if i.project.Config.ContinuousIndexing {
@@ -486,6 +495,11 @@ func (i *Indexer) finalizeTask(task *embeddingTask, hasEmbeddings bool) {
 
 	i.emitFileUpdate(task.filePath)
 	atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+
+	// Trigger incremental linking for this file
+	if i.OnFileIndexed != nil {
+		i.OnFileIndexed(task.filePath)
+	}
 }
 
 // resolveIncludePaths mirrors the logic used in the project service
@@ -806,9 +820,37 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 	}
 
 	// Save outline nodes
-	nodes := outline.BuildOutlineNodes(relativePath, result.Symbols)
-	if err := i.vectorStore.UpsertFileOutline(relativePath, nodes); err != nil {
+	roots, allNodes := outline.BuildOutlineNodes(relativePath, result.Symbols)
+	if err := i.vectorStore.UpsertFileOutline(relativePath, roots); err != nil {
 		log.Printf("Failed to persist outline for %s: %v", absPath, err)
+	}
+
+	// Save symbol usages (invocations)
+	if len(result.Usages) > 0 {
+		for _, u := range result.Usages {
+			// Find caller node id from allNodes
+			var callerNodeID string
+			for _, node := range allNodes {
+				// Match by name AND line range (safest)
+				if node.Name == u.Caller && u.Line >= node.StartLine && u.Line <= node.EndLine {
+					callerNodeID = node.ID
+					break
+				}
+			}
+
+			if callerNodeID != "" {
+				usage := &models.SymbolUsage{
+					CallerNodeID:    callerNodeID,
+					RawTargetName:    u.Name,
+					RawTargetContext: u.Context,
+					Line:            int(u.Line),
+					Column:          int(u.Column),
+				}
+				if err := i.vectorStore.InsertSymbolUsage(usage); err != nil {
+					log.Printf("Failed to insert symbol usage in %s: %v", relativePath, err)
+				}
+			}
+		}
 	}
 
 	absKey := filepath.ToSlash(absPath)

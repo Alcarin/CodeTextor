@@ -495,6 +495,14 @@ func (m *Manager) initTools() {
 			name:        "grepSearch",
 			description: "Literal or regex search across project files. Precise, OS-independent, and validates path existence.",
 		},
+		"findReferences": {
+			name:        "findReferences",
+			description: "Find all locations (file, line, col) where a symbol is used. Supports searching by nodeID or symbolName.",
+		},
+		"getCallGraph": {
+			name:        "getCallGraph",
+			description: "Get the call relationships for a specific function. Supports searching by nodeID or symbolName.",
+		},
 	}
 
 	for name, state := range m.tools {
@@ -575,6 +583,22 @@ func (m *Manager) initTools() {
 					Description: desc,
 				}, wrapTool(m, "grepSearch", m.handleGrepSearch(boundProjectID)))
 			}
+		case "findReferences":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "findReferences",
+					Description: desc,
+				}, wrapTool(m, "findReferences", m.handleFindReferences(boundProjectID)))
+			}
+		case "getCallGraph":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "getCallGraph",
+					Description: desc,
+				}, wrapTool(m, "getCallGraph", m.handleGetCallGraph(boundProjectID)))
+			}
 		}
 
 		if disabled := m.disabledTools[name]; disabled {
@@ -633,6 +657,66 @@ func (m *Manager) handleGrepSearch(boundProjectID string) sdkmcp.ToolHandlerFor[
 		}
 
 		return nil, res, nil
+	}
+}
+
+type findReferencesInput struct {
+	NodeID     string `json:"nodeID,omitempty" jsonschema_description:"The unique ID of the node to find references for"`
+	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"The name of the symbol to find references for"`
+	Path       string `json:"path,omitempty" jsonschema_description:"Optional file path to disambiguate symbolName"`
+}
+
+func (m *Manager) handleFindReferences(boundProjectID string) sdkmcp.ToolHandlerFor[findReferencesInput, *models.SymbolReferencesResponse] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input findReferencesInput) (*sdkmcp.CallToolResult, *models.SymbolReferencesResponse, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		res, err := m.projectService.FindReferences(projectID, input.NodeID, input.SymbolName, input.Path)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, res, nil
+	}
+}
+
+type getCallGraphInput struct {
+	NodeID     string `json:"nodeID,omitempty" jsonschema_description:"The unique ID of the function/method"`
+	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"The name of the function/method"`
+	Path       string `json:"path,omitempty" jsonschema_description:"Optional file path to disambiguate symbolName"`
+	Direction  string `json:"direction,omitempty" jsonschema_description:"Direction of calls: 'incoming', 'outgoing' (default), or 'both'"`
+	Depth      int    `json:"depth,omitempty" jsonschema_description:"Maximum depth of the call graph (default 1)"`
+}
+
+func (m *Manager) handleGetCallGraph(boundProjectID string) sdkmcp.ToolHandlerFor[getCallGraphInput, map[string]interface{}] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input getCallGraphInput) (*sdkmcp.CallToolResult, map[string]interface{}, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if input.Direction == "" {
+			input.Direction = "outgoing"
+		}
+		if input.Depth == 0 {
+			input.Depth = 1
+		}
+
+		res, err := m.projectService.GetCallGraph(projectID, input.NodeID, input.SymbolName, input.Path, input.Direction, input.Depth)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Convert to map to bypass jsonschema recursive struct limitations in MCP SDK
+		importJson := true // Ensure json package imported, will use encode/json
+		_ = importJson
+		var out map[string]interface{}
+		b, _ := json.Marshal(res)
+		json.Unmarshal(b, &out)
+
+		return nil, out, nil
 	}
 }
 

@@ -104,6 +104,8 @@ type ProjectServiceAPI interface {
 	GrepSearch(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error)
 	GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error)
 	GetProjectSummary(projectID string) (*models.ProjectSummary, error)
+	FindReferences(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
+	GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
 	Close() error
 }
 
@@ -127,6 +129,7 @@ type ProjectService struct {
 	activeONNXPath    string
 	heavyTasks        map[string]bool // ProjectID -> is running a heavy task (reindex)
 	initialSystemVRAM int             // VRAM baseline (system + non-app) in MB
+	linkerService     *LinkerService
 }
 
 // CreateProjectRequest contains data required to create a new project.
@@ -174,6 +177,7 @@ func NewProjectService(ctx context.Context) (*ProjectService, error) {
 		embeddingClients:  make(map[string]embedding.EmbeddingClient),
 		loadingClients:    make(map[string]chan struct{}),
 		heavyTasks:        make(map[string]bool),
+		linkerService:     NewLinkerService(),
 		enableONNXRuntime: false,
 	}
 
@@ -689,7 +693,23 @@ func (s *ProjectService) StartIndexing(projectID string) error {
 		return fmt.Errorf("failed to initialize embedding model: %w", err)
 	}
 
-	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, nil); err != nil {
+	onComplete := func(status models.IndexingStatus) {
+		// General completion (e.g. for overall progress status)
+	}
+
+	onInitialScanComplete := func() {
+		if err := s.linkerService.ResolveUsages(project.ID, vectorStore); err != nil {
+			log.Printf("Warning: linker failed for project %s: %v", project.ID, err)
+		}
+	}
+
+	onFileIndexed := func(filePath string) {
+		if err := s.linkerService.ResolveFileUsages(project.ID, filePath, vectorStore); err != nil {
+			log.Printf("Warning: incremental linker failed for file %s: %v", filePath, err)
+		}
+	}
+
+	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, onComplete, onInitialScanComplete, onFileIndexed); err != nil {
 		return fmt.Errorf("failed to start indexer: %w", err)
 	}
 	return nil
@@ -757,10 +777,24 @@ func (s *ProjectService) ReindexProject(projectID string) error {
 		delete(s.heavyTasks, projectID)
 		s.clientsMu.Unlock()
 		s.rebalanceBatchSizes()
-		log.Printf("Reindexing completed for project %s (Status: %v). Heavy mode deactivated.", projectID, status)
+
+		log.Printf("Reindexing lifecycle update for project %s (Status: %v).", projectID, status)
 	}
 
-	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, onComplete); err != nil {
+	onInitialScanComplete := func() {
+		if err := s.linkerService.ResolveUsages(projectID, vectorStore); err != nil {
+			log.Printf("Warning: linker failed for project %s: %v", projectID, err)
+		}
+		log.Printf("Bulk linking completed for reindexed project %s", projectID)
+	}
+
+	onFileIndexed := func(filePath string) {
+		if err := s.linkerService.ResolveFileUsages(projectID, filePath, vectorStore); err != nil {
+			log.Printf("Warning: incremental linker failed for file %s: %v", filePath, err)
+		}
+	}
+
+	if err := s.indexerManager.StartIndexer(project, files, vectorStore, client, onComplete, onInitialScanComplete, onFileIndexed); err != nil {
 		// If indexing failed to even start, ensure heavyTasks is cleaned up
 		s.clientsMu.Lock()
 		delete(s.heavyTasks, projectID)
@@ -1601,6 +1635,7 @@ func (s *ProjectService) GetFileOutline(projectID, path string) ([]*models.Outli
 	if err != nil {
 		return nil, err
 	}
+
 	if len(outline) == 0 && key != absSlash {
 		outline, err = vectorStore.GetFileOutline(absSlash)
 		if err != nil {
@@ -1618,11 +1653,246 @@ func (s *ProjectService) GetFileOutline(projectID, path string) ([]*models.Outli
 	if outline == nil {
 		outline = []*models.OutlineNode{}
 	}
-	if len(outline) == 0 {
-		return outline, nil
-	}
 
 	return outline, nil
+}
+
+// FindReferences finds all locations where a symbol is used.
+// It supports resolution by nodeID or symbolName + optional path.
+func (s *ProjectService) FindReferences(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error) {
+	vs, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	targetID := nodeID
+	if targetID == "" && symbolName != "" {
+		candidates, err := vs.FindSymbolNodesByName(symbolName)
+		if err != nil {
+			return nil, err
+		}
+		
+		if len(candidates) == 0 {
+			return nil, fmt.Errorf("symbol '%s' not found", symbolName)
+		}
+		
+		// If path is provided, filter candidates
+		if path != "" {
+			for _, c := range candidates {
+				if strings.Contains(c.FilePath, path) {
+					targetID = c.ID
+					break
+				}
+			}
+		}
+		
+		if targetID == "" {
+			if len(candidates) > 1 {
+				return nil, fmt.Errorf("symbol '%s' is ambiguous (found %d candidates), please provide a path", symbolName, len(candidates))
+			}
+			targetID = candidates[0].ID
+		}
+	}
+
+	if targetID == "" {
+		return nil, fmt.Errorf("either nodeID or symbolName must be provided")
+	}
+
+	usages, err := vs.GetSymbolUsages(targetID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Group by file path
+	fileGroups := make(map[string][]int)
+	for _, u := range usages {
+		fileGroups[u.FilePath] = append(fileGroups[u.FilePath], u.Line)
+	}
+
+	response := &models.SymbolReferencesResponse{
+		Files: make([]models.FileSymbolReferences, 0, len(fileGroups)),
+	}
+
+	for filePath, lines := range fileGroups {
+		// Unique lines to avoid duplicates if multiple calls on same line
+		sort.Ints(lines)
+		uniqueLines := make([]int, 0, len(lines))
+		seen := make(map[int]bool)
+		for _, l := range lines {
+			if !seen[l] {
+				uniqueLines = append(uniqueLines, l)
+				seen[l] = true
+			}
+		}
+
+		fileRef := models.FileSymbolReferences{
+			Path:       filePath,
+			References: make([]models.SymbolReference, 0, len(uniqueLines)),
+		}
+
+		// Read file content for snippets
+		content, err := s.ReadFileContent(projectID, filePath)
+		if err == nil {
+			sourceLines := strings.Split(content, "\n")
+			for _, l := range uniqueLines {
+				// Lines in DB are 1-based
+				if l > 0 && l <= len(sourceLines) {
+					fileRef.References = append(fileRef.References, models.SymbolReference{
+						Line:    l,
+						Content: strings.TrimSpace(sourceLines[l-1]),
+					})
+				}
+			}
+		} else {
+			// Fallback if file read fails: at least provide line numbers
+			for _, l := range uniqueLines {
+				fileRef.References = append(fileRef.References, models.SymbolReference{
+					Line: l,
+				})
+			}
+		}
+
+		response.Files = append(response.Files, fileRef)
+	}
+
+	// Sort files by path for deterministic output
+	sort.Slice(response.Files, func(i, j int) bool {
+		return response.Files[i].Path < response.Files[j].Path
+	})
+
+	return response, nil
+}
+
+// GetCallGraph returns the call relationships for a specific function.
+func (s *ProjectService) GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error) {
+	vs, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	targetID := nodeID
+	
+	// Reuse identification logic
+	if targetID == "" && symbolName != "" {
+		candidates, err := vs.FindSymbolNodesByName(symbolName)
+		if err != nil {
+			return nil, err
+		}
+		if len(candidates) == 0 {
+			return nil, fmt.Errorf("symbol '%s' not found", symbolName)
+		}
+		if path != "" {
+			for _, c := range candidates {
+				if strings.Contains(c.FilePath, path) {
+					targetID = c.ID
+					break
+				}
+			}
+		}
+		if targetID == "" {
+			if len(candidates) > 1 {
+				return nil, fmt.Errorf("symbol '%s' is ambiguous, please provide a path", symbolName)
+			}
+			targetID = candidates[0].ID
+		}
+	}
+
+	if targetID == "" {
+		return nil, fmt.Errorf("target symbol not identified")
+	}
+
+	// Preparation
+	fileCache := make(map[string][]string)
+	getLineContent := func(projectID, filePath string, line int) string {
+		lines, ok := fileCache[filePath]
+		if !ok {
+			content, err := s.ReadFileContent(projectID, filePath)
+			if err != nil {
+				return ""
+			}
+			lines = strings.Split(content, "\n")
+			fileCache[filePath] = lines
+		}
+		if line > 0 && line <= len(lines) {
+			return strings.TrimSpace(lines[line-1])
+		}
+		return ""
+	}
+
+	getNodeLoc := func(nodeID string) (string, string, int) {
+		nodes, _ := vs.GetOutlineNodes([]string{nodeID})
+		if len(nodes) > 0 {
+			n := nodes[0]
+			return n.Name, n.FilePath, int(n.StartLine)
+		}
+		return "unknown", "external", 0
+	}
+
+	rootName, rootPath, rootLine := getNodeLoc(targetID)
+	resp := &models.CallGraphResponse{
+		Direction: direction,
+		Root: models.CallDetails{
+			Symbol:   rootName,
+			Location: fmt.Sprintf("%s:%d", rootPath, rootLine),
+		},
+	}
+
+	visited := make(map[string]bool)
+	var buildTree func(nodeID string, d int) []models.CallDetails
+	buildTree = func(nodeID string, d int) []models.CallDetails {
+		if d <= 0 || visited[nodeID] {
+			return nil
+		}
+		visited[nodeID] = true
+		defer func() { visited[nodeID] = false }() // For tree structure, we might want to revisit in different branches? 
+		// Actually, to avoid infinite trees, we keep visited per branch or globally. 
+		// For a call graph tree, global visited is safer to avoid OOM on cycles.
+
+		var calls []models.CallDetails
+
+		if direction == "outgoing" || direction == "both" {
+			usages, _ := vs.GetOutgoingCalls(nodeID)
+			for _, u := range usages {
+				name, path, line := getNodeLoc(u.TargetNodeID)
+				call := models.CallDetails{
+					Symbol:   name,
+					Location: fmt.Sprintf("%s:%d", path, line),
+					Content:  getLineContent(projectID, path, u.Line), // Note: snippet is from caller file if outgoing? 
+					// Wait, snippet should be where the call happens.
+				}
+				
+				// Snippet for outgoing call is in the CURRENT node's file
+				_, callerPath, _ := getNodeLoc(nodeID)
+				call.Content = getLineContent(projectID, callerPath, u.Line)
+				
+				call.Calls = buildTree(u.TargetNodeID, d-1)
+				calls = append(calls, call)
+			}
+		}
+
+		if direction == "incoming" || direction == "both" {
+			usages, _ := vs.GetSymbolUsages(nodeID)
+			for _, u := range usages {
+				if u.CallerNodeID == "" {
+					continue
+				}
+				name, path, line := getNodeLoc(u.CallerNodeID)
+				call := models.CallDetails{
+					Symbol:   name,
+					Location: fmt.Sprintf("%s:%d", path, line),
+					Content:  getLineContent(projectID, path, u.Line),
+					Calls:    buildTree(u.CallerNodeID, d-1) ,
+				}
+				calls = append(calls, call)
+			}
+		}
+
+		return calls
+	}
+
+	resp.Root.Calls = buildTree(targetID, depth)
+
+	return resp, nil
 }
 
 // buildAndStoreOutline parses the file to generate and persist an outline when none exists yet.
@@ -1658,7 +1928,7 @@ func (s *ProjectService) buildAndStoreOutline(
 		return nil, fmt.Errorf("failed to parse outline for %s: %w", storageKey, err)
 	}
 
-	nodes := outline.BuildOutlineNodes(storageKey, result.Symbols)
+	nodes, _ := outline.BuildOutlineNodes(storageKey, result.Symbols)
 	if err := vectorStore.UpsertFileOutline(storageKey, nodes); err != nil {
 		return nil, fmt.Errorf("failed to persist outline for %s: %w", storageKey, err)
 	}

@@ -222,3 +222,8 @@ func trimQuotes(s string) string {
 	}
 	return s
 }
+
+// ExtractUsages is a stub for CSSParser.
+func (c *CSSParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

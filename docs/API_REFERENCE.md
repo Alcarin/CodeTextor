@@ -23,16 +23,18 @@ index; requests are read-only.
 
 ### Tools
 
-| Tool                | Purpose                                                                 |
-| ------------------- | ----------------------------------------------------------------------- |
-| `getProjectDetails` | Overview of project scope, configuration, and statistics                |
-| `listFiles`         | Explore file tree with optional path/extension filtering                |
-| `search`            | Semantic natural language search across indexed code chunks             |
-| `semanticSearchFiles`| High-level exploration: suggests the most relevant files for a concept |
-| `outline`           | Hierarchical symbol tree (classes, functions) for a file                |
-| `nodeSource`        | Precise source snippets for identified symbols/chunks                    |
+| Tool                | Purpose                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| `getProjectDetails` | Overview of project scope, configuration, and statistics                  |
+| `listFiles`         | Explore file tree with optional path/extension filtering                  |
+| `search`            | Semantic natural language search across indexed code chunks               |
+| `semanticSearchFiles` | High-level exploration: suggests the most relevant files for a concept  |
+| `outline`           | Hierarchical symbol tree (classes, functions) for a file                  |
+| `nodeSource`        | Precise source snippets for identified symbols/chunks                     |
 | `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)        |
-| `grepSearch`        | Literal or regex search across files (precise and OS-independent)        |
+| `grepSearch`        | Literal or regex search across files (precise and OS-independent)         |
+| `findReferences`    | Find all locations (file, line) where a symbol is referenced or used      |
+| `getCallGraph`      | Get the hierarchical call relationships for a specific function           |
 
 #### `getProjectDetails`
 
@@ -94,6 +96,22 @@ index; requests are read-only.
   - Results are grouped by file to minimize path redundancy.
   - `content` is automatically truncated to 500 characters to reduce token consumption.
   - Maximum of 50 matches per file.
+
+#### `findReferences`
+
+- **Input**: `{ nodeID?: string, symbolName?: string, path?: string }`
+- **Response**: `{ files: { path, references: { line, content }[] }[] }`
+  - Highly efficient exact reference tracking without fuzzy similarity.
+  - Grouped by file. Includes exact line number and code snippet where the symbol is referenced.
+  - Provide `path` alongside `symbolName` if multiple symbols share the same name across files.
+
+#### `getCallGraph`
+
+- **Input**: `{ nodeID?: string, symbolName?: string, path?: string, direction?: "incoming" | "outgoing" | "both", depth?: number }`
+- **Response**: `{ direction: string, root: { symbol: string, location: string, content?: string, calls: CallDetails[] } }`
+  - Maps architectural call flows hierarchically. Nested `calls` array makes traversal native for LLM contexts.
+  - `location` points to the *definition* of the called/calling function (format `path:line`).
+  - `content` explicitly extracts the source code context snippet where the call took place.
 
 ### Status & Tool Events
 

@@ -6,12 +6,12 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 
 | Tool | Applicability (Feasibility) | Benefits (User Value) | Development Cost | Priority |
 | :--- | :--- | :--- | :--- | :--- |
-| **`findReferences`** | **High**: Requires extra indexing of usages during parsing. | **Maximum**: Essential for safe refactoring. | Medium | **P0** |
+| **`findReferences`** | **High**: Requires extra indexing of usages during parsing. | **Maximum**: Essential for safe refactoring. | Medium | **DONE** |
 | **`semanticSearchFiles`** | **Very High**: Simple weighted aggregation of chunk similarity. | **High**: Provides a thematic overview of the repo. | Low | **DONE** |
 | **`getProjectSummary`** | **High**: Simple reading of README and DB statistics. | **High**: Instantly orients the AI at session start. | Low | **DONE** |
 | **`runTests`** | **Medium**: Requires mapping project test commands. | **Very High**: Allows the AI to validate its changes. | Medium | **P1** |
 | **`getRecentChanges`** | **High**: Simple integration with Git commands (shell). | **High**: Useful for debugging recent regressions. | Low | **DONE** |
-| **`getCallGraph`** | **Medium**: Requires deeper static analysis to map calls. | **High**: Clarifies complex architectures. | High | **P2** |
+| **`getCallGraph`** | **Medium**: Requires deeper static analysis to map calls. | **High**: Clarifies complex architectures. | High | **DONE** |
 | **`grepSearch`** | **Very High**: Textual scanning of the filesystem. | **High**: Precise search for exact strings or regex. | Low | **DONE** |
 | **`summarizeFile`** | **High**: Requires a backend LLM call or heuristics. | **Med/High**: Significant token savings for users. | Medium | **P3** |
 
@@ -21,13 +21,13 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 
 ### 1. Navigation & Static Analysis
 
-#### `findReferences`
+#### `findReferences` DONE
 
 - **Description**: Find all files and lines where a symbol (function, class, variable) is used.
 - **Feasibility**: The Tree-sitter parser can be extended to detect not just definitions but also usages, saving them into a `usages` table in the project's SQLite-vec database.
 - **Cost/Benefit**: Implementing reference indexing requires a database schema update, but it's the best way to give AI agents "superpowers," eliminating the risk of breaking unseen parts of the code.
 
-#### `getCallGraph`
+#### `getCallGraph` DONE
 
 - **Description**: Show who calls a function or what other functions are called by it.
 - **Feasibility**: More complex than symbol search, as it requires resolving types and imports to ensure graph accuracy.

@@ -414,3 +414,75 @@ func (g *GoParser) determineVisibility(name string) string {
 	}
 	return "private"
 }
+
+// ExtractUsages finds all function and method calls in the AST.
+func (g *GoParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	var usages []ParserSymbolUsage
+	rootNode := tree.RootNode()
+	usages = g.walkUsages(rootNode, source, symbols, usages)
+	return usages
+}
+
+func (g *GoParser) walkUsages(node *sitter.Node, source []byte, symbols []Symbol, usages []ParserSymbolUsage) []ParserSymbolUsage {
+	if node.Kind() == "call_expression" {
+		usage := g.extractCallUsage(node, source, symbols)
+		if usage != nil {
+			usages = append(usages, *usage)
+		}
+	}
+
+	for i := uint(0); i < node.ChildCount(); i++ {
+		child := node.Child(i)
+		usages = g.walkUsages(child, source, symbols, usages)
+	}
+	return usages
+}
+
+func (g *GoParser) extractCallUsage(node *sitter.Node, source []byte, symbols []Symbol) *ParserSymbolUsage {
+	fn := node.ChildByFieldName("function")
+	if fn == nil {
+		return nil
+	}
+
+	var name, context string
+	if fn.Kind() == "identifier" {
+		name = fn.Utf8Text(source)
+	} else if fn.Kind() == "selector_expression" {
+		operand := fn.ChildByFieldName("operand")
+		field := fn.ChildByFieldName("field")
+		if field != nil {
+			name = field.Utf8Text(source)
+		}
+		if operand != nil {
+			context = operand.Utf8Text(source)
+		}
+	}
+
+	if name == "" {
+		return nil
+	}
+
+	start := node.StartPosition()
+	line := uint32(start.Row) + 1
+	col := uint32(start.Column) + 1
+
+	// Find caller by matching the call's line with symbol ranges
+	caller := ""
+	for _, s := range symbols {
+		if line >= s.StartLine && line <= s.EndLine {
+			// Function or Method symbols are primary callers
+			if s.Kind == SymbolFunction || s.Kind == SymbolMethod {
+				caller = s.Name
+				break
+			}
+		}
+	}
+
+	return &ParserSymbolUsage{
+		Name:    name,
+		Context: context,
+		Line:    line,
+		Column:  col,
+		Caller:  caller,
+	}
+}

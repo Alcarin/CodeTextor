@@ -410,3 +410,8 @@ func (v *VueParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, 
 func (v *VueParser) ExtractMetadata(tree *sitter.Tree, source []byte) map[string]string {
 	return make(map[string]string)
 }
+
+// ExtractUsages is a stub for VueParser.
+func (v *VueParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

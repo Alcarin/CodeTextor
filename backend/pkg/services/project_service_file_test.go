@@ -12,7 +12,12 @@ func TestReadFileContent(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Use temporary HOME to avoid polluting real database
-	t.Setenv("HOME", t.TempDir())
+	testHome := t.TempDir()
+	t.Setenv("HOME", testHome)
+	t.Setenv("APPDATA", testHome)
+	t.Setenv("LOCALAPPDATA", testHome)
+	t.Setenv("XDG_CONFIG_HOME", testHome)
+
 
 	// Create a test file
 	testFilePath := filepath.Join(tempDir, "test.txt")
@@ -55,7 +60,12 @@ func TestReadFileContent_SecurityCheck(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Use temporary HOME to avoid polluting real database
-	t.Setenv("HOME", t.TempDir())
+	testHome := t.TempDir()
+	t.Setenv("HOME", testHome)
+	t.Setenv("APPDATA", testHome)
+	t.Setenv("LOCALAPPDATA", testHome)
+	t.Setenv("XDG_CONFIG_HOME", testHome)
+
 
 	// Create a file outside project root
 	outsideDir := t.TempDir()
@@ -95,7 +105,12 @@ func TestReadFileContent_NonExistentFile(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Use temporary HOME to avoid polluting real database
-	t.Setenv("HOME", t.TempDir())
+	testHome := t.TempDir()
+	t.Setenv("HOME", testHome)
+	t.Setenv("APPDATA", testHome)
+	t.Setenv("LOCALAPPDATA", testHome)
+	t.Setenv("XDG_CONFIG_HOME", testHome)
+
 
 	// Create test service
 	service, err := NewProjectService(context.Background())

@@ -121,6 +121,9 @@ func (p *Parser) ParseFile(filePath string, source []byte) (*ParseResult, error)
 		return nil, fmt.Errorf("failed to extract symbols: %w", err)
 	}
 
+	// Extract symbol usages (invocations)
+	usages := parser.ExtractUsages(tree, source, symbols)
+
 	// Extract imports
 	imports, err := parser.ExtractImports(tree, source)
 	if err != nil {
@@ -136,6 +139,7 @@ func (p *Parser) ParseFile(filePath string, source []byte) (*ParseResult, error)
 		FilePath: filePath,
 		Language: p.detectLanguage(ext),
 		Symbols:  symbols,
+		Usages:   usages,
 		Imports:  imports,
 		Errors:   parseErrors,
 		Metadata: metadata,

@@ -102,3 +102,8 @@ func trimJSONKey(raw string) string {
 	raw = strings.TrimSpace(raw)
 	return trimQuotes(raw)
 }
+
+// ExtractUsages is a stub for JSONParser.
+func (j *JSONParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

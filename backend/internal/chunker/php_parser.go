@@ -253,3 +253,8 @@ func (p *PhpParser) extractLeadingComment(node *sitter.Node, source []byte) stri
 
 	return strings.Join(docLines, "\n")
 }
+
+// ExtractUsages is a stub for PhpParser.
+func (p *PhpParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
+	return nil
+}

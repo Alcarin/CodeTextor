@@ -17,14 +17,17 @@ import (
 )
 
 // BuildOutlineNodes constructs a tree of OutlineNode values from the ordered list of symbols.
-func BuildOutlineNodes(filePath string, symbols []chunker.Symbol) []*models.OutlineNode {
+// Returns the root nodes and a flat list of all nodes for easy lookup.
+func BuildOutlineNodes(filePath string, symbols []chunker.Symbol) ([]*models.OutlineNode, []*models.OutlineNode) {
 	if len(symbols) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var roots []*models.OutlineNode
 	// Map from symbol name to all nodes with that name
 	symbolMap := make(map[string][]*models.OutlineNode)
+	// Flat list of all nodes
+	var allNodes []*models.OutlineNode
 	// Track occurrences of the same span/name to keep IDs unique.
 	idCounters := make(map[string]int)
 
@@ -72,7 +75,8 @@ func BuildOutlineNodes(filePath string, symbols []chunker.Symbol) []*models.Outl
 
 		// Add this node to the symbol map
 		symbolMap[symbol.Name] = append(symbolMap[symbol.Name], node)
+		allNodes = append(allNodes, node)
 	}
 
-	return roots
+	return roots, allNodes
 }
