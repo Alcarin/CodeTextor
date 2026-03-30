@@ -652,7 +652,9 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, wg *sync.WaitGro
 	source, err := os.ReadFile(file.AbsolutePath)
 	if err != nil {
 		log.Printf("Failed to read file %s: %v", file.AbsolutePath, err)
-		atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+		if wg != nil {
+			atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+		}
 		return
 	}
 
@@ -661,7 +663,9 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, wg *sync.WaitGro
 	existingFile, err := i.vectorStore.GetFile(file.RelativePath)
 	if err == nil && existingFile != nil {
 		if existingFile.Hash == fileHash && existingFile.LastModified == file.LastModified {
-			atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+			if wg != nil {
+				atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+			}
 			return
 		}
 	}
@@ -775,8 +779,15 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, wg *sync.WaitGro
 		wg:           wg,
 	}:
 		sentToGpu = true
-		if wg == nil { // Incrementar counter per live updates (Run lo fa solo per initialScan)
-			atomic.AddInt32(&i.progress.TotalFiles, 1)
+		if wg == nil { // Live update via watcher
+			if existingFile == nil {
+				// Il file è nuovo, incrementiamo il totale
+				atomic.AddInt32(&i.progress.TotalFiles, 1)
+			} else {
+				// Il file esisteva già ed è stato modificato.
+				// Decrementiamo i processati perché verrà ri-incrementato da finalizeTask.
+				atomic.AddInt32(&i.progress.ProcessedFiles, -1)
+			}
 		}
 	case <-i.ctx.Done():
 		return
