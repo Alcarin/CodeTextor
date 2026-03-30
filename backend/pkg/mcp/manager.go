@@ -880,8 +880,11 @@ type semanticSearchFilesInput struct {
 }
 
 type chunkScore struct {
-	ID    string  `json:"id"`
-	Score float64 `json:"score"`
+	ID         string  `json:"id"`
+	Score      float64 `json:"score"`
+	SymbolName string  `json:"symbol,omitempty"`
+	LineStart  int     `json:"start,omitempty"`
+	LineEnd    int     `json:"end,omitempty"`
 }
 
 type mcpFileScoreResult struct {
@@ -1093,7 +1096,13 @@ func (m *Manager) handleSemanticSearchFiles(boundProjectID string) sdkmcp.ToolHa
 			if chunk.Similarity > s.maxScore {
 				s.maxScore = chunk.Similarity
 			}
-			s.chunks = append(s.chunks, chunkScore{ID: chunk.ID, Score: chunk.Similarity})
+			s.chunks = append(s.chunks, chunkScore{
+				ID:         chunk.ID,
+				Score:      chunk.Similarity,
+				SymbolName: chunk.SymbolName,
+				LineStart:  chunk.LineStart,
+				LineEnd:    chunk.LineEnd,
+			})
 		}
 
 		// Sort files by their maximum similarity score
