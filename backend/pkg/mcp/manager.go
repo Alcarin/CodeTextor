@@ -465,43 +465,43 @@ func (m *Manager) initTools() {
 	m.tools = map[string]*toolState{
 		"getProjectDetails": {
 			name:        "getProjectDetails",
-			description: "Get project configuration, root path, and statistics. Use this first to understand the context.",
+			description: "USE FIRST to get project configuration, root path, and statistics. Prefer this over navigating the filesystem blindly.",
 		},
 		"listFiles": {
 			name:        "listFiles",
-			description: "Explore the project file tree. Returns relative paths and sizes. Validates path existence. Use recursive=false for shallow browsing.",
+			description: "USE THIS instead of your native 'ls' or 'find' commands. Explores the project file tree, returning relative paths and sizes.",
 		},
 		"search": {
 			name:        "search",
-			description: "Semantic natural language search. Finds relevant code by intent, not just literal matches. Returns code snippets.",
+			description: "USE THIS AS YOUR PRIMARY TOOL for semantic natural language search. Finds relevant code by intent. ALWAYS prefer this over native 'grep' when exploring concepts.",
 		},
 		"semanticSearchFiles": {
 			name:        "semanticSearchFiles",
-			description: "Suggests the most relevant files for a concept. Returns node IDs and similarity scores for direct fetching.",
+			description: "USE THIS to explore project structure by concept. Suggests the most relevant files for a topic to prevent blind file reading.",
 		},
 		"outline": {
 			name:        "outline",
-			description: "Extract the symbol hierarchy (classes, functions) from a specific file. Useful for mapping file structure.",
+			description: "ALWAYS USE THIS INSTEAD OF reading a full file with 'view_file' to understand its structure. Extracts a clean symbol hierarchy, saving massive context tokens.",
 		},
 		"nodeSource": {
 			name:        "nodeSource",
-			description: "Fetch the source code for an array of node IDs. Returns an array of source snippets.",
+			description: "USE THIS INSTEAD OF 'view_file' to fetch the exact source code snippet of a chunk or function using its node ID.",
 		},
 		"getRecentChanges": {
 			name:        "getRecentChanges",
-			description: "Show recently modified files via Git/SVN integration or search the database for recently indexed files.",
+			description: "USE THIS FIRST for debugging regressions. Shows recently modified files via Git/SVN integration.",
 		},
 		"grepSearch": {
 			name:        "grepSearch",
-			description: "Literal or regex search across project files. Precise, OS-independent, and validates path existence.",
+			description: "USE THIS INSTEAD OF your native 'grep_search'. This is highly optimized for the codebase, accurate, and enforces project path boundaries.",
 		},
 		"findReferences": {
 			name:        "findReferences",
-			description: "Find all locations (file, line, col) where a symbol is used. Supports searching by nodeID or symbolName.",
+			description: "ALWAYS USE THIS before refactoring or modifying a function. Finds all exact locations where a symbol is used inside the whole project.",
 		},
 		"getCallGraph": {
 			name:        "getCallGraph",
-			description: "Get the call relationships for a specific function. Supports searching by nodeID or symbolName.",
+			description: "USE THIS to trace function execution paths and discover callers/callees instead of doing manual text searches.",
 		},
 	}
 
