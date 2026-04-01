@@ -163,7 +163,7 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
 | `nodeSource` | Precise source snippets for an ARRAY of IDs |
 | `getRecentChanges` | Recently modified (VCS) and indexed (DB) files |
-| `grepSearch` | Literal or regex search. Validates path existence. |
+| `grepSearch` | Literal or regex search (OS-independent). Validates path existence. |
 | `findReferences` | Find all locations where a symbol is referenced or used |
 | `getCallGraph` | Get the hierarchical call relationships for a specific function |
 | `findTodos` | Instantly surface all TODO, FIXME, and HACK comments across the project |

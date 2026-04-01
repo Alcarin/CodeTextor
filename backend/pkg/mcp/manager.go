@@ -493,7 +493,7 @@ func (m *Manager) initTools() {
 		},
 		"grepSearch": {
 			name:        "grepSearch",
-			description: "USE THIS INSTEAD OF your native 'grep_search'. This is highly optimized for the codebase, accurate, and enforces project path boundaries.",
+			description: "USE THIS INSTEAD OF your native 'grep_search'. This is highly optimized for the codebase, accurate, OS-independent, and enforces project path boundaries.",
 		},
 		"findReferences": {
 			name:        "findReferences",
