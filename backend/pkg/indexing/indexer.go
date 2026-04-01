@@ -917,7 +917,7 @@ func (i *Indexer) cleanupRemovedFiles(currentFiles []*models.FilePreview) {
 		current[filepath.ToSlash(f.RelativePath)] = struct{}{}
 	}
 
-	tracked, err := i.vectorStore.ListAllFilePaths()
+	tracked, err := i.vectorStore.ListPhysicalFilePaths()
 	if err != nil {
 		log.Printf("Failed to list tracked files for cleanup: %v", err)
 		return

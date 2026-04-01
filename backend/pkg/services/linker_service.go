@@ -56,6 +56,11 @@ func (s *LinkerService) ResolveUsages(projectID string, vs *store.VectorStore) e
 	}
 
 	log.Printf("Linking completed: %d resolved (%d virtual) out of %d total", resolvedCount, virtualCount, len(usages))
+
+	if purged, err := vs.PurgeOrphanedVirtualFiles(); err == nil && purged > 0 {
+		log.Printf("Cleanup: Purged %d unused external library references", purged)
+	}
+
 	return nil
 }
 
@@ -87,6 +92,11 @@ func (s *LinkerService) ResolveFileUsages(projectID string, filePath string, vs 
 	if resolvedCount > 0 {
 		log.Printf("Incremental linking for %s: %d symbols resolved", filePath, resolvedCount)
 	}
+
+	if purged, err := vs.PurgeOrphanedVirtualFiles(); err == nil && purged > 0 {
+		log.Printf("Cleanup for %s: Purged %d unused external library references", filePath, purged)
+	}
+
 	return nil
 }
 

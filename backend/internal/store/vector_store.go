@@ -607,11 +607,11 @@ func (s *VectorStore) GetRecentFiles(limit int) ([]*models.File, error) {
 	return files, nil
 }
 
-// ListAllFilePaths returns all file paths tracked in the files table.
-func (s *VectorStore) ListAllFilePaths() ([]string, error) {
-	rows, err := s.db.Query(`SELECT path FROM files`)
+// ListPhysicalFilePaths returns all physical (non-virtual) file paths tracked in the files table.
+func (s *VectorStore) ListPhysicalFilePaths() ([]string, error) {
+	rows, err := s.db.Query(`SELECT path FROM files WHERE is_virtual = 0`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tracked files: %w", err)
+		return nil, fmt.Errorf("failed to list tracked physical files: %w", err)
 	}
 	defer rows.Close()
 
@@ -663,6 +663,25 @@ func (s *VectorStore) RemoveFileAndArtifacts(filePath string) error {
 	s.fileIDMu.Unlock()
 
 	return tx.Commit()
+}
+
+// PurgeOrphanedVirtualFiles removes virtual file entries that are no longer referenced by any symbol usage.
+func (s *VectorStore) PurgeOrphanedVirtualFiles() (int64, error) {
+	result, err := s.db.Exec(`
+		DELETE FROM files 
+		WHERE is_virtual = 1 
+		AND pk NOT IN (
+			SELECT DISTINCT f.pk 
+			FROM files f
+			JOIN outline_nodes n ON n.file_id = f.pk
+			JOIN symbol_usages u ON u.target_node_id = n.id
+		)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to purge orphaned virtual files: %w", err)
+	}
+
+	return result.RowsAffected()
 }
 
 // RemoveDirectoryAndArtifacts deletes all stored data for files within the given directory path.
