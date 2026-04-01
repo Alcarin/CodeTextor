@@ -444,6 +444,14 @@ When **Continuous Indexing** is enabled:
 
 ---
 
+### Symbol Linking & Virtual Symbols
+
+CodeTextor resolves dependencies between symbols during the indexing phase. If a symbol belongs to an external library, a **Virtual Symbol** (prefixed with `@external/`) is created.
+
+To maintain database consistency, a **Garbage Collection** mechanism (`PurgeOrphanedVirtualFiles`) automatically removes these virtual references if they are no longer used in any file within the project, ensuring the index stays synchronized with the source.
+
+---
+
 ## Chunks View
 
 The **Chunks View** provides visualization and inspection of semantic code chunks generated for embedding and retrieval. It enables developers to understand how their code is being chunked for RAG systems.

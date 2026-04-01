@@ -163,6 +163,13 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 5. **Querying**: All MCP tools receive `projectId` and query the correct DB
 6. **Deletion**: Remove `indexes/<projectId>.db` and config entry
 
+### 🔹 Virtual Symbol Garbage Collection (GC)
+
+CodeTextor maintains a specific cleanup logic for external references (`@external/` symbols) to prevent database bloat over time.
+- **Selective Purge**: Unlike physical files which are removed if missing from disk, virtual symbols are only removed via `PurgeOrphanedVirtualFiles()` if they are no longer referenced by any `symbol_usage` in the project.
+- **Automatic Execution**: This purge is triggered at the end of both bulk indexing and incremental (file watcher) updates within the `LinkerService`.
+- **Testing**: When adding support for new languages, ensure that the parser correctly identifies external calls so the linker can bridge them to virtual symbols, and verify that removing those calls triggers the purge.
+
 ### 🔹 Indexing Status & Active Project
 
    * **Active Project**: The project currently selected in the UI for configuration/viewing (stored in the global `projects.db` under `app_config`)

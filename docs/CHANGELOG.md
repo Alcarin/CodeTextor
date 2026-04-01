@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
 - **Heavy Embedding Rework (GPU/CPU Optimization)**:
   - **Dynamic Batch Scaling**: Automatically adjusts embedding batch sizes based on available VRAM to maximize GPU throughput while preventing Out-of-Memory (OOM) errors.
@@ -124,8 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic statistics refresh every 5 seconds in footer
   - Statistics include indexing progress tracking when projects are being indexed
 
-
 ### Changed
+
 - File outline requests now auto-generate and persist outlines on demand (Tree-sitter) instead of erroring when no cached outline exists
 - Search results and chunk lookups keep `embedding` as an empty slice (never null) for MCP schema compatibility
 - Project cards now display the slug instead of the raw UUID
@@ -148,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Virtual Symbol Consistency**: Implemented automatic garbage collection for orphaned external references (`@external/`) to maintain database integrity.
 - Resolved "nil pointer dereference" errors during project loading and startup by improving ONNX environment initialization checks
 - Fixed MCP status label in the footer incorrectly displaying "Stopped" when the server was active
 - Improved project selection robustness when no projects exist or during simultaneous initialization
