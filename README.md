@@ -27,7 +27,8 @@ Specifiche CodeTextor:
 ## 🔍 Key Features
 
 - 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking
-- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation
+- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation.
+- 🛠️ **Technical Debt Extraction**: Automatically surfaces `TODO`, `FIXME`, and `HACK` comments across all supported formats, including Markdown task lists, for a unified project status overview.
 - ⚡ **Dynamic Batch Scaling**: VRAM-aware batching (power-of-2 aligned) to maximize GPU throughput and prevent OOM errors
 - 🧩 **Adaptive chunking strategy**
   - Collapses large functions/classes (`{ ... }`)
@@ -165,6 +166,7 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `grepSearch` | Literal or regex search. Validates path existence. |
 | `findReferences` | Find all locations where a symbol is referenced or used |
 | `getCallGraph` | Get the hierarchical call relationships for a specific function |
+| `findTodos` | Instantly surface all TODO, FIXME, and HACK comments across the project |
 
 Example Codex CLI config (`~/.codex/config.toml`):
 

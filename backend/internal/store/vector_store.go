@@ -365,8 +365,8 @@ func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
 	symbol.FilePath = normalizedPath
 
 	stmt, err := s.db.Prepare(`
-		INSERT OR REPLACE INTO symbols (id, file_id, name, kind, line, character, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT OR REPLACE INTO symbols (id, file_id, name, kind, line, character, parent, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert symbol statement: %w", err)
@@ -380,6 +380,7 @@ func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
 		symbol.Kind,
 		symbol.Line,
 		symbol.Character,
+		sql.NullString{String: symbol.Parent, Valid: symbol.Parent != ""},
 		symbol.CreatedAt,
 		symbol.UpdatedAt,
 	)
@@ -1682,4 +1683,36 @@ func (s *VectorStore) InsertVirtualSymbol(path string, node *models.OutlineNode)
 // GetDB returns the underlying database handle (for testing).
 func (s *VectorStore) GetDB() *sql.DB {
 	return s.db
+}
+
+// GetTodos retrieves all symbols of kind SymbolTodo from the database.
+func (s *VectorStore) GetTodos() ([]models.Todo, error) {
+	rows, err := s.db.Query(`
+		SELECT s.name, f.path, s.line, s.parent
+		FROM symbols s
+		JOIN files f ON s.file_id = f.pk
+		WHERE s.kind = 'todo'
+		ORDER BY f.path, s.line
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query todos: %w", err)
+	}
+	defer rows.Close()
+
+	var todos []models.Todo
+	for rows.Next() {
+		var t models.Todo
+		var filePath string
+		var line int
+		var parent sql.NullString
+		if err := rows.Scan(&t.Message, &filePath, &line, &parent); err != nil {
+			return nil, fmt.Errorf("failed to scan todo: %w", err)
+		}
+		if parent.Valid {
+			t.Parent = parent.String
+		}
+		t.Location = fmt.Sprintf("%s:%d", filePath, line)
+		todos = append(todos, t)
+	}
+	return todos, nil
 }

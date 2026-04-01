@@ -101,6 +101,20 @@ func (p *PhpParser) walkNode(node *sitter.Node, source []byte, parentName string
 				}
 			}
 		}
+	case "comment":
+		text := node.Utf8Text(source)
+		if todoRegex.MatchString(text) {
+			symbols = append(symbols, Symbol{
+				Name:      strings.TrimSpace(cleanComment(text)),
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    parentName,
+			})
+		}
 	}
 
 	// Recursively process child nodes for other cases

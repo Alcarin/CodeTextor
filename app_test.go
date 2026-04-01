@@ -52,6 +52,7 @@ type MockProjectServiceAPI struct {
 	GetProjectSummaryFunc        func(projectID string) (*models.ProjectSummary, error)
 	FindReferencesFunc           func(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
 	GetCallGraphFunc             func(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
+	FindTodosFunc                func(projectID string) (*models.FindTodosResponse, error)
 	CloseFunc                    func() error
 }
 
@@ -288,6 +289,12 @@ func (m *MockProjectServiceAPI) FindReferences(projectID, nodeID, symbolName, pa
 func (m *MockProjectServiceAPI) GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error) {
 	if m.GetCallGraphFunc != nil {
 		return m.GetCallGraphFunc(projectID, nodeID, symbolName, path, direction, depth)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) FindTodos(projectID string) (*models.FindTodosResponse, error) {
+	if m.FindTodosFunc != nil {
+		return m.FindTodosFunc(projectID)
 	}
 	return nil, nil
 }

@@ -110,7 +110,7 @@ CodeTextor maintains documentation in `/docs/`:
 
 1. **Chunker** — Parses code using Tree-sitter, generates semantic chunks, collapses long functions, merges small ones, and attaches comments.
 2. **Indexer** — Embeds chunks, stores vectors and metadata in SQLite-vec, and supports incremental updates.
-3. **Retriever (MCP)** — Serves top-k semantic matches for a given query, plus additional tools (outline, nodeSource, symbolSearch).
+3. **Retriever (MCP)** — Serves top-k semantic matches for a given query, plus additional tools (outline, nodeSource, symbolSearch, findTodos).
 4. **Frontend UI** — Allows users to start indexing, inspect chunks, and query the codebase visually.
 
 ---
@@ -398,6 +398,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | `grepSearch`        | Literal or regex search across files (precise and OS-independent)    |
 | `findReferences`    | Find all locations where a symbol is referenced or used              |
 | `getCallGraph`      | Get the hierarchical call relationships for a specific function      |
+| `findTodos`        | Instantly surface all TODO, FIXME, and HACK across the project       |
 
 ### 🔹 MCP Server Requirements
 

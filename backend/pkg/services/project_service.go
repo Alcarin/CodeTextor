@@ -106,6 +106,7 @@ type ProjectServiceAPI interface {
 	GetProjectSummary(projectID string) (*models.ProjectSummary, error)
 	FindReferences(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
 	GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
+	FindTodos(projectID string) (*models.FindTodosResponse, error)
 	Close() error
 }
 
@@ -2264,6 +2265,21 @@ func (s *ProjectService) GetAllProjectsStats() (*models.ProjectStats, error) {
 	}
 
 	return cumulativeStats, nil
+}
+
+// FindTodos retrieves all TODO comments from the project's index.
+func (s *ProjectService) FindTodos(projectID string) (*models.FindTodosResponse, error) {
+	vs, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	todos, err := vs.GetTodos()
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.FindTodosResponse{Todos: todos}, nil
 }
 
 func (s *ProjectService) Close() error {

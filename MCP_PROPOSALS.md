@@ -9,11 +9,12 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 | **`findReferences`** | **High**: Requires extra indexing of usages during parsing. | **Maximum**: Essential for safe refactoring. | Medium | **DONE** |
 | **`semanticSearchFiles`** | **Very High**: Simple weighted aggregation of chunk similarity. | **High**: Provides a thematic overview of the repo. | Low | **DONE** |
 | **`getProjectSummary`** | **High**: Simple reading of README and DB statistics. | **High**: Instantly orients the AI at session start. | Low | **DONE** |
-| **`runTests`** | **Medium**: Requires mapping project test commands. | **Very High**: Allows the AI to validate its changes. | Medium | **P1** |
 | **`getRecentChanges`** | **High**: Simple integration with Git commands (shell). | **High**: Useful for debugging recent regressions. | Low | **DONE** |
 | **`getCallGraph`** | **Medium**: Requires deeper static analysis to map calls. | **High**: Clarifies complex architectures. | High | **DONE** |
 | **`grepSearch`** | **Very High**: Textual scanning of the filesystem. | **High**: Precise search for exact strings or regex. | Low | **DONE** |
-| **`summarizeFile`** | **High**: Requires a backend LLM call or heuristics. | **Med/High**: Significant token savings for users. | Medium | **P3** |
+| **`findImplementations`** | **High**: Requires type/interface resolution during parsing. | **High**: Crucial for OOP polymorphism. | High | **P1** |
+| **`getPackageGraph`** | **Medium**: File-level and folder-level dependency math. | **Very High**: Architectural understanding. | Medium | **P2** |
+| **`findTodos`** | **Very High**: Easy AST query for comment nodes. | **High**: Easy discovery of tech-debt and tasks. | Low | **DONE** |
 
 ---
 
@@ -33,6 +34,12 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 - **Feasibility**: More complex than symbol search, as it requires resolving types and imports to ensure graph accuracy.
 - **Cost/Benefit**: High value for structural understanding, but development effort is high to correctly support multiple languages.
 
+#### `findImplementations`
+
+- **Description**: Given an interface or abstract class, find all classes/structs that implement it.
+- **Feasibility**: High complexity. Unlike `findReferences` which is a direct symbol match, this requires resolving type signatures or navigating "implements" declarations across files.
+- **Cost/Benefit**: Essential for AI agents working in OOP/Interface-heavy codebases (Go, Java, TS) where implementations are not co-located with the interface definition.
+
 ### 2. High-Level Semantic Search
 
 #### `semanticSearchFiles` DONE
@@ -47,7 +54,19 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 - **Feasibility**: Simple aggregation of data already present in the index.
 - **Cost/Benefit**: Extremely cheap to implement; helps the AI avoid "wasting time" loading irrelevant files.
 
-### 3. Integrated Development (Git & Test)
+#### `getPackageGraph`
+
+- **Description**: Returns a macro-level dependency graph showing which folders/packages import which other folders/packages.
+- **Feasibility**: Can be done by aggregating file-level imports into a folder-level matrix.
+- **Cost/Benefit**: Gives the LLM an instant "Bounded Context" map, preventing it from violating architectural boundaries (e.g., adding a DB import in a pure domain package).
+
+#### `findTodos` DONE
+
+- **Description**: Instantly surfaces all `TODO:`, `FIXME:`, and `HACK:` comments across the project, along with the function scope they belong to.
+- **Feasibility**: Extremely high. Tree-sitter already parses comment nodes; it just requires filtering and associating them with their parent AST node.
+- **Cost/Benefit**: Very low development cost for a massive UX win. Agents can be prompted to "fix open issues" and they can autonomously discover their tasks.
+
+### 3. Integrated Development (Git)
 
 #### `getRecentChanges` DONE
 
@@ -55,23 +74,9 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 - **Feasibility**: Integrated VCS commands with a robust database fallback/complement.
 - **Cost/Benefit**: Low cost, high context value for AI agents.
 
-#### `runTests`
+### 4. Utilities & Portability
 
-- **Description**: Run configured tests and return the results.
-- **Feasibility**: Requires project configuration to know how to launch tests (e.g., `go test`).
-- **Cost/Benefit**: Immense value for an AI agent that can then operate in "Test-Driven Development" mode, instantly verifying its proposals.
-
-### 4. Token Efficiency
-
-#### `summarizeFile`
-
-- **Description**: Returns a summary of a file's responsibilities.
-- **Feasibility**: Can be implemented by sending the file's main comments and symbol list to a "lightweight" LLM on the backend.
-- **Cost/Benefit**: Great for user token savings, but introduces an operational cost (API call) if not done via simple heuristics.
-
-### 5. Utilities & Portability
-
-#### `grepSearch`
+#### `grepSearch` DONE
 
 - **Description**: Literal or regex search across the project files.
 - **Feasibility**: Can be implemented in Go by scanning files and looking for matches, ensuring OS-independence.

@@ -51,35 +51,42 @@ func (g *GoParser) ExtractSymbols(tree *sitter.Tree, source []byte) ([]Symbol, e
 }
 
 // walkNode recursively walks the AST and extracts symbols.
-// Parameters:
-//   - node: Current AST node being processed
-//   - source: Original source code
-//   - parentName: Name of the parent symbol (for nested symbols)
-//   - symbols: Accumulated list of symbols
 func (g *GoParser) walkNode(node *sitter.Node, source []byte, parentName string, symbols []Symbol) []Symbol {
 	nodeType := node.Kind()
+	currentParent := parentName
 
 	switch nodeType {
 	case "function_declaration":
 		fnSymbol := g.extractFunction(node, source, parentName)
 		symbols = append(symbols, fnSymbol)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = g.walkNode(child, source, fnSymbol.Name, symbols)
-		}
-		return symbols
+		currentParent = fnSymbol.Name
 	case "method_declaration":
 		methodSymbol := g.extractMethod(node, source)
 		symbols = append(symbols, methodSymbol)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = g.walkNode(child, source, methodSymbol.Name, symbols)
-		}
-		return symbols
+		currentParent = methodSymbol.Name
 	case "type_declaration":
-		symbols = append(symbols, g.extractTypeDeclaration(node, source)...)
+		extracted := g.extractTypeDeclaration(node, source)
+		symbols = append(symbols, extracted...)
+		if len(extracted) > 0 {
+			currentParent = extracted[0].Name // Use the type name as parent for inner comments/fields
+		}
 	case "const_declaration", "var_declaration":
 		symbols = append(symbols, g.extractVariableDeclaration(node, source, nodeType, parentName)...)
+	case "comment":
+		text := node.Utf8Text(source)
+		if todoRegex.MatchString(text) {
+			symbols = append(symbols, Symbol{
+				Name:      strings.TrimSpace(cleanComment(text)),
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    parentName,
+			})
+		}
+		return symbols
 	case "raw_string_literal", "interpreted_string_literal":
 		if g.subLangManager != nil {
 			startByte := uint32(node.StartByte())
@@ -101,8 +108,7 @@ func (g *GoParser) walkNode(node *sitter.Node, source []byte, parentName string,
 
 	// Recursively process child nodes
 	for i := uint(0); i < node.ChildCount(); i++ {
-		child := node.Child(i)
-		symbols = g.walkNode(child, source, parentName, symbols)
+		symbols = g.walkNode(node.Child(i), source, currentParent, symbols)
 	}
 
 	return symbols

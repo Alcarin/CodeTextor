@@ -503,6 +503,10 @@ func (m *Manager) initTools() {
 			name:        "getCallGraph",
 			description: "USE THIS to trace function execution paths and discover callers/callees instead of doing manual text searches.",
 		},
+		"findTodos": {
+			name:        "findTodos",
+			description: "USE THIS to discover TODO, FIXME, HACK, XXX, and NOTE comments across the project. Helps in identifying pending tasks or technical debt.",
+		},
 	}
 
 	for name, state := range m.tools {
@@ -598,6 +602,14 @@ func (m *Manager) initTools() {
 					Name:        "getCallGraph",
 					Description: desc,
 				}, wrapTool(m, "getCallGraph", m.handleGetCallGraph(boundProjectID)))
+			}
+		case "findTodos":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "findTodos",
+					Description: desc,
+				}, wrapTool(m, "findTodos", m.handleFindTodos(boundProjectID)))
 			}
 		}
 
@@ -940,6 +952,8 @@ type nodeSourceResult struct {
 	Language  string `json:"language,omitempty"`
 	Symbol    string `json:"symbol,omitempty"`
 }
+
+type findTodosInput struct{}
 
 func (m *Manager) resolveProjectID(boundProjectID string) (string, error) {
 	projectID := strings.TrimSpace(boundProjectID)
@@ -1328,6 +1342,22 @@ func collapseSourceBody(source string, maxLines, headLines, tailLines int) (stri
 	}
 
 	return b.String(), true
+}
+
+func (m *Manager) handleFindTodos(boundProjectID string) sdkmcp.ToolHandlerFor[findTodosInput, *models.FindTodosResponse] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input findTodosInput) (*sdkmcp.CallToolResult, *models.FindTodosResponse, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		resp, err := m.projectService.FindTodos(projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, resp, nil
+	}
 }
 
 func (m *Manager) emitStatus() {

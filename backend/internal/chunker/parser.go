@@ -10,10 +10,12 @@ package chunker
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
 
 // Parser is the main entry point for parsing source code files.
 // It automatically detects the language and uses the appropriate parser.
@@ -216,4 +218,20 @@ func (p *Parser) IsSupported(filePath string) bool {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	_, ok := p.parsers[ext]
 	return ok
+}
+
+var todoRegex = regexp.MustCompile(`(?i)^(?://|/\*|#|--|;|\s|<!--|<!|[\/*#;!])*?(TODO|FIXME|HACK|XXX|NOTE):?\s*`)
+
+// cleanComment removes comment markers (//, /*, */, #, --, <!--, -->) from a string.
+func cleanComment(text string) string {
+	text = strings.TrimSpace(text)
+	// Remove //, /*, */, #, --, <!--, -->, <! ... >
+	text = strings.TrimPrefix(text, "//")
+	text = strings.TrimPrefix(text, "/*")
+	text = strings.TrimSuffix(text, "*/")
+	text = strings.TrimPrefix(text, "#")
+	text = strings.TrimPrefix(text, "--")
+	text = strings.TrimPrefix(text, "<!--")
+	text = strings.TrimSuffix(text, "-->")
+	return strings.TrimSpace(text)
 }

@@ -8,6 +8,8 @@
 package chunker
 
 import (
+	"strings"
+
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
 )
@@ -66,6 +68,21 @@ func (h *HTMLParser) walkNode(node *sitter.Node, source []byte, parentName strin
 			return symbols
 		}
 		// If symbol is nil, continue to process children with current parent
+	case "comment":
+		text := node.Utf8Text(source)
+		if todoRegex.MatchString(text) {
+			symbols = append(symbols, Symbol{
+				Name:      strings.TrimSpace(cleanComment(text)),
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    parentName,
+			})
+		}
+		return symbols
 	case "script_element":
 		symbols = append(symbols, h.extractScriptElement(node, source))
 		return symbols // Don't process script_element children

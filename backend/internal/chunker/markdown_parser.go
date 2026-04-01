@@ -9,6 +9,7 @@ package chunker
 
 import (
 	"regexp"
+	"strings"
 
 	tree_sitter_markdown "github.com/tree-sitter-grammars/tree-sitter-markdown/bindings/go"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -131,6 +132,60 @@ func (m *MarkdownParser) walkNodeWithHierarchy(rootNode *sitter.Node, source []b
 					symbol.Parent = headingStack[len(headingStack)-1].name
 				}
 				symbols = append(symbols, *symbol)
+			}
+
+		case "task_list_marker_unchecked", "task_list_marker_checked":
+			// Extract as TODO
+			text := node.Utf8Text(source)
+			name := "Task"
+			if parent := node.Parent(); parent != nil {
+				parentText := strings.TrimSpace(parent.Utf8Text(source))
+				// Take only the first line to avoid including subsequent lines in the same paragraph
+				if idx := strings.Index(parentText, "\n"); idx != -1 {
+					parentText = parentText[:idx]
+				}
+				// Remove common markdown list prefixes
+				name = strings.TrimPrefix(parentText, "- [ ] ")
+				name = strings.TrimPrefix(name, "- [x] ")
+				name = strings.TrimPrefix(name, "* [ ] ")
+				name = strings.TrimPrefix(name, "* [x] ")
+				name = strings.TrimSpace(name)
+			}
+			symbols = append(symbols, Symbol{
+				Name:      name,
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    currentParent,
+			})
+
+		case "paragraph", "text":
+			// Search for TODO in each line of the paragraph/text
+			text := node.Utf8Text(source)
+			// Avoid re-extracting tasks that might be handled above
+			if strings.Contains(text, "[ ]") || strings.Contains(text, "[x]") {
+				break // Use break for switch
+			}
+
+			lines := strings.Split(text, "\n")
+			startRow := uint32(node.StartPosition().Row)
+			for i, line := range lines {
+				trimmedLine := strings.TrimSpace(line)
+				if todoRegex.MatchString(trimmedLine) {
+					symbols = append(symbols, Symbol{
+						Name:      strings.TrimSpace(cleanComment(trimmedLine)),
+						Kind:      SymbolTodo,
+						StartLine: startRow + uint32(i) + 1,
+						EndLine:   startRow + uint32(i) + 1,
+						StartByte: uint32(node.StartByte()),
+						EndByte:   uint32(node.EndByte()),
+						Source:    trimmedLine,
+						Parent:    currentParent,
+					})
+				}
 			}
 		}
 
@@ -336,7 +391,6 @@ func (m *MarkdownParser) extractCodeLanguage(node *sitter.Node, source []byte) s
 }
 
 // ExtractImports extracts imports from Markdown.
-// For Markdown, we can extract links to other documents as "imports".
 func (m *MarkdownParser) ExtractImports(tree *sitter.Tree, source []byte) ([]string, error) {
 	var imports []string
 
@@ -368,19 +422,15 @@ func (m *MarkdownParser) isExternalURL(url string) bool {
 }
 
 // findParentHeadingForLine finds the heading that contains the given line number.
-// Returns the name of the most recent heading before or at the line, or empty string if none.
 func (m *MarkdownParser) findParentHeadingForLine(symbols []Symbol, lineNum uint32) string {
 	var lastHeading string
 	for _, sym := range symbols {
-		// Only consider headings
 		if sym.Kind != SymbolMarkdownHeading {
 			continue
 		}
-		// If this heading is before or at the line number, it could be the parent
 		if sym.StartLine <= lineNum {
 			lastHeading = sym.Name
 		} else {
-			// Headings are in order, so once we pass the line number, we can stop
 			break
 		}
 	}
@@ -388,9 +438,7 @@ func (m *MarkdownParser) findParentHeadingForLine(symbols []Symbol, lineNum uint
 }
 
 // fixHeadingRanges adjusts the EndLine of headings to include all content until the next heading.
-// This allows the outline builder to correctly determine containment relationships.
 func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
-	// Count total lines in document
 	totalLines := uint32(1)
 	for _, b := range source {
 		if b == '\n' {
@@ -400,20 +448,17 @@ func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
 
 	lines := splitLines(source)
 
-	// Process headings in reverse order
 	for i := len(symbols) - 1; i >= 0; i-- {
 		if symbols[i].Kind != SymbolMarkdownHeading {
 			continue
 		}
 
-		// Get heading level
-		levelStr := symbols[i].Signature // e.g., "h1", "h2", etc.
+		levelStr := symbols[i].Signature 
 		currentLevel := 1
 		if len(levelStr) >= 2 && levelStr[0] == 'h' {
 			currentLevel = int(levelStr[1] - '0')
 		}
 
-		// Find the next heading of equal or higher level (lower number)
 		nextHeadingLine := totalLines
 		for j := i + 1; j < len(symbols); j++ {
 			if symbols[j].Kind != SymbolMarkdownHeading {
@@ -426,31 +471,19 @@ func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
 				nextLevel = int(nextLevelStr[1] - '0')
 			}
 
-			// If same or higher level (smaller number), this ends the current heading's range
 			if nextLevel <= currentLevel {
 				nextHeadingLine = symbols[j].StartLine - 1
 				break
 			}
 		}
 
-		// Set EndLine to just before the next heading (or end of document)
 		symbols[i].EndLine = nextHeadingLine
 
-		// Expand the heading's source to include the entire section content.
 		startIdx := int(symbols[i].StartLine) - 1
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		if startIdx < 0 { startIdx = 0 }
 		endIdx := int(symbols[i].EndLine)
-		if endIdx > len(lines) {
-			endIdx = len(lines)
-		}
-		if endIdx <= startIdx {
-			endIdx = startIdx + 1
-			if endIdx > len(lines) {
-				endIdx = len(lines)
-			}
-		}
+		if endIdx > len(lines) { endIdx = len(lines) }
+		
 		if startIdx < len(lines) && endIdx > startIdx {
 			section := joinLines(lines[startIdx:endIdx])
 			if section != "" {
@@ -460,7 +493,6 @@ func (m *MarkdownParser) fixHeadingRanges(symbols []Symbol, source []byte) {
 	}
 }
 
-// ExtractUsages is a stub for MarkdownParser.
 func (m *MarkdownParser) ExtractUsages(tree *sitter.Tree, source []byte, symbols []Symbol) []ParserSymbolUsage {
 	return nil
 }

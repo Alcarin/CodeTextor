@@ -88,6 +88,21 @@ func (s *SQLParser) walkNode(node *sitter.Node, source []byte, symbols []Symbol,
 			}
 		}
 		return symbols
+	case "comment":
+		text := node.Utf8Text(source)
+		if todoRegex.MatchString(text) {
+			symbols = append(symbols, Symbol{
+				Name:      strings.TrimSpace(cleanComment(text)),
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    parent,
+			})
+		}
+		return symbols
 	}
 
 	if s.isStatement(node.Kind()) {

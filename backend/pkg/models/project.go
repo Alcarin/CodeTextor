@@ -295,6 +295,7 @@ type Symbol struct {
 	Kind      string `json:"kind"` // e.g., "function", "class", "variable"
 	Line      int    `json:"line"`
 	Character int    `json:"character"`
+	Parent    string `json:"parent,omitempty"`
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
 }
@@ -409,4 +410,16 @@ type CallDetails struct {
 type CallGraphResponse struct {
 	Root      CallDetails `json:"root"`
 	Direction string      `json:"direction"`
+}
+
+// Todo represents a task or note extracted from the code.
+type Todo struct {
+	Location string `json:"location"` // Format: "path:line"
+	Message  string `json:"message"`
+	Parent   string `json:"parent,omitempty"` // The function/class containing the TODO
+}
+
+// FindTodosResponse wraps the list of discovered todos.
+type FindTodosResponse struct {
+	Todos []Todo `json:"todos"`
 }

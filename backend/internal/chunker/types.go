@@ -22,7 +22,7 @@ const (
 	SymbolVariable  SymbolKind = "variable"
 	SymbolConstant  SymbolKind = "constant"
 	SymbolImport    SymbolKind = "import"
-	SymbolComment   SymbolKind = "comment"
+	SymbolTodo      SymbolKind = "todo"
 	SymbolModule    SymbolKind = "module"
 	SymbolNamespace SymbolKind = "namespace"
 	SymbolEnum      SymbolKind = "enum"

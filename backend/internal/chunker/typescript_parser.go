@@ -62,57 +62,50 @@ func (t *TypeScriptParser) ExtractSymbols(tree *sitter.Tree, source []byte) ([]S
 // walkNode recursively walks the AST and extracts symbols.
 func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName string, scopeName string, symbols []Symbol) []Symbol {
 	nodeType := node.Kind()
+	currentScope := scopeName
 
 	switch nodeType {
 	case "function_declaration", "function":
 		fn := t.extractFunction(node, source, parentName)
 		symbols = append(symbols, fn)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, fn.Name, symbols)
-		}
-		return symbols
+		currentScope = fn.Name
 	case "class_declaration":
 		symbol := t.extractClass(node, source)
 		symbols = append(symbols, symbol)
-		// Process class body for methods
-		body := node.ChildByFieldName("body")
-		if body != nil {
-			symbols = t.walkNode(body, source, symbol.Name, scopeName, symbols)
-		}
+		currentScope = symbol.Name
 	case "method_definition":
 		method := t.extractMethod(node, source, parentName)
 		symbols = append(symbols, method)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, method.Name, symbols)
-		}
-		return symbols
+		currentScope = method.Name
 	case "lexical_declaration", "variable_declaration":
 		// Check if this is a function assigned to a variable (const foo = () => {})
-		symbols = append(symbols, t.extractVariableDeclaration(node, source, parentName, scopeName)...)
+		vars := t.extractVariableDeclaration(node, source, parentName, scopeName)
+		symbols = append(symbols, vars...)
+		// If there's only one variable and it's a function, we might want to update scope, 
+		// but usually extractVariableDeclaration handles it.
 	case "export_statement":
-		// Process exported symbols
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, scopeName, symbols)
-		}
-		return symbols
+		// skip explicitly, but visit children
 	case "arrow_function":
-		parent := node.Parent()
-		if parent != nil {
-			if parent.Kind() == "variable_declarator" || parent.Kind() == "assignment_expression" {
-				break
-			}
-			if parent.Kind() == "parenthesized_expression" || parent.Kind() == "arguments" {
-				// handled below after moving to call expression
-			}
-		}
 		arrow := t.extractArrowFunction(node, source, parentName)
 		symbols = append(symbols, arrow)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, arrow.Name, symbols)
+		currentScope = arrow.Name
+	case "comment":
+		text := node.Utf8Text(source)
+		if todoRegex.MatchString(text) {
+			parent := parentName
+			if scopeName != "" {
+				parent = scopeName
+			}
+			symbols = append(symbols, Symbol{
+				Name:      strings.TrimSpace(cleanComment(text)),
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    parent,
+			})
 		}
 		return symbols
 	case "string", "template_string":
@@ -134,12 +127,9 @@ func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName
 		}
 	}
 
-	// Recursively process child nodes (except for nodes we've already processed)
-	if nodeType != "class_declaration" {
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = t.walkNode(child, source, parentName, scopeName, symbols)
-		}
+	// Recursively process child nodes
+	for i := uint(0); i < node.ChildCount(); i++ {
+		symbols = t.walkNode(node.Child(i), source, parentName, currentScope, symbols)
 	}
 
 	return symbols

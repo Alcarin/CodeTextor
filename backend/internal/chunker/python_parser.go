@@ -57,26 +57,11 @@ func (p *PythonParser) walkNode(node *sitter.Node, source []byte, parentName str
 	case "function_definition":
 		symbol := p.extractFunction(node, source, parentName)
 		symbols = append(symbols, symbol)
-		// Recursively process nested functions (closures)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			if child.Kind() == "block" {
-				symbols = p.walkNode(child, source, symbol.Name, symbols)
-			}
-		}
+		parentName = symbol.Name // Update parent for children
 	case "class_definition":
 		symbol := p.extractClass(node, source)
 		symbols = append(symbols, symbol)
-		// Recursively process class body for methods
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			if child.Kind() == "block" {
-				symbols = p.walkNode(child, source, symbol.Name, symbols)
-			}
-		}
-	case "decorated_definition":
-		// Handle decorated functions/classes (e.g., @property, @staticmethod)
-		symbols = p.walkNode(node, source, parentName, symbols)
+		parentName = symbol.Name
 	case "string":
 		if p.subLangManager != nil {
 			startByte := uint32(node.StartByte())
@@ -94,12 +79,26 @@ func (p *PythonParser) walkNode(node *sitter.Node, source []byte, parentName str
 				}
 			}
 		}
-	default:
-		// Recursively process child nodes
-		for i := uint(0); i < node.ChildCount(); i++ {
-			child := node.Child(i)
-			symbols = p.walkNode(child, source, parentName, symbols)
+	case "comment":
+		text := node.Utf8Text(source)
+		if todoRegex.MatchString(text) {
+			symbols = append(symbols, Symbol{
+				Name:      strings.TrimSpace(cleanComment(text)),
+				Kind:      SymbolTodo,
+				StartLine: uint32(node.StartPosition().Row) + 1,
+				EndLine:   uint32(node.EndPosition().Row) + 1,
+				StartByte: uint32(node.StartByte()),
+				EndByte:   uint32(node.EndByte()),
+				Source:    text,
+				Parent:    parentName,
+			})
 		}
+		return symbols
+	}
+
+	// Recursively process child nodes
+	for i := uint(0); i < node.ChildCount(); i++ {
+		symbols = p.walkNode(node.Child(i), source, parentName, symbols)
 	}
 
 	return symbols

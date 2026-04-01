@@ -936,3 +936,99 @@ func TestJSONParser(t *testing.T) {
 	assert.Equal(t, "", symbolMap["nested"].Parent, "top-level object retains empty parent")
 	assert.Equal(t, "nested", symbolMap["flag"].Parent, "nested key inherits parent name")
 }
+// TestTodoExtraction tests that TODO/FIXME comments are extracted as symbols.
+func TestTodoExtraction(t *testing.T) {
+	parser := NewParser(DefaultChunkConfig())
+
+	tests := []struct {
+		name     string
+		path     string
+		source   string
+		expected []string
+	}{
+		{
+			name: "Go TODOs",
+			path: "test.go",
+			source: `package main
+// TODO: implement this
+func main() {
+	// FIXME: bug here
+	fmt.Println("hello")
+}`,
+			expected: []string{"implement this", "bug here"},
+		},
+		{
+			name: "Python TODOs",
+			path: "test.py",
+			source: `
+# TODO: refactor climber
+def climb():
+    # HACK: fast ascent
+    pass
+`,
+			expected: []string{"refactor climber", "fast ascent"},
+		},
+		{
+			name: "TypeScript TODOs",
+			path: "test.ts",
+			source: `
+// NOTE: user authentication
+function login() {
+    /* XXX: security risk */
+    return true;
+}
+`,
+			expected: []string{"user authentication", "security risk"},
+		},
+		{
+			name: "HTML TODOs",
+			path: "test.html",
+			source: `<div><!-- TODO: add header --></div>`,
+			expected: []string{"add header"},
+		},
+		{
+			name: "PHP TODOs",
+			path: "test.php",
+			source: `<?php // TODO: check session ?>`,
+			expected: []string{"check session"},
+		},
+		{
+			name: "CSS TODOs",
+			path: "test.css",
+			source: `.btn { /* TODO: add padding */ }`,
+			expected: []string{"add padding"},
+		},
+		{
+			name: "SQL TODOs",
+			path: "test.sql",
+			source: `-- TODO: add index on email`,
+			expected: []string{"add index on email"},
+		},
+		{
+			name: "Markdown TODOs and Tasks",
+			path: "test.md",
+			source: `# Plan
+- [ ] Task 1
+- [x] Task 2: done
+TODO: fix this soon
+`,
+			expected: []string{"Task 1", "Task 2: done", "fix this soon"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parser.ParseFile(tt.path, []byte(tt.source))
+			require.NoError(t, err)
+
+			var todos []string
+			for _, s := range result.Symbols {
+				if s.Kind == SymbolTodo {
+					todos = append(todos, s.Name)
+				}
+			}
+
+			assert.ElementsMatch(t, tt.expected, todos)
+		})
+	}
+}
