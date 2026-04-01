@@ -105,7 +105,8 @@ type ProjectServiceAPI interface {
 	GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error)
 	GetProjectSummary(projectID string) (*models.ProjectSummary, error)
 	FindReferences(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
-	GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
+	GetCallGraph(projectID, nodeID, symbolName, path, direction string, depth int) (*models.CallGraphResponse, error)
+	FindImplementations(projectID, nodeID string) (*models.FindImplementationsResponse, error)
 	FindTodos(projectID string) (*models.FindTodosResponse, error)
 	GetPackageGraph(projectID string, depth int) (models.PackageGraphResponse, error)
 	Close() error
@@ -1824,6 +1825,41 @@ func (s *ProjectService) FindReferences(projectID, nodeID, symbolName, path stri
 	sort.Slice(response.Files, func(i, j int) bool {
 		return response.Files[i].Path < response.Files[j].Path
 	})
+
+	return response, nil
+}
+
+// FindImplementations searches the index for classes or interfaces that implement the given interface nodeID.
+func (s *ProjectService) FindImplementations(projectID, nodeID string) (*models.FindImplementationsResponse, error) {
+	vs, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes, err := vs.GetOutlineNodes([]string{nodeID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get target node: %w", err)
+	}
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("symbol node '%s' not found", nodeID)
+	}
+
+	targetNode := nodes[0]
+	interfaceName := targetNode.Name
+
+	impls, err := vs.GetSymbolImplementations(interfaceName)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &models.FindImplementationsResponse{
+		Implementations: impls,
+	}
+
+	// Go uses implicit interfaces, which we cannot reliably resolve statically via explicit statements.
+	if strings.HasSuffix(targetNode.FilePath, ".go") || strings.HasSuffix(targetNode.FilePath, ".mod") {
+		response.Warning = "Go uses implicit interfaces which are evaluated at compile time. This static analysis tool relies on explicit declarations (like 'implements' in TypeScript/PHP/Java) and currently cannot detect Go implementations. Use Find References on the interface methods instead."
+	}
 
 	return response, nil
 }

@@ -295,9 +295,10 @@ type Symbol struct {
 	Kind      string `json:"kind"` // e.g., "function", "class", "variable"
 	Line      int    `json:"line"`
 	Character int    `json:"character"`
-	Parent    string `json:"parent,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
+	Parent     string   `json:"parent,omitempty"`
+	Implements []string `json:"implements,omitempty"`
+	CreatedAt  int64    `json:"createdAt"`
+	UpdatedAt  int64    `json:"updatedAt"`
 }
 
 // SymbolUsage represents a reference to a symbol in the code.
@@ -422,4 +423,17 @@ type Todo struct {
 // FindTodosResponse wraps the list of discovered todos.
 type FindTodosResponse struct {
 	Todos []Todo `json:"todos"`
+}
+
+// SymbolImplementation represents an explicit implementation of an interface/class.
+type SymbolImplementation struct {
+	SymbolName string `json:"symbolName"`
+	Location   string `json:"location"` // Format: "path:line"
+	Content    string `json:"content"`
+}
+
+// FindImplementationsResponse wraps the list of discovered implementations.
+type FindImplementationsResponse struct {
+	Implementations []SymbolImplementation `json:"implementations"`
+	Warning         string                 `json:"warning,omitempty"`
 }

@@ -74,7 +74,11 @@ func (t *TypeScriptParser) walkNode(node *sitter.Node, source []byte, parentName
 		symbols = append(symbols, symbol)
 		currentScope = symbol.Name
 	case "method_definition":
-		method := t.extractMethod(node, source, parentName)
+		parent := parentName
+		if scopeName != "" {
+			parent = scopeName
+		}
+		method := t.extractMethod(node, source, parent)
 		symbols = append(symbols, method)
 		currentScope = method.Name
 	case "lexical_declaration", "variable_declaration":
@@ -179,6 +183,7 @@ func (t *TypeScriptParser) extractClass(node *sitter.Node, source []byte) Symbol
 	}
 
 	docString := t.extractJSDoc(node, source)
+	implements := t.extractImplements(node, source)
 
 	return Symbol{
 		Name:       nameStr,
@@ -191,7 +196,30 @@ func (t *TypeScriptParser) extractClass(node *sitter.Node, source []byte) Symbol
 		Signature:  signature,
 		Visibility: "public",
 		DocString:  docString,
+		Implements: implements,
 	}
+}
+
+// extractImplements parses class_heritage to extract extended/implemented class and interface names.
+func (t *TypeScriptParser) extractImplements(node *sitter.Node, source []byte) []string {
+	var implemented []string
+	for i := uint(0); i < node.ChildCount(); i++ {
+		child := node.Child(i)
+		if child.Kind() == "class_heritage" {
+			for j := uint(0); j < child.ChildCount(); j++ {
+				hChild := child.Child(j)
+				if hChild.Kind() == "implements_clause" || hChild.Kind() == "extends_clause" {
+					for k := uint(0); k < hChild.ChildCount(); k++ {
+						typeNode := hChild.Child(k)
+						if typeNode.Kind() == "type_identifier" || typeNode.Kind() == "identifier" {
+							implemented = append(implemented, typeNode.Utf8Text(source))
+						}
+					}
+				}
+			}
+		}
+	}
+	return implemented
 }
 
 // extractMethod extracts a class method.

@@ -61,6 +61,7 @@ type Symbol struct {
 	Parent     string     `json:"parent,omitempty"`     // Parent symbol name (e.g., class name for methods)
 	Visibility string     `json:"visibility,omitempty"` // public, private, protected, etc.
 	DocString  string     `json:"doc_string,omitempty"` // Associated documentation/comment
+	Implements []string   `json:"implements,omitempty"` // Interfaces/classes implemented by this symbol
 }
 
 // ParserSymbolUsage represents a raw symbol usage (function/method call)

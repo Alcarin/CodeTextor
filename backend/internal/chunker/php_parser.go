@@ -154,17 +154,37 @@ func (p *PhpParser) extractClassLike(node *sitter.Node, source []byte, kind Symb
 	}
 
 	docString := p.extractLeadingComment(node, source)
+	implements := p.extractImplements(node, source)
 
 	return Symbol{
-		Name:      nameStr,
-		Kind:      kind,
-		StartLine: uint32(node.StartPosition().Row) + 1,
-		EndLine:   uint32(node.EndPosition().Row) + 1,
-		StartByte: uint32(node.StartByte()),
-		EndByte:   uint32(node.EndByte()),
-		Source:    node.Utf8Text(source),
-		DocString: docString,
+		Name:       nameStr,
+		Kind:       kind,
+		StartLine:  uint32(node.StartPosition().Row) + 1,
+		EndLine:    uint32(node.EndPosition().Row) + 1,
+		StartByte:  uint32(node.StartByte()),
+		EndByte:    uint32(node.EndByte()),
+		Source:     node.Utf8Text(source),
+		DocString:  docString,
+		Implements: implements,
 	}
+}
+
+// extractImplements parses extends/implements clauses in PHP class/interface.
+func (p *PhpParser) extractImplements(node *sitter.Node, source []byte) []string {
+	var implemented []string
+	for i := uint(0); i < node.ChildCount(); i++ {
+		child := node.Child(i)
+		// Check for implements or extends clauses
+		if strings.Contains(child.Kind(), "interface_clause") || strings.Contains(child.Kind(), "base_clause") || child.Kind() == "class_interfaces" || child.Kind() == "class_base_clause" {
+			for j := uint(0); j < child.ChildCount(); j++ {
+				hChild := child.Child(j)
+				if hChild.Kind() == "name" || hChild.Kind() == "qualified_name" {
+					implemented = append(implemented, hChild.Utf8Text(source))
+				}
+			}
+		}
+	}
+	return implemented
 }
 
 // extractFunction extracts a function or method definition.

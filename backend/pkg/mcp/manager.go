@@ -499,6 +499,10 @@ func (m *Manager) initTools() {
 			name:        "findReferences",
 			description: "ALWAYS USE THIS before refactoring or modifying a function. Finds all exact locations where a symbol is used inside the whole project.",
 		},
+		"findImplementations": {
+			name:        "findImplementations",
+			description: "USE THIS to find all classes or interfaces that implement a specific interface.",
+		},
 		"getCallGraph": {
 			name:        "getCallGraph",
 			description: "USE THIS to trace function execution paths and discover callers/callees instead of doing manual text searches.",
@@ -598,6 +602,14 @@ func (m *Manager) initTools() {
 					Name:        "findReferences",
 					Description: desc,
 				}, wrapTool(m, "findReferences", m.handleFindReferences(boundProjectID)))
+			}
+		case "findImplementations":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "findImplementations",
+					Description: desc,
+				}, wrapTool(m, "findImplementations", m.handleFindImplementations(boundProjectID)))
 			}
 		case "getCallGraph":
 			state.register = func(s *sdkmcp.Server, boundProjectID string) {
@@ -739,6 +751,31 @@ func (m *Manager) handleGetCallGraph(boundProjectID string) sdkmcp.ToolHandlerFo
 		var out map[string]interface{}
 		b, _ := json.Marshal(res)
 		json.Unmarshal(b, &out)
+
+		return nil, out, nil
+	}
+}
+
+type findImplementationsInput struct {
+	NodeID string `json:"nodeId" jsonschema_description:"ID of the node to find implementations for."`
+}
+
+func (m *Manager) handleFindImplementations(boundProjectID string) sdkmcp.ToolHandlerFor[findImplementationsInput, models.FindImplementationsResponse] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input findImplementationsInput) (*sdkmcp.CallToolResult, models.FindImplementationsResponse, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, models.FindImplementationsResponse{}, err
+		}
+
+		res, err := m.projectService.FindImplementations(projectID, input.NodeID)
+		if err != nil {
+			return nil, models.FindImplementationsResponse{}, err
+		}
+
+        var out models.FindImplementationsResponse
+        if res != nil {
+            out = *res
+        }
 
 		return nil, out, nil
 	}

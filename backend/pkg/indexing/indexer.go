@@ -889,9 +889,10 @@ func (i *Indexer) storeOutlineForFile(filePath string) {
 				ID:        utils.GenerateSymbolID(relativePath, parsedSymbol.StartLine, parsedSymbol.EndLine, parsedSymbol.Name, idCounters[idKey]),
 				FilePath:  relativePath,
 				Name:      parsedSymbol.Name,
-				Kind:      string(parsedSymbol.Kind),
-				Line:      int(parsedSymbol.StartLine),
-				Character: 0, // We don't have character position from parser
+				Kind:       string(parsedSymbol.Kind),
+				Line:       int(parsedSymbol.StartLine),
+				Character:  0, // We don't have character position from parser
+				Implements: parsedSymbol.Implements,
 			}
 			if err := i.vectorStore.InsertSymbol(symbol); err != nil {
 				log.Printf("Failed to insert symbol %s for file %s: %v", parsedSymbol.Name, relativePath, err)

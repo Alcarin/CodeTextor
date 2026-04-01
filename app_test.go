@@ -52,6 +52,7 @@ type MockProjectServiceAPI struct {
 	GetProjectSummaryFunc        func(projectID string) (*models.ProjectSummary, error)
 	FindReferencesFunc           func(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
 	GetCallGraphFunc             func(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
+	FindImplementationsFunc      func(projectID, nodeID string) (*models.FindImplementationsResponse, error)
 	FindTodosFunc                func(projectID string) (*models.FindTodosResponse, error)
 	GetPackageGraphFunc          func(projectID string, depth int) (models.PackageGraphResponse, error)
 	CloseFunc                    func() error
@@ -302,6 +303,12 @@ func (m *MockProjectServiceAPI) GetPackageGraph(projectID string, depth int) (mo
 		return m.GetPackageGraphFunc(projectID, depth)
 	}
 	return models.PackageGraphResponse{}, nil
+}
+func (m *MockProjectServiceAPI) FindImplementations(projectID, nodeID string) (*models.FindImplementationsResponse, error) {
+	if m.FindImplementationsFunc != nil {
+		return m.FindImplementationsFunc(projectID, nodeID)
+	}
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) Close() error {
 	if m.CloseFunc != nil {

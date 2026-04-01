@@ -34,7 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `findReferences` pinpoints accurate definitions and usages across the codebase by parsing explicit call edges.
   - `getCallGraph` returns an LLM-friendly nested JSON tree representing the architectural call hierarchy.
   - `getPackageGraph` provides a macro-level dependency map between packages/folders, supporting depth-based aggregation and detailed external library visibility (`@external/package`).
+  - `findImplementations` allows discovering all classes or interfaces that implement a specific target in OOP languages (PHP, TypeScript, Java).
   - Workaround implemented to handle recursive schemas with the MCP Go SDK.
+- **TypeScript Parser Enhancement**: Fixed a bug where class methods lost their reference to the parent symbol in the outline, restoring hierarchical accuracy for TypeScript/JavaScript files.
 - Lean MCP Output: Optimized `getProjectDetails` response by removing redundant technical metadata and configuration paths (`includePaths`, `excludePatterns`) for maximum token efficiency.
   - Automatic platform detection and NuGet (ZIP) / GitHub (TGZ) asset selection
   - Mandatory SHA256 integrity verification via an embedded runtime manifest

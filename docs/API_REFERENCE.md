@@ -37,6 +37,7 @@ index; requests are read-only.
 | `getCallGraph`      | Get the hierarchical call relationships for a specific function           |
 | `findTodos`         | Discover TODO, FIXME, HACK, XXX, and NOTE comments across the project     |
 | `getPackageGraph`   | Get a high-level overview of package dependencies and coupling            |
+| `findImplementations` | Discover all classes or interfaces that implement a specific interface |
 
 #### `getProjectDetails`
 
@@ -131,6 +132,16 @@ index; requests are read-only.
   - `depth` aggregates folders to a specific level (e.g. `depth: 1` groups all `backend/pkg/*` under `backend`).
   - External dependencies are prefixed with `@external/` followed by the library name (e.g., `@external/go/fmt`).
   - Respects system-level exclusions (gitignore, etc.) by using the already indexed data.
+
+#### `findImplementations`
+
+- **Input**: `{ nodeID?: string, symbolName?: string, path?: string }`
+- **Response**: `{ implementations: { symbolName, location, content }[] }`
+  - Specialized tool for OOP languages (Java, PHP, TS).
+  - Finds all symbols that explicitly `implement` or `extend` the target interface/class.
+  - **Go Support**: Returns a warning suggesting `findReferences` instead, as Go interfaces are implicit.
+  - `location` is the `path:line` of the implementor.
+  - `content` is a source snippet of the implementor's definition.
 
 ### Status & Tool Events
 

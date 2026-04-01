@@ -78,7 +78,8 @@ Per-Project Database Contents:
 - Migrations for per-project DBs are embedded in `backend/internal/store/vector_migrations/`
   - **Migration 000004**: Extended chunks table with semantic metadata (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
   - **Migration 000005**: Added unique constraint on chunks (file_id, line_start, line_end) to prevent duplicates
-  - **Migration 000006**: Normalized schema with integer file IDs (files.pk), foreign key relationships, chunk_symbols mapping table, and restructured outline storage (outline_nodes + outline_metadata tables)
+  - Migration 000006: Normalized schema with integer file IDs (files.pk), foreign key relationships, chunk_symbols mapping table, and restructured outline storage (outline_nodes + outline_metadata tables)
+  - Migration 000010: Added `symbol_implementations` table to track OOP relationships (extends/implements).
 - Global config DB only stores app-level metadata (selected project, future global settings)
 - **IMPORTANT:** No `project_id` columns in per-project tables - isolation via separate database files
 - Vector stores use WAL mode for concurrent access, single connection pool for ACID guarantees
@@ -228,7 +229,7 @@ The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with inte
 - Streamable HTTP transport using `modelcontextprotocol/go-sdk` with a shared server instance plus per-project bound servers resolved from `/mcp/<projectId>` URLs (calls without projectId are rejected)
 - Persisted config (host, port, protocol, autostart, max connections) stored in the config DB; optional auto-start on app launch
 - Status + tools telemetry emitted every 2s (`mcp:status`, `mcp:tools`) so the Vue MCP view can display uptime, active connections, total requests, and enablement
-- Tools: `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (source code snippets), `findReferences` (usage tracking), `getCallGraph` (call hierarchy), and `getPackageGraph` (architectural dependency map).
+- Tools: `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (source code snippets), `findReferences` (usage tracking), `getCallGraph` (call hierarchy), `getPackageGraph` (architectural dependency map), and `findImplementations` (OOP polymorphism discovery).
 
 ---
 

@@ -388,6 +388,24 @@ func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
 		return fmt.Errorf("failed to insert symbol: %w", err)
 	}
 
+	if len(symbol.Implements) > 0 {
+		implStmt, err := s.db.Prepare(`
+			INSERT INTO symbol_implementations (id, interface_name, implementor_id, file_id)
+			VALUES (?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare insert symbol implementation statement: %w", err)
+		}
+		defer implStmt.Close()
+
+		for _, impl := range symbol.Implements {
+			_, err = implStmt.Exec(uuid.New().String(), impl, symbol.ID, fileID)
+			if err != nil {
+				return fmt.Errorf("failed to insert symbol implementation: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1767,4 +1785,54 @@ func (s *VectorStore) GetSymbolUsagePaths() ([]models.UsagePath, error) {
 	}
 
 	return results, nil
+}
+
+// GetSymbolImplementations retrieves all symbols that implement the given interface name,
+// returning models.SymbolImplementation structs.
+func (s *VectorStore) GetSymbolImplementations(interfaceName string) ([]models.SymbolImplementation, error) {
+	rows, err := s.db.Query(`
+		SELECT 
+			s.name,
+			f.path,
+			s.line,
+			c.content
+		FROM symbol_implementations si
+		JOIN symbols s ON s.id = si.implementor_id
+		JOIN files f ON f.pk = si.file_id
+		LEFT JOIN chunks c ON c.file_id = f.pk AND c.symbol_name = s.name AND c.line_start = s.line
+		WHERE si.interface_name = ?
+	`, interfaceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query symbol implementations: %w", err)
+	}
+	defer rows.Close()
+
+	var impls []models.SymbolImplementation
+	for rows.Next() {
+		var name, path string
+		var line int
+		var content sql.NullString
+		
+		if err := rows.Scan(&name, &path, &line, &content); err != nil {
+			return nil, fmt.Errorf("failed to scan symbol implementation: %w", err)
+		}
+
+		// Ensure we don't return entirely blank content if we didn't find the chunk.
+		snippet := ""
+		if content.Valid {
+			snippet = content.String
+		}
+
+		impls = append(impls, models.SymbolImplementation{
+			SymbolName: name,
+			Location:   fmt.Sprintf("%s:%d", path, line),
+			Content:    snippet,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate over symbol implementations: %w", err)
+	}
+
+	return impls, nil
 }

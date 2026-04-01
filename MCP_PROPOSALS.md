@@ -12,7 +12,7 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 | **`getRecentChanges`** | **High**: Simple integration with Git commands (shell). | **High**: Useful for debugging recent regressions. | Low | **DONE** |
 | **`getCallGraph`** | **Medium**: Requires deeper static analysis to map calls. | **High**: Clarifies complex architectures. | High | **DONE** |
 | **`grepSearch`** | **Very High**: Textual scanning of the filesystem. | **High**: Precise search for exact strings or regex (OS-independent). | Low | **DONE** |
-| **`findImplementations`** | **High**: Requires type/interface resolution during parsing. | **High**: Crucial for OOP polymorphism. | High | **P1** |
+| **`findImplementations`** | **High**: Requires type/interface resolution during parsing. | **High**: Crucial for OOP polymorphism. | High | **DONE** |
 | **`getPackageGraph`** | **Medium**: File-level and folder-level dependency math. | **Very High**: Architectural understanding. | Medium | **DONE** |
 | **`findTodos`** | **Very High**: Easy AST query for comment nodes. | **High**: Easy discovery of tech-debt and tasks. | Low | **DONE** |
 
@@ -34,7 +34,7 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 - **Feasibility**: More complex than symbol search, as it requires resolving types and imports to ensure graph accuracy.
 - **Cost/Benefit**: High value for structural understanding, but development effort is high to correctly support multiple languages.
 
-#### `findImplementations`
+#### `findImplementations` DONE
 
 - **Description**: Given an interface or abstract class, find all classes/structs that implement it.
 - **Feasibility**: High complexity. Unlike `findReferences` which is a direct symbol match, this requires resolving type signatures or navigating "implements" declarations across files.
