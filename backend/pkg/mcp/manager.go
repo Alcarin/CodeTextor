@@ -507,6 +507,10 @@ func (m *Manager) initTools() {
 			name:        "findTodos",
 			description: "USE THIS to discover TODO, FIXME, HACK, XXX, and NOTE comments across the project. Helps in identifying pending tasks or technical debt.",
 		},
+		"getPackageGraph": {
+			name:        "getPackageGraph",
+			description: "USE THIS to get a high-level overview of package dependencies. Helps in understanding the project architecture and coupling.",
+		},
 	}
 
 	for name, state := range m.tools {
@@ -610,6 +614,14 @@ func (m *Manager) initTools() {
 					Name:        "findTodos",
 					Description: desc,
 				}, wrapTool(m, "findTodos", m.handleFindTodos(boundProjectID)))
+			}
+		case "getPackageGraph":
+			state.register = func(s *sdkmcp.Server, boundProjectID string) {
+				desc := describeForProject(state.description, m.projectLabel(boundProjectID))
+				sdkmcp.AddTool(s, &sdkmcp.Tool{
+					Name:        "getPackageGraph",
+					Description: desc,
+				}, wrapTool(m, "getPackageGraph", m.handleGetPackageGraph(boundProjectID)))
 			}
 		}
 
@@ -729,6 +741,26 @@ func (m *Manager) handleGetCallGraph(boundProjectID string) sdkmcp.ToolHandlerFo
 		json.Unmarshal(b, &out)
 
 		return nil, out, nil
+	}
+}
+
+type getPackageGraphInput struct {
+	Depth int `json:"depth,omitempty" jsonschema_description:"Maximum depth of the package paths (default 0, unlimited)"`
+}
+
+func (m *Manager) handleGetPackageGraph(boundProjectID string) sdkmcp.ToolHandlerFor[getPackageGraphInput, models.PackageGraphResponse] {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, input getPackageGraphInput) (*sdkmcp.CallToolResult, models.PackageGraphResponse, error) {
+		projectID, err := m.resolveProjectID(boundProjectID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		res, err := m.projectService.GetPackageGraph(projectID, input.Depth)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return nil, res, nil
 	}
 }
 

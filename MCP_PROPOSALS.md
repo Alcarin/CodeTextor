@@ -13,7 +13,7 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 | **`getCallGraph`** | **Medium**: Requires deeper static analysis to map calls. | **High**: Clarifies complex architectures. | High | **DONE** |
 | **`grepSearch`** | **Very High**: Textual scanning of the filesystem. | **High**: Precise search for exact strings or regex (OS-independent). | Low | **DONE** |
 | **`findImplementations`** | **High**: Requires type/interface resolution during parsing. | **High**: Crucial for OOP polymorphism. | High | **P1** |
-| **`getPackageGraph`** | **Medium**: File-level and folder-level dependency math. | **Very High**: Architectural understanding. | Medium | **P2** |
+| **`getPackageGraph`** | **Medium**: File-level and folder-level dependency math. | **Very High**: Architectural understanding. | Medium | **DONE** |
 | **`findTodos`** | **Very High**: Easy AST query for comment nodes. | **High**: Easy discovery of tech-debt and tasks. | Low | **DONE** |
 
 ---
@@ -54,11 +54,11 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 - **Feasibility**: Simple aggregation of data already present in the index.
 - **Cost/Benefit**: Extremely cheap to implement; helps the AI avoid "wasting time" loading irrelevant files.
 
-#### `getPackageGraph`
+#### `getPackageGraph` DONE
 
-- **Description**: Returns a macro-level dependency graph showing which folders/packages import which other folders/packages.
-- **Feasibility**: Can be done by aggregating file-level imports into a folder-level matrix.
-- **Cost/Benefit**: Gives the LLM an instant "Bounded Context" map, preventing it from violating architectural boundaries (e.g., adding a DB import in a pure domain package).
+- **Description**: Returns a macro-level dependency graph showing how different folders/packages (including external libraries) interact.
+- **Feasibility**: Implemented by aggregating `symbol_usages` from the database into a package-level adjacency map.
+- **Cost/Benefit**: Gives the LLM an instant "Bounded Context" map, preventing architectural boundary violations and enabling depth-aware exploration.
 
 #### `findTodos` DONE
 

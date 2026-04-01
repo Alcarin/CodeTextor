@@ -1735,3 +1735,36 @@ func (s *VectorStore) GetTodos() ([]models.Todo, error) {
 	}
 	return todos, nil
 }
+
+// GetSymbolUsagePaths retrieves all pairs of file paths (source and target) 
+// that are linked via symbol usage records.
+func (s *VectorStore) GetSymbolUsagePaths() ([]models.UsagePath, error) {
+	rows, err := s.db.Query(`
+		SELECT f1.path as source_path, f2.path as target_path
+		FROM symbol_usages u
+		JOIN outline_nodes n1 ON u.caller_node_id = n1.id
+		JOIN files f1 ON n1.file_id = f1.pk
+		JOIN outline_nodes n2 ON u.target_node_id = n2.id
+		JOIN files f2 ON n2.file_id = f2.pk
+		WHERE f1.is_virtual = 0
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query symbol usage paths: %w", err)
+	}
+	defer rows.Close()
+
+	var results []models.UsagePath
+	for rows.Next() {
+		var up models.UsagePath
+		if err := rows.Scan(&up.SourcePath, &up.TargetPath); err != nil {
+			return nil, fmt.Errorf("failed to scan usage path: %w", err)
+		}
+		results = append(results, up)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating usage path rows: %w", err)
+	}
+
+	return results, nil
+}

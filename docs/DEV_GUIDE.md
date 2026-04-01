@@ -406,6 +406,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | `findReferences`    | Find all locations where a symbol is referenced or used              |
 | `getCallGraph`      | Get the hierarchical call relationships for a specific function      |
 | `findTodos`        | Instantly surface all TODO, FIXME, and HACK across the project       |
+| `getPackageGraph`   | Get a high-level overview of package dependencies and coupling            |
 
 ### 🔹 MCP Server Requirements
 

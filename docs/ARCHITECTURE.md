@@ -228,7 +228,7 @@ The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with inte
 - Streamable HTTP transport using `modelcontextprotocol/go-sdk` with a shared server instance plus per-project bound servers resolved from `/mcp/<projectId>` URLs (calls without projectId are rejected)
 - Persisted config (host, port, protocol, autostart, max connections) stored in the config DB; optional auto-start on app launch
 - Status + tools telemetry emitted every 2s (`mcp:status`, `mcp:tools`) so the Vue MCP view can display uptime, active connections, total requests, and enablement
-- Tools: `search` (semantic chunk retrieval), `outline` (Tree-sitter symbol tree), `nodeSource` (canonical snippet for chunk/outline node ids)
+- Tools: `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (source code snippets), `findReferences` (usage tracking), `getCallGraph` (call hierarchy), and `getPackageGraph` (architectural dependency map).
 
 ---
 
@@ -444,11 +444,43 @@ When **Continuous Indexing** is enabled:
 
 ---
 
+---
+
+## Static Analysis Engine
+
+The **Static Analysis Engine** provides project-wide cross-referencing and architectural insights by mapping relationships between symbols across different files.
+
 ### Symbol Linking & Virtual Symbols
 
-CodeTextor resolves dependencies between symbols during the indexing phase. If a symbol belongs to an external library, a **Virtual Symbol** (prefixed with `@external/`) is created.
+CodeTextor resolves dependencies between symbols during the indexing phase. If a symbol (e.g., a function call) refers to a definition outside the project's source tree, a **Virtual Symbol** (prefixed with `@external/`) is created. This allows the system to track dependencies even for libraries that are not indexed.
 
 To maintain database consistency, a **Garbage Collection** mechanism (`PurgeOrphanedVirtualFiles`) automatically removes these virtual references if they are no longer used in any file within the project, ensuring the index stays synchronized with the source.
+
+### Package Dependency Graph
+
+The `getPackageGraph` tool aggregates atom-level symbol usage into a macro-level architectural view. It maps how different "packages" (folders) within the project interact with each other and with external libraries.
+
+#### Data Aggregation Process
+
+The graph is built by querying the `symbol_usages` table and grouping result paths using the following logic:
+
+```mermaid
+graph TD
+    A["Symbol Usages Table"] --> B{"Path Resolution"}
+    B -->|Project Path| C["Group by Folder"]
+    B -->|External Path| D["Extract Library Name"]
+    C --> E["Calculate Edge Weights"]
+    D --> E
+    E --> F["Package Adjacency Map"]
+```
+
+1. **Path Normalization**: Internal paths are resolved to their relative folder structure based on the project root.
+2. **External Mapping**: Virtual symbols are normalized to their package identity (e.g., `@external/go/fmt` remains identified by its full library path).
+3. **Weight Calculation**: The "weight" of an edge between two packages represents the total count of symbol references originating from one package and targeting the other.
+4. **Depth-Aware Folding**: The `depth` parameter allows callers to collapse the project tree. For example, a depth of 1 would group all usage from `pkg/models/user.go` and `pkg/services/auth.go` into a single `pkg` node if those folders are at that depth.
+
+**Design Decision: Token Efficiency**
+The output is a compact adjacency map (`map[string]map[string]int`). By avoiding large arrays of individual references, `getPackageGraph` provides a architectural "snapshot" that fits easily into LLM context windows, allowing agents to reason about the codebase structure without reading thousands of files.
 
 ---
 

@@ -25,9 +25,9 @@ type MockProjectServiceAPI struct {
 	ClearSelectedProjectFunc     func() error
 	SetProjectIndexingFunc       func(projectID string, enabled bool) error
 	GetFilePreviewsFunc          func(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetFileOutlineFunc           func(projectID, path string) ([]*models.OutlineNode, error)
 	GetFileChunksFunc            func(projectID, path string) ([]*models.Chunk, error)
 	GetChunkByIDFunc             func(projectID, chunkID string) (*models.Chunk, error)
-	GetFileOutlineFunc           func(projectID, path string) ([]*models.OutlineNode, error)
 	GetOutlineTimestampsFunc     func(projectID string) (map[string]int64, error)
 	ReadFileContentFunc          func(projectID, relativePath string) (string, error)
 	StartIndexingFunc            func(projectID string) error
@@ -46,13 +46,14 @@ type MockProjectServiceAPI struct {
 	UpdateONNXRuntimeSettingsFunc func(path string) (*models.ONNXRuntimeSettings, error)
 	TestONNXRuntimePathFunc      func(path string) (*models.ONNXRuntimeTestResult, error)
 	DownloadONNXRuntimeFunc      func() error
-	SearchFunc                   func(projectID, query string, k int) (*models.SearchResponse, error)
-	GetRecentChangesFunc         func(projectID string, limit int) (*models.RecentChangesResponse, error)
+	SearchFunc                   func(projectID string, query string, k int) (*models.SearchResponse, error)
 	GrepSearchFunc               func(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error)
+	GetRecentChangesFunc         func(projectID string, limit int) (*models.RecentChangesResponse, error)
 	GetProjectSummaryFunc        func(projectID string) (*models.ProjectSummary, error)
 	FindReferencesFunc           func(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
 	GetCallGraphFunc             func(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
 	FindTodosFunc                func(projectID string) (*models.FindTodosResponse, error)
+	GetPackageGraphFunc          func(projectID string, depth int) (models.PackageGraphResponse, error)
 	CloseFunc                    func() error
 }
 
@@ -128,23 +129,21 @@ func (m *MockProjectServiceAPI) GetFilePreviews(projectID string, config models.
 	}
 	return nil, nil
 }
+func (m *MockProjectServiceAPI) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
+	if m.GetFileOutlineFunc != nil {
+		return m.GetFileOutlineFunc(projectID, path)
+	}
+	return nil, nil
+}
 func (m *MockProjectServiceAPI) GetFileChunks(projectID, path string) ([]*models.Chunk, error) {
 	if m.GetFileChunksFunc != nil {
 		return m.GetFileChunksFunc(projectID, path)
 	}
 	return nil, nil
 }
-
 func (m *MockProjectServiceAPI) GetChunkByID(projectID, chunkID string) (*models.Chunk, error) {
 	if m.GetChunkByIDFunc != nil {
 		return m.GetChunkByIDFunc(projectID, chunkID)
-	}
-	return nil, nil
-}
-
-func (m *MockProjectServiceAPI) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
-	if m.GetFileOutlineFunc != nil {
-		return m.GetFileOutlineFunc(projectID, path)
 	}
 	return nil, nil
 }
@@ -152,7 +151,7 @@ func (m *MockProjectServiceAPI) GetOutlineTimestamps(projectID string) (map[stri
 	if m.GetOutlineTimestampsFunc != nil {
 		return m.GetOutlineTimestampsFunc(projectID)
 	}
-	return map[string]int64{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) ReadFileContent(projectID, relativePath string) (string, error) {
 	if m.ReadFileContentFunc != nil {
@@ -194,61 +193,61 @@ func (m *MockProjectServiceAPI) GetGitIgnorePatterns(projectID string) ([]string
 	if m.GetGitIgnorePatternsFunc != nil {
 		return m.GetGitIgnorePatternsFunc(projectID)
 	}
-	return []string{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) GetProjectStats(projectID string) (*models.ProjectStats, error) {
 	if m.GetProjectStatsFunc != nil {
 		return m.GetProjectStatsFunc(projectID)
 	}
-	return &models.ProjectStats{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) GetAllProjectsStats() (*models.ProjectStats, error) {
 	if m.GetAllProjectsStatsFunc != nil {
 		return m.GetAllProjectsStatsFunc()
 	}
-	return &models.ProjectStats{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) ListEmbeddingModels() ([]*models.EmbeddingModelInfo, error) {
 	if m.ListEmbeddingModelsFunc != nil {
 		return m.ListEmbeddingModelsFunc()
 	}
-	return []*models.EmbeddingModelInfo{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) SaveEmbeddingModel(model models.EmbeddingModelInfo) (*models.EmbeddingModelInfo, error) {
 	if m.SaveEmbeddingModelFunc != nil {
 		return m.SaveEmbeddingModelFunc(model)
 	}
-	return &models.EmbeddingModelInfo{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) DownloadEmbeddingModel(modelID string) (*models.EmbeddingModelInfo, error) {
 	if m.DownloadEmbeddingModelFunc != nil {
 		return m.DownloadEmbeddingModelFunc(modelID)
 	}
-	return &models.EmbeddingModelInfo{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) GetEmbeddingCapabilities() (*models.EmbeddingCapabilities, error) {
 	if m.GetEmbeddingCapabilitiesFunc != nil {
 		return m.GetEmbeddingCapabilitiesFunc()
 	}
-	return &models.EmbeddingCapabilities{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) GetONNXRuntimeSettings() (*models.ONNXRuntimeSettings, error) {
 	if m.GetONNXRuntimeSettingsFunc != nil {
 		return m.GetONNXRuntimeSettingsFunc()
 	}
-	return &models.ONNXRuntimeSettings{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) UpdateONNXRuntimeSettings(path string) (*models.ONNXRuntimeSettings, error) {
 	if m.UpdateONNXRuntimeSettingsFunc != nil {
 		return m.UpdateONNXRuntimeSettingsFunc(path)
 	}
-	return &models.ONNXRuntimeSettings{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) TestONNXRuntimePath(path string) (*models.ONNXRuntimeTestResult, error) {
 	if m.TestONNXRuntimePathFunc != nil {
 		return m.TestONNXRuntimePathFunc(path)
 	}
-	return &models.ONNXRuntimeTestResult{}, nil
+	return nil, nil
 }
 func (m *MockProjectServiceAPI) DownloadONNXRuntime() error {
 	if m.DownloadONNXRuntimeFunc != nil {
@@ -256,21 +255,21 @@ func (m *MockProjectServiceAPI) DownloadONNXRuntime() error {
 	}
 	return nil
 }
-func (m *MockProjectServiceAPI) Search(projectID, query string, k int) (*models.SearchResponse, error) {
+func (m *MockProjectServiceAPI) Search(projectID string, query string, k int) (*models.SearchResponse, error) {
 	if m.SearchFunc != nil {
 		return m.SearchFunc(projectID, query, k)
-	}
-	return &models.SearchResponse{}, nil
-}
-func (m *MockProjectServiceAPI) GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error) {
-	if m.GetRecentChangesFunc != nil {
-		return m.GetRecentChangesFunc(projectID, limit)
 	}
 	return nil, nil
 }
 func (m *MockProjectServiceAPI) GrepSearch(projectID string, query string, isRegex bool, subPath string, limit int) (*models.GrepSearchResponse, error) {
 	if m.GrepSearchFunc != nil {
 		return m.GrepSearchFunc(projectID, query, isRegex, subPath, limit)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetRecentChanges(projectID string, limit int) (*models.RecentChangesResponse, error) {
+	if m.GetRecentChangesFunc != nil {
+		return m.GetRecentChangesFunc(projectID, limit)
 	}
 	return nil, nil
 }
@@ -297,6 +296,12 @@ func (m *MockProjectServiceAPI) FindTodos(projectID string) (*models.FindTodosRe
 		return m.FindTodosFunc(projectID)
 	}
 	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetPackageGraph(projectID string, depth int) (models.PackageGraphResponse, error) {
+	if m.GetPackageGraphFunc != nil {
+		return m.GetPackageGraphFunc(projectID, depth)
+	}
+	return models.PackageGraphResponse{}, nil
 }
 func (m *MockProjectServiceAPI) Close() error {
 	if m.CloseFunc != nil {

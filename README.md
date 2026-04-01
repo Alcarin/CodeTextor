@@ -167,6 +167,7 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `findReferences` | Find all locations where a symbol is referenced or used |
 | `getCallGraph` | Get the hierarchical call relationships for a specific function |
 | `findTodos` | Instantly surface all TODO, FIXME, and HACK comments across the project |
+| `getPackageGraph` | Get a high-level overview of package dependencies and coupling |
 
 Example Codex CLI config (`~/.codex/config.toml`):
 

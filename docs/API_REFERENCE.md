@@ -35,6 +35,8 @@ index; requests are read-only.
 | `grepSearch`        | Literal or regex search across files (precise and OS-independent)         |
 | `findReferences`    | Find all locations (file, line) where a symbol is referenced or used      |
 | `getCallGraph`      | Get the hierarchical call relationships for a specific function           |
+| `findTodos`         | Discover TODO, FIXME, HACK, XXX, and NOTE comments across the project     |
+| `getPackageGraph`   | Get a high-level overview of package dependencies and coupling            |
 
 #### `getProjectDetails`
 
@@ -112,6 +114,23 @@ index; requests are read-only.
   - Maps architectural call flows hierarchically. Nested `calls` array makes traversal native for LLM contexts.
   - `location` points to the *definition* of the called/calling function (format `path:line`).
   - `content` explicitly extracts the source code context snippet where the call took place.
+
+#### `findTodos`
+
+- **Input**: `{}` (empty object)
+- **Response**: `{ todos: { type, content, path, line }[] }`
+  - Scans for standard comment tags: `TODO`, `FIXME`, `HACK`, `XXX`, `NOTE`.
+  - Returns the exact location and the full comment text.
+
+#### `getPackageGraph`
+
+- **Input**: `{ depth?: number (default 0, unlimited) }`
+- **Response**: `{ [sourcePackage: string]: { [targetPackage: string]: weight: number } }`
+  - Compact adjacency map representing package-level coupling.
+  - `weight` is the number of symbol references between the two packages.
+  - `depth` aggregates folders to a specific level (e.g. `depth: 1` groups all `backend/pkg/*` under `backend`).
+  - External dependencies are prefixed with `@external/` followed by the library name (e.g., `@external/go/fmt`).
+  - Respects system-level exclusions (gitignore, etc.) by using the already indexed data.
 
 ### Status & Tool Events
 

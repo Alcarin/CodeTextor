@@ -107,6 +107,7 @@ type ProjectServiceAPI interface {
 	FindReferences(projectID, nodeID, symbolName, path string) (*models.SymbolReferencesResponse, error)
 	GetCallGraph(projectID, nodeID, symbolName, path string, direction string, depth int) (*models.CallGraphResponse, error)
 	FindTodos(projectID string) (*models.FindTodosResponse, error)
+	GetPackageGraph(projectID string, depth int) (models.PackageGraphResponse, error)
 	Close() error
 }
 
@@ -557,6 +558,69 @@ func (s *ProjectService) GetSelectedProject() (*models.Project, error) {
 // ClearSelectedProject removes any stored selection.
 func (s *ProjectService) ClearSelectedProject() error {
 	return s.configStore.DeleteValue(selectedProjectKey)
+}
+
+// GetPackageGraph aggregates file-level dependencies into a folder-level matrix.
+func (s *ProjectService) GetPackageGraph(projectID string, depth int) (models.PackageGraphResponse, error) {
+	vs, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := vs.GetSymbolUsagePaths()
+	if err != nil {
+		return nil, err
+	}
+
+	graph := make(models.PackageGraphResponse)
+
+	for _, up := range paths {
+		sourcePkg := s.pathToPackage(up.SourcePath, depth)
+		targetPkg := s.pathToPackage(up.TargetPath, depth)
+
+		// Skip self-dependencies at the same package level
+		if sourcePkg == targetPkg {
+			continue
+		}
+
+		if _, ok := graph[sourcePkg]; !ok {
+			graph[sourcePkg] = make(map[string]int)
+		}
+		graph[sourcePkg][targetPkg]++
+	}
+
+	return graph, nil
+}
+
+func (s *ProjectService) pathToPackage(path string, depth int) string {
+	// Normalize path
+	path = filepath.ToSlash(path)
+
+	// Virtual symbols often start with @external/
+	isExternal := strings.HasPrefix(path, "@external/")
+
+	dir := ""
+	if isExternal {
+		dir = path
+	} else {
+		dir = filepath.ToSlash(filepath.Dir(path))
+	}
+
+	if dir == "." || dir == "/" {
+		if isExternal {
+			return "@external"
+		}
+		return "root"
+	}
+
+	parts := strings.Split(dir, "/")
+
+	// If depth is specified, truncate components
+	if depth > 0 && len(parts) > depth {
+		parts = parts[:depth]
+	}
+
+	return strings.Join(parts, "/")
 }
 
 // SetProjectIndexing enables or disables continuous indexing for a project.
