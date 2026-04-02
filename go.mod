@@ -3,6 +3,7 @@ module CodeTextor
 go 1.26.1
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/DerekStride/tree-sitter-sql v0.3.11
 	github.com/anush008/fastembed-go v1.0.0
 	github.com/fsnotify/fsnotify v1.9.0

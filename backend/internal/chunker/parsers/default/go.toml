@@ -1,0 +1,89 @@
+[language]
+name = "go"
+extensions = [".go"]
+grammar = "tree-sitter-go"
+
+[queries]
+symbols = """
+(function_declaration
+  name: (identifier) @name) @symbol.function
+
+(method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: [
+        (pointer_type (type_identifier) @parent)
+        (type_identifier) @parent
+      ]))
+  name: (field_identifier) @name) @symbol.method
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @name
+    type: (struct_type)) @symbol.struct)
+
+(type_declaration
+  (type_spec
+    name: (type_identifier) @name
+    type: (interface_type)) @symbol.interface)
+
+(const_declaration
+  (const_spec
+    (identifier) @name) @symbol.constant)
+
+(var_declaration
+  (var_spec
+    (identifier) @name) @symbol.variable)
+"""
+
+imports = """
+(import_declaration
+  (import_spec
+    path: (interpreted_string_literal) @import))
+"""
+
+metadata = """
+(package_clause
+  (package_identifier) @meta.package)
+"""
+
+usages = """
+(call_expression
+  function: [
+    (identifier) @call.name
+    (selector_expression
+      operand: (_) @call.receiver
+      field: (field_identifier) @call.name)
+  ]) @call
+
+(import_spec
+  path: (interpreted_string_literal) @call.name) @call
+"""
+
+[queries.extra]
+signature = """
+(function_declaration
+  name: (identifier) @_fname
+  parameters: (parameter_list) @signature) @_fn
+
+(method_declaration
+  name: (field_identifier) @_mname
+  parameters: (parameter_list) @signature) @_method
+"""
+
+receiver = """
+(method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: (_) @receiver.type))) @_method
+"""
+
+[rules]
+comment_prefixes = ["//"]
+
+[rules.visibility]
+type = "first_letter_case"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

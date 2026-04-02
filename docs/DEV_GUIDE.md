@@ -31,6 +31,7 @@ CodeTextor maintains documentation in `/docs/`:
 | Document | Purpose | Keep Updated |
 |----------|---------|--------------|
 | **DEV_GUIDE.md** | Development standards and practices | Always (this is the source of truth) |
+| **ADDING_LANGUAGES.md** | Canonical guide for adding new language support | When adding/modifying TOML parsers |
 | **ARCHITECTURE.md** | System design, data flow, component interaction | When architecture changes |
 | **API_REFERENCE.md** | Wails and MCP API specifications | When APIs change |
 | **TODO.md** | Development roadmap and task tracking | As tasks complete/added |
@@ -337,13 +338,12 @@ Use the native doc-comment style of each language. For example, TypeScript/Vue f
 
 ### Core principles
 
-1. **Tree-sitter-based parsing:** Extract syntactic nodes like `function_declaration`, `class_body`, `comment`, etc.
+1. **Dynamic TOML-based parsing:** Query-driven AST extraction allows adding or modifying language support without changing Go code. See [ADDING_LANGUAGES.md](file:///d:/Sviluppo/CodeTextor/docs/ADDING_LANGUAGES.md) for details.
 2. **Chunk enrichment:**
-
    * Prepend file, package, and symbol info.
    * Merge leading comments.
-   * Collapse long blocks (`{ ... }` placeholder).
-   * Keep only semantically relevant symbols (functions, classes, top-level variables/constants) to avoid redundant chunks.
+   * Collapse long blocks (`{ ... }` placeholder) using Tree-sitter ranges.
+   * Extract only semantically relevant symbols (functions, classes, methods) to avoid noise.
 3. **Adaptive chunk size:**
 
    * Split large nodes targeting ~400 tokens (max 800).
@@ -484,7 +484,7 @@ Example:
 * **Local-first:** No cloud dependencies; everything runs locally.
 * **Modular:** Each concern isolated in its own package or component.
 * **Transparent:** All data (chunks, symbols, embeddings) are inspectable.
-* **Extensible:** Easy to integrate with other tools or MCP servers.
+* **Extensible:** Add new languages via a two-step process: static Grammar Registration (registry update + rebuild) and dynamic Query Configuration (TOML iteration).
 * **Readable:** Code designed to be understood by both humans and LLMs.
 
 ---

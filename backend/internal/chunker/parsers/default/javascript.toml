@@ -1,0 +1,46 @@
+# JavaScript Language Configuration
+[language]
+name = "javascript"
+grammar = "tree-sitter-javascript"
+extensions = [".js", ".jsx", ".mjs", ".cjs"]
+
+[queries]
+symbols = """
+(class_declaration
+  name: (identifier) @name) @symbol.class
+
+(function_declaration
+  name: (identifier) @name) @symbol.function
+
+(method_definition
+  name: (property_identifier) @name) @symbol.method
+
+(variable_declarator
+  name: (identifier) @name) @symbol.variable
+"""
+
+imports = """
+(import_statement
+  source: (string) @import.path) @import
+"""
+
+usages = """
+(call_expression
+  function: (identifier) @call.name) @call
+
+(call_expression
+  function: (member_expression
+    object: (_) @call.receiver
+    property: (property_identifier) @call.name)) @call
+
+(new_expression
+  constructor: (identifier) @call.name) @call
+"""
+
+[rules.visibility]
+type = "prefix"
+private_prefix = "_"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

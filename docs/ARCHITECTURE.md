@@ -149,12 +149,11 @@ Per-Project Database Contents:
 
 The semantic chunking system consists of three main components:
 
-1. **Parsers** (`backend/internal/chunker/*_parser.go`)
-   - Language-specific parsers implementing `LanguageParser` interface
-   - Extract symbols: functions, classes, methods, top-level variables/constants (local variables are intentionally skipped to reduce noise)
-   - Extract imports and documentation
-   - Supported languages: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON, PHP
-   - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager`.
+1. **Parsers** (`backend/internal/chunker/query_parser.go`, `parsers/default/*.toml`)
+   - **QueryParser Engine**: A dynamic, configuration-driven motor that uses Tree-sitter queries defined in TOML files to extract symbols, imports, and metadata.
+   - **Zero-Code Extensions**: Support for new languages is added by dropping a TOML file into the registry, requiring no backend recompilation.
+   - **Supported languages**: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON, PHP (all driven by the dynamic engine except specialized structural parsers).
+   - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager` and dynamic delegation.
 
 2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
    - **Statistical Detection**: Uses `github.com/go-enry/go-enry/v2` (Markov-chain based) to identify the language of embedded snippets. This provides a robust, data-driven approach to determine the language of code within a larger file (e.g., JavaScript inside an HTML script tag).
@@ -365,9 +364,9 @@ User Opens File → OutlineView.vue
 ### Key Components
 
 **Backend:**
-- `backend/internal/chunker/*_parser.go`: Tree-sitter language parsers
-  - Extract symbols with parent-child relationships
-  - Support: Go, Python, TypeScript, JavaScript, Vue, HTML, CSS, Markdown, PHP
+- `backend/internal/chunker/query_parser.go`: Dynamic engine using TOML-defined Tree-sitter queries.
+  - Extracts symbols with parent-child relationships and rich metadata.
+  - Languages: Go, Python, TypeScript, JavaScript, HTML, CSS, Markdown, PHP.
 - `backend/pkg/outline/builder.go`: Convert flat symbols to hierarchical tree
   - Matches parents by name + line range containment
   - Handles duplicate names (e.g., multiple `div` elements)
@@ -395,11 +394,11 @@ User Opens File → OutlineView.vue
   - Enables correct containment detection in outline builder
 
 #### Vue Parser
-- **Sections**: `<template>`, `<script>`, `<style>` as root symbols
-- **Delegation**: Each section parsed by appropriate parser (HTML/JS/CSS)
-- **Automatic Sub-Language Hook**: Uses the same `SubLanguageManager` infrastructure as other parsers for consistency.
-- **Line Offset**: Adjusts child symbol line numbers to match original file (now mostly handled by `SetIncludedRanges` when applicable).
-- **Hierarchy Preservation**: Only root elements get section as parent, nested elements keep HTML/JS/CSS hierarchy
+- **Sections**: `<template>`, `<script>`, `<style>` as root symbols.
+- **Delegation**: Each section is dynamically delegated to the appropriate parser (HTML/JS/CSS/TS) via the `SubLanguageManager`.
+- **Automatic Sub-Language Hook**: Uses the dynamic `QueryParser` registry to resolve the correct engine for each block based on the `lang` attribute or default heuristics.
+- **Line Offset**: Leverages Tree-sitter's `SetIncludedRanges` API to maintain absolute line numbers from the original `.vue` file.
+- **Hierarchy Preservation**: Root sections act as parents; nested elements maintain the internal hierarchy of their respective languages.
 
 #### HTML/CSS Parsers
 - **All Tags**: Extracts all HTML elements (not just semantic tags)
@@ -739,5 +738,5 @@ These principles guide all implementation decisions and should be preserved as t
 
 ---
 
-**Last Updated:** 2025-11-17
-**Version:** 0.1.0-dev
+**Last Updated:** 2026-04-02
+**Version:** 0.2.0-dev

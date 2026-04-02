@@ -1,0 +1,41 @@
+package chunker
+
+import (
+	"fmt"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_css "github.com/tree-sitter/tree-sitter-css/bindings/go"
+	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	tree_sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
+	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
+	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
+	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+    // Note: markdown and sql might have different binding paths or versions
+    tree_sitter_markdown "github.com/tree-sitter-grammars/tree-sitter-markdown/bindings/go"
+    tree_sitter_sql "github.com/DerekStride/tree-sitter-sql/bindings/go"
+)
+
+// grammarRegistry maps grammar names (from TOML) to their getter functions.
+var grammarRegistry = map[string]func() *sitter.Language{
+	"tree-sitter-go":         func() *sitter.Language { return sitter.NewLanguage(tree_sitter_go.Language()) },
+	"tree-sitter-python":     func() *sitter.Language { return sitter.NewLanguage(tree_sitter_python.Language()) },
+	"tree-sitter-typescript": func() *sitter.Language { return sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript()) },
+	"tree-sitter-javascript": func() *sitter.Language { return sitter.NewLanguage(tree_sitter_javascript.Language()) },
+	"tree-sitter-php":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_php.LanguagePHP()) },
+	"tree-sitter-html":       func() *sitter.Language { return sitter.NewLanguage(tree_sitter_html.Language()) },
+	"tree-sitter-css":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_css.Language()) },
+	"tree-sitter-json":       func() *sitter.Language { return sitter.NewLanguage(tree_sitter_json.Language()) },
+	"tree-sitter-markdown":   func() *sitter.Language { return sitter.NewLanguage(tree_sitter_markdown.Language()) },
+	"tree-sitter-sql":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_sql.Language()) },
+}
+
+// GetGrammar returns the tree-sitter Language for the given grammar name.
+func GetGrammar(name string) (*sitter.Language, error) {
+	getter, ok := grammarRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("grammar not found in registry: %s", name)
+	}
+	return getter(), nil
+}

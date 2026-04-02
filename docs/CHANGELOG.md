@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
+- **Dynamic Language Parser System**: Transitioned from hardcoded Go-based parsers to a dynamic, TOML-configurable engine using Tree-sitter queries for symbol extraction, enabling support for new languages without backend recompilation.
 - **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
 - **Heavy Embedding Rework (GPU/CPU Optimization)**:
   - **Dynamic Batch Scaling**: Automatically adjusts embedding batch sizes based on available VRAM to maximize GPU throughput while preventing Out-of-Memory (OOM) errors.
@@ -141,7 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Outline depth parameter removed**: Full tree always returned, user controls expand/collapse in UI
 - **Markdown parser**: Now builds hierarchical heading structure instead of flat list
 - **HTML parser**: Extracts all tags (not just semantic) with attribute information
-- **Vue parser**: Preserves section hierarchy (template/script/style) with correct line numbers
+- **Vue parser**: Refactored to use `SubLanguageManager` for dynamic delegation of template/script/style sections, preserving absolute line numbers using Tree-sitter's `SetIncludedRanges` API.
 - **Chunk type extended**: Added 15+ new fields for semantic metadata (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
 - **Indexer initialization**: Now accepts eventEmitter parameter and creates SemanticChunker instance
 - **StatsView enhanced**: Added chunks statistics section (total chunks, avg chunk size, distribution by symbol kind)
@@ -149,6 +148,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Footer statistics**: Changed from mock data to real backend API calls showing cumulative stats across all projects
 - **StatsView refactored**: Removed Database Location and Indexing Status banners, now shows only essential statistics
 - **API migration**: Replaced mockBackend with real backend calls throughout the application
+- **Automatic Parser Registration**: The parsing engine now dynamically discovers and registers all language parsers from TOML configurations at startup.
+
+### Removed
+
+- Legacy hardcoded parsers for Go, Python, and TypeScript (`go_parser.go`, `python_parser.go`, `typescript_parser.go`).
+- Hardcoded parser selection logic in favor of dynamic extension-based discovery.
+- `EnableShadowParsing` and associated parity check background tasks.
 
 ### Fixed
 

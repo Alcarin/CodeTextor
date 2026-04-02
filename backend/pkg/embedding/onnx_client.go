@@ -378,7 +378,17 @@ func (c *ONNXEmbeddingClient) embedBatch(texts []string) ([][]float32, error) {
 	allTypes := make([]int64, totalLen)
 
 	for i, text := range texts {
-		encoding, err := c.tokenizer.EncodeSingle(text, true)
+		text = sanitizeTokenizerInput(text)
+		// Recovery block to handle library panics (e.g. index out of range in tokenizer)
+		encoding, err := func() (enc *tokenizer.Encoding, err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("PANIC: Tokenizer crashed on text %d of %d (length %d chars). Recovering. Error: %v", i, len(texts), len(text), r)
+					err = fmt.Errorf("tokenizer crashed")
+				}
+			}()
+			return c.tokenizer.EncodeSingle(text, true)
+		}()
 		if err != nil {
 			log.Printf("Tokenizer error for text %d: %v", i, err)
 			continue
@@ -519,7 +529,17 @@ func (c *ONNXEmbeddingClient) embedBatch(texts []string) ([][]float32, error) {
 // This is thread-safe: the tokenizer is read-only during encoding and each call
 // creates independent encoding objects. Safe for concurrent use from CPU workers.
 func (c *ONNXEmbeddingClient) TokenizeOne(text string) (*TokenizedChunk, error) {
-	encoding, err := c.tokenizer.EncodeSingle(text, true)
+	text = sanitizeTokenizerInput(text)
+	// Recovery block to handle library panics
+	encoding, err := func() (enc *tokenizer.Encoding, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC: Tokenizer crashed on text (length %d chars): %q. Recovering. Error: %v", len(text), truncateString(text, 50), r)
+				err = fmt.Errorf("tokenizer crashed")
+			}
+		}()
+		return c.tokenizer.EncodeSingle(text, true)
+	}()
 	if err != nil {
 		return nil, err
 	}
@@ -900,6 +920,29 @@ func clampSlice(values []int, maxLen int) []int {
 	out := make([]int, maxLen)
 	copy(out, values)
 	return out
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+func sanitizeTokenizerInput(s string) string {
+	// sugarme/tokenizer has a bug in offset mapping when strings have trailing newlines
+	// or CRLF sequences that get normalized to LF (or vice versa) in a way that breaks
+	// the internal range calculation.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.TrimSpace(s)
+	
+	// Adding a trailing space is a common workaround for tokenizers that crash 
+	// when the last token ends exactly at the string boundary with certain normalizers.
+	if s != "" && !strings.HasSuffix(s, " ") {
+		s += " "
+	}
+	return s
 }
 
 func normalizeVector(vec []float32) {

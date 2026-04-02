@@ -8,6 +8,7 @@
 package chunker
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1031,4 +1032,28 @@ TODO: fix this soon
 			assert.ElementsMatch(t, tt.expected, todos)
 		})
 	}
+}
+
+
+// TestTodoNesting verifies that TODOs inside functions are extracted
+func TestTodoNesting(t *testing.T) {
+	parser := NewParser(DefaultChunkConfig())
+	source := []byte(`package main
+
+func MyFunc() {
+	// TODO: internal task
+	fmt.Println("hello")
+}`)
+	
+	result, err := parser.ParseFile("test.go", source)
+	require.NoError(t, err)
+	
+	found := false
+	for _, s := range result.Symbols {
+		if s.Kind == SymbolTodo && strings.Contains(s.Name, "internal task") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "TODO inside function should be found")
 }

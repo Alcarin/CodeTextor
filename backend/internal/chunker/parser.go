@@ -8,7 +8,9 @@
 package chunker
 
 import (
+	"embed"
 	"fmt"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -16,12 +18,15 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+//go:embed parsers/default/*.toml
+var defaultParserConfigs embed.FS
 
 // Parser is the main entry point for parsing source code files.
 // It automatically detects the language and uses the appropriate parser.
 type Parser struct {
-	parsers map[string]LanguageParser // Map of file extension to parser
-	config  ChunkConfig               // Chunking configuration
+	parsers      map[string]LanguageParser // Map of file extension to parser
+	queryParsers map[string]*QueryParser   // New query-based parsers
+	config       ChunkConfig               // Chunking configuration
 }
 
 // NewParser creates a new Parser instance with all supported language parsers.
@@ -32,22 +37,8 @@ func NewParser(config ChunkConfig) *Parser {
 		config:  config,
 	}
 
-	// Register all language parsers
+	// Register static parsers (not yet migrated to TOML)
 	// Each parser is responsible for one or more file extensions
-	p.registerParser(&GoParser{})
-	p.registerParser(&PythonParser{})
-
-	// Register TypeScript parser for .ts and .tsx
-	tsParser := &TypeScriptParser{isTypeScript: true}
-	p.parsers[".ts"] = tsParser
-	p.parsers[".tsx"] = tsParser
-
-	// Register JavaScript parser for .js and .jsx
-	jsParser := &TypeScriptParser{isTypeScript: false}
-	p.parsers[".js"] = jsParser
-	p.parsers[".jsx"] = jsParser
-
-	// Register HTML, CSS, Vue, and Markdown parsers
 	p.registerParser(&HTMLParser{})
 	p.registerParser(&CSSParser{})
 	p.registerParser(&VueParser{})
@@ -55,6 +46,10 @@ func NewParser(config ChunkConfig) *Parser {
 	p.registerParser(&SQLParser{})
 	p.registerParser(&JSONParser{})
 	p.registerParser(&PhpParser{})
+
+	// Initialize and register the Query-Based Parser Engine
+	p.queryParsers = make(map[string]*QueryParser)
+	p.loadQueryParsers()
 
 	// TODO: Add more parsers as they are implemented
 	// p.registerParser(&RustParser{})
@@ -150,6 +145,37 @@ func (p *Parser) ParseFile(filePath string, source []byte) (*ParseResult, error)
 	return result, nil
 }
 
+// loadQueryParsers loads TOML configurations and initializes QueryParsers.
+func (p *Parser) loadQueryParsers() {
+	// 1. Load embedded defaults
+	defaults, err := LoadDefaultConfigs(defaultParserConfigs)
+	if err != nil {
+		log.Printf("Warning: failed to load default parser configs: %v", err)
+		return
+	}
+
+	// 2. Load user overrides from AppData/parsers/
+	// (Simplification: using a local path for now, in a real app this would be OS-specific)
+	userDir := "parsers" // Should be absolute path in production
+	userConfigs, _ := LoadUserConfigs(userDir)
+
+	// 3. Merge
+	merged := MergeConfigs(defaults, userConfigs)
+
+	// 4. Initialize and Auto-Register QueryParsers
+	for _, config := range merged {
+		qp, err := NewQueryParser(config)
+		if err != nil {
+			log.Printf("Warning: failed to initialize QueryParser for %s: %v", config.Language.Name, err)
+			continue
+		}
+		p.queryParsers[config.Language.Name] = qp
+
+		// Register as primary parser for its extensions
+		p.registerParser(qp)
+	}
+}
+
 // extractParseErrors walks the AST and collects any ERROR nodes.
 // These represent syntax errors in the source code.
 func (p *Parser) extractParseErrors(node *sitter.Node, source []byte) []ParseError {
@@ -222,7 +248,7 @@ func (p *Parser) IsSupported(filePath string) bool {
 
 var todoRegex = regexp.MustCompile(`(?i)^(?://|/\*|#|--|;|\s|<!--|<!|[\/*#;!])*?(TODO|FIXME|HACK|XXX|NOTE):?\s*`)
 
-// cleanComment removes comment markers (//, /*, */, #, --, <!--, -->) from a string.
+// cleanComment removes comment markers (//, /*, */, #, --, <!--, -->) and TODO/FIXME prefixes from a string.
 func cleanComment(text string) string {
 	text = strings.TrimSpace(text)
 	// Remove //, /*, */, #, --, <!--, -->, <! ... >
@@ -233,5 +259,11 @@ func cleanComment(text string) string {
 	text = strings.TrimPrefix(text, "--")
 	text = strings.TrimPrefix(text, "<!--")
 	text = strings.TrimSuffix(text, "-->")
+
+	// Remove TODO/FIXME/etc prefixes
+	if todoRegex.MatchString(text) {
+		text = todoRegex.ReplaceAllString(text, "")
+	}
+
 	return strings.TrimSpace(text)
 }

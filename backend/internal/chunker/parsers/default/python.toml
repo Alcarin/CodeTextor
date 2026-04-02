@@ -1,0 +1,54 @@
+# Python Language Configuration
+[language]
+name = "python"
+grammar = "tree-sitter-python"
+extensions = [".py"]
+
+[queries]
+symbols = """
+(class_definition
+  name: (identifier) @name) @symbol.class
+
+(function_definition
+  name: (identifier) @name) @symbol.function
+
+;; Separate query for methods to distinguish them from top-level functions
+(class_definition
+  body: (block
+    (function_definition
+      name: (identifier) @name))) @symbol.method
+
+(assignment
+  left: (identifier) @name) @symbol.variable
+"""
+
+imports = """
+(import_statement
+  name: (dotted_name) @import.path) @import
+
+(import_from_statement
+  module_name: (dotted_name) @import.path) @import
+"""
+
+usages = """
+(call
+  function: (identifier) @call.name) @call
+
+(call
+  function: (attribute
+    object: (_) @call.receiver
+    attribute: (identifier) @call.name)) @call
+"""
+
+[queries.extra]
+# Add any Python specific extra queries here
+decorators = "(decorator) @extra.decorator"
+
+[rules.visibility]
+type = "prefix"
+private_prefix = "__"
+protected_prefix = "_"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

@@ -50,6 +50,36 @@ func NewSubLanguageManager(extParsers map[string]LanguageParser) *SubLanguageMan
 	}
 }
 
+// GetParser returns a registered parser for the given file extension (e.g., ".js", ".ts").
+// Returns nil if no parser is registered for that extension.
+func (m *SubLanguageManager) GetParser(ext string) LanguageParser {
+	switch strings.ToLower(ext) {
+	case ".js", ".jsx":
+		return m.parsers["JavaScript"]
+	case ".ts", ".tsx":
+		return m.parsers["TypeScript"]
+	case ".html", ".htm":
+		return m.parsers["HTML"]
+	case ".css":
+		return m.parsers["CSS"]
+	case ".json":
+		return m.parsers["JSON"]
+	case ".sql":
+		return m.parsers["SQL"]
+	case ".go":
+		return m.parsers["Go"]
+	case ".py":
+		return m.parsers["Python"]
+	case ".vue":
+		return m.parsers["Vue"]
+	case ".php":
+		return m.parsers["PHP"]
+	case ".md":
+		return m.parsers["Markdown"]
+	}
+	return nil
+}
+
 // ProcessEmbeddedCode uses enry to statistically identify the language of the content.
 // If supported, it configures the appropriate tree-sitter parser using SetIncludedRanges,
 // extracting symbols whose physical offsets natively match the parent file.

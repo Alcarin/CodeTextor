@@ -26,8 +26,8 @@ Specifiche CodeTextor:
 
 ## 🔍 Key Features
 
-- 🚀 **Tree-sitter-based parsing** for accurate AST-aware chunking
-- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation.
+- 🚀 **Dynamic Tree-sitter Parsing**: Advanced AST-aware chunking engine driven by TOML configurations. Add or customize symbol extraction logic without changing Go code (requires a one-time grammar registration for completely new languages).
+- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation using specialized sub-language delegation.
 - 🛠️ **Technical Debt Extraction**: Automatically surfaces `TODO`, `FIXME`, and `HACK` comments across all supported formats, including Markdown task lists, for a unified project status overview.
 - ⚡ **Dynamic Batch Scaling**: VRAM-aware batching (power-of-2 aligned) to maximize GPU throughput and prevent OOM errors
 - 🧩 **Adaptive chunking strategy**
@@ -217,7 +217,7 @@ Developer and contributor documentation lives under [`/docs`](./docs):
 - **Local-first:** runs entirely on your machine
 - **Modular:** each subsystem in its own package
 - **Transparent:** all data and embeddings are inspectable
-- **Extensible:** easy to add languages or custom chunkers
+- **Extensible:** Customize extraction logic instantly via TOML. Adding a completely new language requires a simple one-time grammar registration in the Go backend.
 - **Readable:** written for humans *and* LLMs — every function documented
 
 ---
