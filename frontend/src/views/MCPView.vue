@@ -307,7 +307,7 @@ onUnmounted(() => {
         <div class="snippet-grid">
           <div class="snippet-card">
             <div class="snippet-title">Codex CLI (`~/.codex/config.toml`)</div>
-            <pre class="config-snippet"><code>[mcp_servers.codetextor]
+            <pre class="config-snippet"><code>[mcp_servers.codetextor-{{ projectId }}]
 url = "{{ projectServerUrl }}"
 transport = "http"
 enabled = true
@@ -318,14 +318,14 @@ rmcp_client = true</code></pre>
           <div class="snippet-card">
             <div class="snippet-title">Claude Code CLI</div>
             <pre class="config-snippet"><code>
-claude mcp add --transport http codetextor {{ projectServerUrl }}
+claude mcp add --transport http codetextor-{{ projectId }} {{ projectServerUrl }}
 </code></pre>
           </div>
           <div class="snippet-card">
             <div class="snippet-title">Claude Code (`.mcp.json`)</div>
             <pre class="config-snippet"><code>{
   "mcpServers": {
-    "codetextor": {
+    "codetextor-{{ projectId }}": {
       "type": "http",
       "url": "{{ projectServerUrl }}"
     }
@@ -336,7 +336,7 @@ claude mcp add --transport http codetextor {{ projectServerUrl }}
             <div class="snippet-title">VS Code / Cursor / Windsurf</div>
             <pre class="config-snippet"><code>{
   "mcpServers": {
-    "codetextor": {
+    "codetextor-{{ projectId }}": {
       "type": "http",
       "url": "{{ projectServerUrl }}"
     }
@@ -346,14 +346,14 @@ claude mcp add --transport http codetextor {{ projectServerUrl }}
           <div class="snippet-card">
             <div class="snippet-title">Gemini CLI (Command line)</div>
             <pre class="config-snippet"><code>
-gemini mcp add --transport http codetextor-{{ currentProject?.name ?? 'project-name' }} {{ projectServerUrl }}
+gemini mcp add --transport http codetextor-{{ projectId }} {{ projectServerUrl }}
 </code></pre>
           </div>
           <div class="snippet-card">
             <div class="snippet-title">Antigravity / Gemini CLI (`mcp_config.json`)</div>
             <pre class="config-snippet"><code>{
   "mcpServers": {
-    "codetextor-{{ currentProject?.name ?? 'project-name' }}": {
+    "codetextor-{{ projectId }}": {
       "serverURL": "{{ projectServerUrl }}"
     }
   }
