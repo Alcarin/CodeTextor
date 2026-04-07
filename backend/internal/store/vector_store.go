@@ -7,6 +7,7 @@ import (
 	"embed"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -34,6 +35,32 @@ type VectorStore struct {
 	fileIDs   map[string]int64
 }
 
+// ResetCache clears all in-memory file ID mappings.
+func (s *VectorStore) ResetCache() {
+	s.fileIDMu.Lock()
+	defer s.fileIDMu.Unlock()
+	s.fileIDs = make(map[string]int64)
+}
+
+func (s *VectorStore) getCachedFileID(path string) (int64, bool) {
+	s.fileIDMu.RLock()
+	defer s.fileIDMu.RUnlock()
+	if s.fileIDs == nil {
+		return 0, false
+	}
+	id, ok := s.fileIDs[path]
+	return id, ok
+}
+
+func (s *VectorStore) cacheFileID(path string, id int64) {
+	s.fileIDMu.Lock()
+	defer s.fileIDMu.Unlock()
+	if s.fileIDs == nil {
+		s.fileIDs = make(map[string]int64)
+	}
+	s.fileIDs[path] = id
+}
+
 // NewVectorStore creates a new VectorStore instance for a given project.
 // It initializes the SQLite database and runs migrations if necessary.
 func NewVectorStore(projectID, projectSlug string) (*VectorStore, error) {
@@ -59,9 +86,10 @@ func NewVectorStore(projectID, projectSlug string) (*VectorStore, error) {
 		return nil, fmt.Errorf("failed to open vector database at %s: %w", dbPath, err)
 	}
 
-	// Set connection pool parameters to prevent excessive concurrent connections
-	db.SetMaxOpenConns(1) // SQLite works best with a single writer
-	db.SetMaxIdleConns(1)
+	// Set connection pool parameters to allow concurrent readers.
+	// SQLite in WAL mode allows multiple readers alongside a single writer.
+	db.SetMaxOpenConns(16)
+	db.SetMaxIdleConns(4)
 
 	// Run migrations for the vector database schema
 	if err := runVectorMigrations(db); err != nil {
@@ -75,19 +103,6 @@ func NewVectorStore(projectID, projectSlug string) (*VectorStore, error) {
 		dbPath:    dbPath,
 		fileIDs:   make(map[string]int64),
 	}, nil
-}
-
-func (s *VectorStore) cacheFileID(path string, id int64) {
-	s.fileIDMu.Lock()
-	defer s.fileIDMu.Unlock()
-	s.fileIDs[path] = id
-}
-
-func (s *VectorStore) getCachedFileID(path string) (int64, bool) {
-	s.fileIDMu.RLock()
-	defer s.fileIDMu.RUnlock()
-	id, ok := s.fileIDs[path]
-	return id, ok
 }
 
 // runVectorMigrations runs the embedded migrations for the per-project vector database
@@ -135,6 +150,10 @@ func normalizeOutlinePath(path string) (string, error) {
 }
 
 func (s *VectorStore) resolveFileID(path string, create bool) (int64, string, error) {
+	return s.resolveFileIDTx(nil, path, create)
+}
+
+func (s *VectorStore) resolveFileIDTx(tx *sql.Tx, path string, create bool) (int64, string, error) {
 	normalized, err := normalizeOutlinePath(path)
 	if err != nil {
 		return 0, "", err
@@ -144,15 +163,27 @@ func (s *VectorStore) resolveFileID(path string, create bool) (int64, string, er
 		return cached, normalized, nil
 	}
 
-	row := s.db.QueryRow(`SELECT pk FROM files WHERE path = ?`, normalized)
+	var row *sql.Row
+	if tx != nil {
+		row = tx.QueryRow(`SELECT pk FROM files WHERE path = ?`, normalized)
+	} else {
+		row = s.db.QueryRow(`SELECT pk FROM files WHERE path = ?`, normalized)
+	}
+
 	var fileID int64
 	if err := row.Scan(&fileID); err != nil {
 		if err == sql.ErrNoRows {
 			if !create {
 				return 0, "", fmt.Errorf("file not found: %s", normalized)
 			}
-			if fileID, err = s.createPlaceholderFile(normalized, false); err != nil {
-				return 0, "", err
+			if tx != nil {
+				if fileID, err = s.createPlaceholderFileTx(tx, normalized, false); err != nil {
+					return 0, "", err
+				}
+			} else {
+				if fileID, err = s.createPlaceholderFile(normalized, false); err != nil {
+					return 0, "", err
+				}
 			}
 		} else {
 			return 0, "", fmt.Errorf("failed to resolve file id for %s: %w", normalized, err)
@@ -164,19 +195,45 @@ func (s *VectorStore) resolveFileID(path string, create bool) (int64, string, er
 }
 
 func (s *VectorStore) createPlaceholderFile(path string, isVirtual bool) (int64, error) {
-	now := time.Now().Unix()
-	result, err := s.db.Exec(`
-		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, uuid.New().String(), path, "unknown", isVirtual, 0, 0, now, now)
+	tx, err := s.db.Begin()
 	if err != nil {
-		return 0, fmt.Errorf("failed to create placeholder for %s (virtual=%v): %w", path, isVirtual, err)
+		return 0, fmt.Errorf("failed to start placeholder transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	fileID, err := s.createPlaceholderFileTx(tx, path, isVirtual)
+	if err != nil {
+		return 0, err
 	}
 
-	fileID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("failed to determine placeholder id for %s: %w", path, err)
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit placeholder transaction: %w", err)
 	}
+
+	return fileID, nil
+}
+
+func (s *VectorStore) createPlaceholderFileTx(tx *sql.Tx, path string, isVirtual bool) (int64, error) {
+	now := time.Now().Unix()
+	
+	_, err := tx.Exec(`
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			is_virtual = CASE WHEN is_virtual = 1 THEN 1 ELSE excluded.is_virtual END,
+			updated_at = ?
+	`, uuid.New().String(), path, "unknown", isVirtual, 0, 0, now, now, now)
+	
+	if err != nil {
+		return 0, fmt.Errorf("failed to upsert placeholder for %s (virtual=%v): %w", path, isVirtual, err)
+	}
+
+	var fileID int64
+	err = tx.QueryRow(`SELECT pk FROM files WHERE path = ?`, path).Scan(&fileID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to retrieve pk for placeholder %s: %w", path, err)
+	}
+
 	return fileID, nil
 }
 
@@ -496,6 +553,164 @@ func (s *VectorStore) insertOutlineNodes(tx *sql.Tx, fileID int64, nodes []*mode
 		}
 	}
 	return nil
+}
+
+// InsertFileTasksInTransaction performs a high-speed atomic update for a single file and all its artifacts.
+// It combines file metadata, semantic chunks, symbols, and structural outline in a single transaction.
+func (s *VectorStore) InsertFileTasksInTransaction(
+	file *models.File,
+	chunks []*models.Chunk,
+	symbols []*models.Symbol,
+	outline []*models.OutlineNode,
+	usages []*models.SymbolUsage,
+) error {
+	if file == nil {
+		return fmt.Errorf("file record cannot be nil")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin atomic file transaction for %s: %w", file.Path, err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().Unix()
+	file.CreatedAt = now
+	file.UpdatedAt = now
+
+	// 1. Upsert File and get the internal integer PK
+	// We use ON CONFLICT(path) as the primary way to identify existing files.
+	// Since id is also unique, we update it in the SET clause.
+	_, err = tx.Exec(`
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET 
+			id = excluded.id,
+			hash = excluded.hash,
+			is_virtual = excluded.is_virtual,
+			last_modified = excluded.last_modified,
+			chunk_count = excluded.chunk_count,
+			updated_at = excluded.updated_at
+	`, file.ID, file.Path, file.Hash, file.IsVirtual, file.LastModified, file.ChunkCount, file.CreatedAt, file.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to upsert file %s: %w", file.Path, err)
+	}
+
+	var fileID int64
+	if err := tx.QueryRow(`SELECT pk FROM files WHERE path = ?`, file.Path).Scan(&fileID); err != nil {
+		return fmt.Errorf("failed to retrieve pk for %s: %w", file.Path, err)
+	}
+	s.cacheFileID(file.Path, fileID)
+
+	// 2. Clear old file artifacts.
+	// Since all tables (chunks, symbols, outline_nodes) reference files(pk) with ON DELETE CASCADE,
+	// we just need to ensure the foreign keys are working. 
+	// However, to avoid any issues with existing data, we explicitly delete associated records for this file.
+	if _, err := tx.Exec(`DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to clear old chunks for %s: %w", file.Path, err)
+	}
+	// Note: symbols, implementations, and outline_nodes are cleared by CASCADE or explicit DELETE if needed.
+	// We delete symbols explicitly just to be 100% sure the transaction sees it immediately.
+	if _, err := tx.Exec(`DELETE FROM symbols WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to clear old symbols for %s: %w", file.Path, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM outline_nodes WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to clear old outline nodes for %s: %w", file.Path, err)
+	}
+
+	// 3. Parallel-style insert for chunks
+	if len(chunks) > 0 {
+		chunkStmt, err := tx.Prepare(`
+			INSERT INTO chunks (
+				id, file_id, content, embedding, embedding_model_id,
+				line_start, line_end, char_start, char_end,
+				language, symbol_name, symbol_kind, parent,
+				signature, visibility, package_name, doc_string,
+				token_count, is_collapsed, source_code,
+				created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare chunk statement for %s: %w", file.Path, err)
+		}
+		defer chunkStmt.Close()
+
+		for _, chunk := range chunks {
+			if chunk.ID == "" {
+				chunk.ID = uuid.New().String()
+			}
+			embeddingBytes, _ := float32SliceToByteSlice(chunk.Embedding)
+			_, err = chunkStmt.Exec(
+				chunk.ID, fileID, chunk.Content, embeddingBytes, chunk.EmbeddingModelID,
+				chunk.LineStart, chunk.LineEnd, chunk.CharStart, chunk.CharEnd,
+				chunk.Language, chunk.SymbolName, chunk.SymbolKind, chunk.Parent,
+				chunk.Signature, chunk.Visibility, chunk.PackageName, chunk.DocString,
+				chunk.TokenCount, chunk.IsCollapsed, chunk.SourceCode, now, now,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert chunk for %s: %w", file.Path, err)
+			}
+		}
+	}
+
+	// 4. Batch insert symbols
+	if len(symbols) > 0 {
+		symStmt, err := tx.Prepare(`
+			INSERT INTO symbols (id, file_id, name, kind, line, character, parent, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare symbol statement for %s: %w", file.Path, err)
+		}
+		defer symStmt.Close()
+
+		for _, sym := range symbols {
+			_, err = symStmt.Exec(sym.ID, fileID, sym.Name, sym.Kind, sym.Line, sym.Character,
+				sql.NullString{String: sym.Parent, Valid: sym.Parent != ""}, now, now)
+			if err != nil {
+				return fmt.Errorf("failed to insert symbol for %s: %w", file.Path, err)
+			}
+		}
+	}
+
+	// 5. Recursive outline insertion
+	if len(outline) > 0 {
+		if err := s.insertOutlineNodes(tx, fileID, outline, sql.NullString{}); err != nil {
+			return fmt.Errorf("failed to insert outline for %s: %w", file.Path, err)
+		}
+	}
+
+	// 6. Usages
+	if len(usages) > 0 {
+		usageStmt, err := tx.Prepare(`
+			INSERT INTO symbol_usages (
+				caller_node_id, target_node_id, raw_target_name, raw_target_context, line, column
+			) VALUES (?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare usage statement for %s: %w", file.Path, err)
+		}
+		defer usageStmt.Close()
+
+		for _, u := range usages {
+			_, err = usageStmt.Exec(u.CallerNodeID, sql.NullString{String: u.TargetNodeID, Valid: u.TargetNodeID != ""},
+				u.RawTargetName, sql.NullString{String: u.RawTargetContext, Valid: u.RawTargetContext != ""}, u.Line, u.Column)
+			if err != nil {
+				return fmt.Errorf("failed to insert usage for %s: %w", file.Path, err)
+			}
+		}
+	}
+
+	// 7. Metadata update
+	if _, err := tx.Exec(`
+		INSERT INTO outline_metadata (file_id, updated_at)
+		VALUES (?, ?)
+		ON CONFLICT(file_id) DO UPDATE SET updated_at = excluded.updated_at
+	`, fileID, now); err != nil {
+		return fmt.Errorf("failed to update metadata for %s: %w", file.Path, err)
+	}
+
+	return tx.Commit()
 }
 
 // GetFileOutline retrieves a stored outline tree.
@@ -958,16 +1173,28 @@ func (s *VectorStore) GetChunkByID(chunkID string) (*models.Chunk, error) {
 	return chunk, nil
 }
 
-// DeleteFileChunks removes all chunks associated with a file.
+// DeleteFileChunks removes all chunks, symbols, and outline nodes associated with a file.
 func (s *VectorStore) DeleteFileChunks(filePath string) error {
 	fileID, normalizedPath, err := s.resolveFileID(filePath, true)
 	if err != nil {
 		return err
 	}
 
+	// Delete chunks
 	if _, err := s.db.Exec(`DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
 		return fmt.Errorf("failed to delete chunks for file %s: %w", normalizedPath, err)
 	}
+
+	// Delete symbols
+	if _, err := s.db.Exec(`DELETE FROM symbols WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete symbols for file %s: %w", normalizedPath, err)
+	}
+
+	// Delete outline nodes (this will cascade to symbol_usages)
+	if _, err := s.db.Exec(`DELETE FROM outline_nodes WHERE file_id = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to delete outline nodes for file %s: %w", normalizedPath, err)
+	}
+
 	return nil
 }
 
@@ -1007,7 +1234,11 @@ func (s *VectorStore) RebuildChunkSymbolLinks(filePath string) error {
 
 // ResetProjectData removes all indexed artifacts (chunks, symbols, outlines, files).
 func (s *VectorStore) ResetProjectData() error {
+	// Order is important: deleting from 'files' first would cascade to everything else,
+	// but we'll be' explicit to ensure all tables are wiped.
 	tables := []string{
+		"symbol_usages",
+		"symbol_implementations",
 		"chunk_symbols",
 		"chunks",
 		"symbols",
@@ -1032,9 +1263,9 @@ func (s *VectorStore) ResetProjectData() error {
 		return fmt.Errorf("failed to commit reset: %w", err)
 	}
 
-	s.fileIDMu.Lock()
-	s.fileIDs = make(map[string]int64)
-	s.fileIDMu.Unlock()
+	// Always clear cache after a successful reset to prevent stale FK references.
+	s.ResetCache()
+	log.Printf("[VectorStore] Project data reset successfully, cache cleared.")
 
 	return nil
 }
@@ -1069,9 +1300,9 @@ func byteSliceToFloat32Slice(bytes []byte) ([]float32, error) {
 	return out, nil
 }
 
-// SearchSimilarChunks performs a brute-force cosine similarity search over all chunks.
-// This is a fallback implementation until a vector index (e.g., sqlite-vec) is integrated.
-func (s *VectorStore) SearchSimilarChunks(queryEmbedding []float32, k int) ([]*models.Chunk, error) {
+// SearchSimilarChunks performs a brute-force cosine similarity search over chunks.
+// It filters by modelID to ensure valid vector comparisons.
+func (s *VectorStore) SearchSimilarChunks(queryEmbedding []float32, modelID string, k int) ([]*models.Chunk, error) {
 	if len(queryEmbedding) == 0 {
 		return nil, fmt.Errorf("query embedding is empty")
 	}
@@ -1087,7 +1318,8 @@ func (s *VectorStore) SearchSimilarChunks(queryEmbedding []float32, k int) ([]*m
 		       c.created_at, c.updated_at
 		FROM chunks c
 		JOIN files f ON f.pk = c.file_id
-	`)
+		WHERE c.embedding_model_id = ?
+	`, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query chunks for search: %w", err)
 	}
@@ -1670,6 +1902,37 @@ func (s *VectorStore) UpdateSymbolUsageTarget(usageID int64, targetNodeID string
 	return err
 }
 
+// UpdateSymbolUsageTargets updates target node IDs for multiple usage records in a single transaction.
+func (s *VectorStore) UpdateSymbolUsageTargets(updates map[int64]string) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		UPDATE symbol_usages 
+		SET target_node_id = ? 
+		WHERE id = ?
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for usageID, targetNodeID := range updates {
+		if _, err := stmt.Exec(targetNodeID, usageID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // FindSymbolNodesByName searches for all outline nodes matching a given name across the project.
 func (s *VectorStore) FindSymbolNodesByName(name string) ([]*models.OutlineNode, error) {
 	rows, err := s.db.Query(`
@@ -1698,23 +1961,39 @@ func (s *VectorStore) FindSymbolNodesByName(name string) ([]*models.OutlineNode,
 
 // InsertVirtualSymbol adds a new virtual symbol (for external dependencies) to the outline.
 func (s *VectorStore) InsertVirtualSymbol(path string, node *models.OutlineNode) error {
-	fileID, _, err := s.resolveFileID(path, true) // create if doesn't exist
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin virtual symbol transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	fileID, _, err := s.resolveFileIDTx(tx, path, true) // create if doesn't exist
 	if err != nil {
 		return err
 	}
 
 	// Update file to be virtual if it wasn't already
-	_, _ = s.db.Exec(`UPDATE files SET is_virtual = 1 WHERE pk = ?`, fileID)
+	if _, err := tx.Exec(`UPDATE files SET is_virtual = 1 WHERE pk = ?`, fileID); err != nil {
+		return fmt.Errorf("failed to mark file virtual: %w", err)
+	}
 
-	_, err = s.db.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO outline_nodes (id, file_id, parent_id, name, kind, start_line, end_line, position)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
+			file_id = excluded.file_id,
+			parent_id = NULL,
 			name = excluded.name,
-			kind = excluded.kind
+			kind = excluded.kind,
+			start_line = excluded.start_line,
+			end_line = excluded.end_line
 	`, node.ID, fileID, nil, node.Name, node.Kind, node.StartLine, node.EndLine, 0)
 	
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create virtual symbol: %w", err)
+	}
+	
+	return tx.Commit()
 }
 
 // GetDB returns the underlying database handle (for testing).

@@ -2,6 +2,7 @@ package chunker
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/go-enry/go-enry/v2"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -12,41 +13,64 @@ import (
 type SubLanguageManager struct {
 	// Maps Enry language names (e.g., "HTML", "SQL", "JavaScript") to our parsers.
 	parsers map[string]LanguageParser
+
+	// parserPools caches sitter.Parser instances per language to avoid CGO allocation overhead.
+	parserPools map[string]*sync.Pool
 }
 
 // NewSubLanguageManager creates a manager and establishes the Enry -> LanguageParser mapping.
 func NewSubLanguageManager(extParsers map[string]LanguageParser) *SubLanguageManager {
 	langParsers := make(map[string]LanguageParser)
+	pools := make(map[string]*sync.Pool)
 
 	for ext, parser := range extParsers {
+		target := ""
 		switch strings.ToLower(ext) {
 		case ".js", ".jsx":
-			langParsers["JavaScript"] = parser
+			target = "JavaScript"
 		case ".ts", ".tsx":
-			langParsers["TypeScript"] = parser
+			target = "TypeScript"
 		case ".html", ".htm":
-			langParsers["HTML"] = parser
+			target = "HTML"
 		case ".css":
-			langParsers["CSS"] = parser
+			target = "CSS"
 		case ".json":
-			langParsers["JSON"] = parser
+			target = "JSON"
 		case ".sql":
-			langParsers["SQL"] = parser
+			target = "SQL"
 		case ".go":
-			langParsers["Go"] = parser
+			target = "Go"
 		case ".py":
-			langParsers["Python"] = parser
+			target = "Python"
 		case ".vue":
-			langParsers["Vue"] = parser
+			target = "Vue"
 		case ".php":
-			langParsers["PHP"] = parser
+			target = "PHP"
 		case ".md":
-			langParsers["Markdown"] = parser
+			target = "Markdown"
+		}
+
+		if target != "" {
+			langParsers[target] = parser
+			// Initialize a pool for this language if not already done
+			if _, ok := pools[target]; !ok {
+				lang := parser.GetLanguage()
+				if !isNil(lang) {
+					pools[target] = &sync.Pool{
+						New: func() interface{} {
+							p := sitter.NewParser()
+							p.SetLanguage(lang)
+							return p
+						},
+					}
+				}
+			}
 		}
 	}
 
 	return &SubLanguageManager{
-		parsers: langParsers,
+		parsers:     langParsers,
+		parserPools: pools,
 	}
 }
 
@@ -98,12 +122,12 @@ func (m *SubLanguageManager) ProcessEmbeddedCode(
 
 	// 2. Statistical detection using Enry
 	lang := enry.GetLanguage("", content)
-	
+
 	// 2.5 Fallback heuristic detection for common embedded snippets
 	if lang == "" {
 		strContent := strings.TrimSpace(string(content))
 		lowerContent := strings.ToLower(strContent)
-		
+
 		if strings.Contains(lowerContent, "<html") || strings.Contains(lowerContent, "<div") || strings.Contains(lowerContent, "<script") || strings.Contains(lowerContent, "<?xml") {
 			lang = "HTML"
 		} else if strings.HasPrefix(strContent, "<") && strings.HasSuffix(strContent, ">") {
@@ -134,10 +158,233 @@ func (m *SubLanguageManager) ExtractKnownLanguage(
 	startPoint, endPoint sitter.Point,
 	parentName string,
 ) []Symbol {
-	parser, exists := m.parsers[langName]
-	if !exists {
+	rng := sitter.Range{
+		StartByte:  uint(startByte),
+		EndByte:    uint(endByte),
+		StartPoint: sitter.Point{Row: uint(startPoint.Row), Column: uint(startPoint.Column)},
+		EndPoint:   sitter.Point{Row: uint(endPoint.Row), Column: uint(endPoint.Column)},
+	}
+	symbols, _, _ := m.BatchExtractAll(langName, fullSource, []sitter.Range{rng}, []string{parentName}, nil)
+	return symbols
+}
+
+// BatchExtractAll performs a single parsing pass for a specific sub-language
+// and extracts symbols, imports, and usages in one go.
+// Support 'detect' as langName to perform dynamic language identification per fragment.
+func (m *SubLanguageManager) BatchExtractAll(
+	langName string,
+	fullSource []byte,
+	ranges []sitter.Range,
+	parentNames []string,
+	mainSymbols []Symbol,
+) ([]Symbol, []string, []ParserSymbolUsage) {
+	if m == nil || len(ranges) == 0 {
+		return nil, nil, nil
+	}
+
+	// Handle "detect" by grouping ranges by their identified language
+	if strings.ToLower(langName) == "detect" {
+		return m.batchExtractWithDetection(fullSource, ranges, parentNames, mainSymbols)
+	}
+
+	targetLang := ""
+	lowerLang := strings.ToLower(langName)
+	for name := range m.parsers {
+		if strings.ToLower(name) == lowerLang {
+			targetLang = name
+			break
+		}
+	}
+
+	if targetLang == "" {
+		return nil, nil, nil
+	}
+
+	parser := m.parsers[targetLang]
+	pool, hasPool := m.parserPools[targetLang]
+
+	var tsParser *sitter.Parser
+	if hasPool {
+		tsParser = pool.Get().(*sitter.Parser)
+		defer pool.Put(tsParser)
+	} else {
+		tsParser = sitter.NewParser()
+		defer tsParser.Close()
+		lang := parser.GetLanguage()
+		if isNil(lang) {
+			return nil, nil, nil
+		}
+		if err := tsParser.SetLanguage(lang); err != nil {
+			return nil, nil, nil
+		}
+	}
+
+	if err := tsParser.SetIncludedRanges(ranges); err != nil {
+		return nil, nil, nil
+	}
+
+	tree := tsParser.Parse(fullSource, nil)
+	if tree == nil {
+		return nil, nil, nil
+	}
+	defer tree.Close()
+
+	// 1. Extract Symbols
+	symbols, err := parser.ExtractSymbols(tree, fullSource)
+	if err == nil {
+		// Attach parent relationships correctly for each fragment in the batch
+		for i := range symbols {
+			// Find which range this symbol belongs to
+			for idx, r := range ranges {
+				if uint32(symbols[i].StartByte) >= uint32(r.StartByte) && uint32(symbols[i].EndByte) <= uint32(r.EndByte) {
+					if idx < len(parentNames) {
+						pn := parentNames[idx]
+						if symbols[i].Parent == "" {
+							symbols[i].Parent = pn
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// 2. Extract Imports
+	imports, _ := parser.ExtractImports(tree, fullSource)
+
+	// 3. Extract Usages
+	var usages []ParserSymbolUsage
+	if mainSymbols != nil {
+		usages = parser.ExtractUsages(tree, fullSource, mainSymbols)
+	}
+
+	return symbols, imports, usages
+}
+
+func (m *SubLanguageManager) batchExtractWithDetection(
+	fullSource []byte,
+	ranges []sitter.Range,
+	parentNames []string,
+	mainSymbols []Symbol,
+) ([]Symbol, []string, []ParserSymbolUsage) {
+	// Group ranges by identified language
+	type group struct {
+		ranges      []sitter.Range
+		parentNames []string
+	}
+	groups := make(map[string]*group)
+
+	for i, r := range ranges {
+		content := fullSource[r.StartByte:r.EndByte]
+		lang := enry.GetLanguage("", content)
+		
+		// Fallback for detection if enry fails
+		if lang == "" {
+			strContent := strings.TrimSpace(string(content))
+			lowerContent := strings.ToLower(strContent)
+			
+			// SQL detection
+			isSQL := (strings.Contains(lowerContent, "select ") && strings.Contains(lowerContent, " from ")) || 
+				strings.Contains(lowerContent, "insert into ") || 
+				strings.Contains(lowerContent, "create table ") ||
+				strings.Contains(lowerContent, "update ") ||
+				strings.Contains(lowerContent, "delete from ") ||
+				strings.Contains(lowerContent, "alter table ") ||
+				strings.Contains(lowerContent, "drop table ")
+			
+			if isSQL {
+				lang = "SQL"
+			} else if strings.Contains(lowerContent, "<div>") || strings.Contains(lowerContent, "<h1>") || 
+				strings.Contains(lowerContent, "<p>") || strings.Contains(lowerContent, "</span>") ||
+				strings.Contains(lowerContent, "</div>") {
+				lang = "HTML"
+			} else if strings.Contains(lowerContent, "function") && (strings.Contains(lowerContent, "=>") || strings.Contains(lowerContent, "return ")) {
+				// Basic heuristic for JS
+				lang = "JavaScript"
+			}
+		}
+
+		if lang == "" {
+			continue 
+		}
+
+		// Normalize lang
+		g, ok := groups[lang]
+		if !ok {
+			g = &group{}
+			groups[lang] = g
+		}
+		g.ranges = append(g.ranges, r)
+		if i < len(parentNames) {
+			g.parentNames = append(g.parentNames, parentNames[i])
+		}
+	}
+
+	var allSymbols []Symbol
+	var allImports []string
+	var allUsages []ParserSymbolUsage
+
+	for lang, g := range groups {
+		syms, imps, usgs := m.BatchExtractAll(lang, fullSource, g.ranges, g.parentNames, mainSymbols)
+		allSymbols = append(allSymbols, syms...)
+		allImports = append(allImports, imps...)
+		allUsages = append(allUsages, usgs...)
+	}
+
+	return allSymbols, allImports, allUsages
+}
+
+// BatchExtractKnownLanguage extracts symbols from multiple ranges in a single parse call.
+// Deprecated: use BatchExtractAll for better performance.
+func (m *SubLanguageManager) BatchExtractKnownLanguage(
+	langName string,
+	fullSource []byte,
+	ranges []sitter.Range,
+	parentNames []string,
+) []Symbol {
+	symbols, _, _ := m.BatchExtractAll(langName, fullSource, ranges, parentNames, nil)
+	return symbols
+}
+
+
+func (m *SubLanguageManager) ExtractImports(
+	langName string,
+	fullSource []byte,
+	startByte, endByte uint32,
+	startPoint, endPoint sitter.Point,
+) []string {
+	rng := sitter.Range{
+		StartByte:  uint(startByte),
+		EndByte:    uint(endByte),
+		StartPoint: sitter.Point{Row: uint(startPoint.Row), Column: uint(startPoint.Column)},
+		EndPoint:   sitter.Point{Row: uint(endPoint.Row), Column: uint(endPoint.Column)},
+	}
+	return m.BatchExtractImports(langName, fullSource, []sitter.Range{rng})
+}
+
+// BatchExtractImports extracts imports from multiple ranges in a single parse call.
+func (m *SubLanguageManager) BatchExtractImports(
+	langName string,
+	fullSource []byte,
+	ranges []sitter.Range,
+) []string {
+	if len(ranges) == 0 {
 		return nil
 	}
+
+	targetLang := ""
+	lowerLang := strings.ToLower(langName)
+	for name := range m.parsers {
+		if strings.ToLower(name) == lowerLang {
+			targetLang = name
+			break
+		}
+	}
+
+	if targetLang == "" {
+		return nil
+	}
+	parser := m.parsers[targetLang]
 
 	tsParser := sitter.NewParser()
 	defer tsParser.Close()
@@ -146,42 +393,77 @@ func (m *SubLanguageManager) ExtractKnownLanguage(
 		return nil
 	}
 
-	// Inform tree-sitter to only look at the exact bytes of the embedded block,
-	// while resolving offsets against the full original file.
-	rng := []sitter.Range{
-		{
-			StartByte:  uint(startByte),
-			EndByte:    uint(endByte),
-			StartPoint: sitter.Point{Row: uint(startPoint.Row), Column: uint(startPoint.Column)},
-			EndPoint:   sitter.Point{Row: uint(endPoint.Row), Column: uint(endPoint.Column)},
-		},
-	}
-	if err := tsParser.SetIncludedRanges(rng); err != nil {
+	if err := tsParser.SetIncludedRanges(ranges); err != nil {
 		return nil
 	}
 
-	// Parse using the FULL source. The parser will jump directly to the ranges.
 	tree := tsParser.Parse(fullSource, nil)
 	if tree == nil {
 		return nil
 	}
 	defer tree.Close()
 
-	// Extract Symbols natively (they will have correct absolute offsets)
-	symbols, err := parser.ExtractSymbols(tree, fullSource)
-	if err != nil || len(symbols) == 0 {
+	imports, _ := parser.ExtractImports(tree, fullSource)
+	return imports
+}
+
+func (m *SubLanguageManager) ExtractUsages(
+	langName string,
+	fullSource []byte,
+	startByte, endByte uint32,
+	startPoint, endPoint sitter.Point,
+	symbols []Symbol,
+) []ParserSymbolUsage {
+	rng := sitter.Range{
+		StartByte:  uint(startByte),
+		EndByte:    uint(endByte),
+		StartPoint: sitter.Point{Row: uint(startPoint.Row), Column: uint(startPoint.Column)},
+		EndPoint:   sitter.Point{Row: uint(endPoint.Row), Column: uint(endPoint.Column)},
+	}
+	return m.BatchExtractUsages(langName, fullSource, []sitter.Range{rng}, symbols)
+}
+
+// BatchExtractUsages extracts usages from multiple ranges in a single parse call.
+func (m *SubLanguageManager) BatchExtractUsages(
+	langName string,
+	fullSource []byte,
+	ranges []sitter.Range,
+	symbols []Symbol,
+) []ParserSymbolUsage {
+	if len(ranges) == 0 {
 		return nil
 	}
 
-	// Attach parent relationship to all extracted symbols and their children
-	for i := range symbols {
-		if symbols[i].Parent == "" {
-			symbols[i].Parent = parentName
-		} else if parentName != "" {
-			// Prepend parent name for nested symbols to maintain full hierarchy
-			symbols[i].Parent = parentName + "." + symbols[i].Parent
+	targetLang := ""
+	lowerLang := strings.ToLower(langName)
+	for name := range m.parsers {
+		if strings.ToLower(name) == lowerLang {
+			targetLang = name
+			break
 		}
 	}
 
-	return symbols
+	if targetLang == "" {
+		return nil
+	}
+	parser := m.parsers[targetLang]
+
+	tsParser := sitter.NewParser()
+	defer tsParser.Close()
+
+	if err := tsParser.SetLanguage(parser.GetLanguage()); err != nil {
+		return nil
+	}
+
+	if err := tsParser.SetIncludedRanges(ranges); err != nil {
+		return nil
+	}
+
+	tree := tsParser.Parse(fullSource, nil)
+	if tree == nil {
+		return nil
+	}
+	defer tree.Close()
+
+	return parser.ExtractUsages(tree, fullSource, symbols)
 }

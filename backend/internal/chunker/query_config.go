@@ -12,9 +12,10 @@ import (
 
 // LanguageConfig holds the full configuration for a language parser.
 type LanguageConfig struct {
-	Language LanguageInfo  `toml:"language"`
-	Queries  QueriesConfig `toml:"queries"`
-	Rules    RulesConfig   `toml:"rules"`
+	Language     LanguageInfo      `toml:"language"`
+	Queries      QueriesConfig     `toml:"queries"`
+	Rules        RulesConfig       `toml:"rules"`
+	SubLanguages map[string]string `toml:"sub_languages"`
 }
 
 // LanguageInfo contains general information about the language.
@@ -27,17 +28,39 @@ type LanguageInfo struct {
 // QueriesConfig contains the Tree-sitter queries for symbol extraction.
 type QueriesConfig struct {
 	Symbols  string            `toml:"symbols"`
-	Imports  string            `toml:"imports"`
-	Metadata string            `toml:"metadata"`
-	Usages   string            `toml:"usages"`
-	Extra    map[string]string `toml:"extra"`
+	Imports              string                `toml:"imports"`
+	ImportPattern        string                `toml:"import_pattern"`
+	ExcludeImportPattern string                `toml:"exclude_import_pattern"`
+	Metadata             string                `toml:"metadata"`
+	Usages        string            `toml:"usages"`
+	Extra          map[string]string     `toml:"extra"`
+	SymbolPatterns []SymbolPatternConfig `toml:"symbol_patterns"`
+}
+
+// SymbolPatternConfig defines a regex-based symbol extraction rule.
+type SymbolPatternConfig struct {
+	Pattern        string `toml:"pattern"`
+	Kind           string `toml:"kind"`
+	NameGroup      int    `toml:"name_group"`      // 0 for full match
+	NamePrefix     string `toml:"name_prefix"`     // Optional prefix for name
+	SignatureGroup int    `toml:"signature_group"` // -1 for none
+	SignaturePrefix string `toml:"signature_prefix"` // Optional prefix for signature
 }
 
 // RulesConfig defines behavioral rules for the parser engine.
 type RulesConfig struct {
 	CommentPrefixes []string       `toml:"comment_prefixes"`
 	Visibility      VisibilityRule `toml:"visibility"`
-	Todo            TodoRule       `toml:"todo"`
+	Todo            TodoRule                        `toml:"todo"`
+	Formatting      map[string]ValueFormattingRule `toml:"formatting"`
+}
+
+// ValueFormattingRule defines how to transform a captured value.
+type ValueFormattingRule struct {
+	Prefix    string `toml:"prefix"`
+	Split     string `toml:"split"`
+	Join      string `toml:"join"`
+	Lowercase bool   `toml:"lowercase"`
 }
 
 // VisibilityRule defines how to determine symbol visibility.

@@ -1,0 +1,19 @@
+{
+  "name": "HTML",
+  "file": "sample.html",
+  "language": "html",
+  "minSymbols": 6,
+  "expectSymbols": [
+    { "name": "header#main-header", "kind": "element", "signature": "class='site-header" },
+    { "name": "main#content", "kind": "element" },
+    { "name": "section#intro", "kind": "element", "signature": "class='hero'" },
+    { "name": "button#cta-btn", "kind": "element" },
+    { "name": "footer#site-footer", "kind": "element" },
+    { "name": "script", "kind": "script" },
+    { "name": "style", "kind": "style" }
+  ],
+  "expectImports": ["app.js"],
+  "expectTodos": [
+    { "contains": "TODO" }
+  ]
+}

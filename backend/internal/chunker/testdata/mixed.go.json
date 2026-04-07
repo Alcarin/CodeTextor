@@ -1,0 +1,14 @@
+{
+  "name": "Go Mixed with SQL and HTML",
+  "file": "mixed.go",
+  "language": "go",
+  "minSymbols": 6,
+  "expectSymbols": [
+    { "name": "createUserTable", "kind": "constant" },
+    { "name": "accounts", "kind": "table" },
+    { "name": "main", "kind": "function" },
+    { "name": "accounts", "kind": "table" },
+    { "name": "htmlTemplate", "kind": "constant", "parent": "main" },
+    { "name": "div", "kind": "element" }
+  ]
+}

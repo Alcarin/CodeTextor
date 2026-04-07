@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"CodeTextor/backend/pkg/models"
@@ -19,7 +20,9 @@ func TestProjectService_StaticAnalysis(t *testing.T) {
 	t.Setenv("HOME", tempDir)
 	t.Setenv("APPDATA", tempDir)
 	t.Setenv("LOCALAPPDATA", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	t.Setenv("CODETEXTOR_INDEXES_DIR", filepath.Join(tempDir, "indexes"))
 
 	service, err := NewProjectService(ctx)
 	require.NoError(err)

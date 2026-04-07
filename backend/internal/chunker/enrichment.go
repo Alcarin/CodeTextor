@@ -641,8 +641,8 @@ func (e *ChunkEnricher) createSplitChunk(original CodeChunk, lines []string, sta
 	split.StartLine = startLine
 	split.EndLine = endLine
 	
-	// Create a sub-id for split chunks to keep them unique
-	split.ID = fmt.Sprintf("%s:%d-%d", original.ID, startLine, endLine)
+	// Create a semantic ID for split chunks that reflects their new range
+	split.ID = utils.GenerateSymbolID(original.FilePath, startLine, endLine, original.SymbolName, 1)
 	split.SymbolName = fmt.Sprintf("%s[%d-%d]", original.SymbolName, startLine, endLine)
 
 	// Reset byte positions as we cannot accurately calculate them after splitting

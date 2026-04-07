@@ -37,9 +37,8 @@ symbols = """
 """
 
 imports = """
-(import_declaration
-  (import_spec
-    path: (interpreted_string_literal) @import))
+(import_spec
+  path: (interpreted_string_literal) @import)
 """
 
 metadata = """
@@ -87,3 +86,7 @@ type = "first_letter_case"
 [rules.todo]
 pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
 node_types = ["comment"]
+
+[sub_languages]
+interpreted_string_literal_content = "detect"
+raw_string_literal_content = "detect"

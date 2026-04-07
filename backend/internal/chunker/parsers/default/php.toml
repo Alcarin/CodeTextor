@@ -1,0 +1,86 @@
+[language]
+name = "php"
+extensions = [".php"]
+grammar = "tree-sitter-php"
+
+[queries]
+symbols = """
+;; Namespaces
+(namespace_definition
+  name: (namespace_name) @name) @symbol.namespace
+
+;; Classes/Interfaces/Traits
+(class_declaration
+  name: (name) @name) @symbol.class
+
+(interface_declaration
+  name: (name) @name) @symbol.interface
+
+(trait_declaration
+  name: (name) @name) @symbol.struct
+
+;; Functions/Methods
+(function_definition
+  name: (name) @name) @symbol.function
+
+(method_declaration
+  name: (name) @name) @symbol.method
+
+;; Constants
+(const_element
+  (name) @name) @symbol.constant
+
+;; Class/Interface hierarchy
+(class_declaration
+  (base_clause
+    (name) @parent))
+
+(class_declaration
+  (class_interface_clause
+    (name) @implements))
+
+(interface_declaration
+  (name) @parent)
+"""
+
+imports = """
+(namespace_use_clause
+  (_) @import)
+"""
+
+usages = """
+;; Function calls
+(function_call_expression
+  function: (name) @call.name) @call
+
+;; Method calls
+(member_call_expression
+  name: (name) @call.name) @call
+
+;; Static calls
+(scoped_call_expression
+  name: (name) @call.name) @call
+"""
+
+[queries.extra]
+signature = """
+(function_definition
+  parameters: (formal_parameters) @signature)
+
+(method_declaration
+  parameters: (formal_parameters) @signature)
+"""
+
+[rules]
+comment_prefixes = ["//", "/*", "*", "#"]
+
+[rules.visibility]
+type = "keyword"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]
+
+[sub_languages]
+text = "html"
+string_content = "detect"

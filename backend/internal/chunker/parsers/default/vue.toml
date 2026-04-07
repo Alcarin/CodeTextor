@@ -1,0 +1,55 @@
+[language]
+name = "vue"
+extensions = [".vue"]
+grammar = "tree-sitter-html"
+
+[queries]
+symbols = """
+; Vue section wrappers
+(element
+  (start_tag
+    (tag_name) @name (#eq? @name "template"))) @symbol.element
+
+(script_element
+  (start_tag
+    (tag_name) @name (#eq? @name "script"))) @symbol.script
+
+(style_element
+  (start_tag
+    (tag_name) @name (#eq? @name "style"))) @symbol.style
+
+; HTML elements inside template (tag name)
+(element
+  (start_tag
+    (tag_name) @_tn (#not-eq? @_tn "template"))
+  (#set! "kind" "element")) @_el
+(element
+  [(start_tag (tag_name) @name)
+   (self_closing_tag (tag_name) @name)]) @symbol.element
+
+; ID for symbol name (tag#id)
+(element
+  [(start_tag (attribute (attribute_name) @_id_a (#eq? @_id_a "id") (quoted_attribute_value (attribute_value) @name.id @signature.id)))
+   (self_closing_tag (attribute (attribute_name) @_id_a (#eq? @_id_a "id") (quoted_attribute_value (attribute_value) @name.id @signature.id)))]
+) @symbol.element
+"""
+
+imports = """
+(attribute
+  (attribute_name) @attr_name (#eq? @attr_name "src")
+  (quoted_attribute_value (attribute_value) @import))
+"""
+
+[rules]
+comment_prefixes = ["<!--", "//", "/*"]
+
+[rules.formatting]
+id = { prefix = "#" }
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]
+
+[sub_languages]
+script_element = "javascript"
+style_element = "css"

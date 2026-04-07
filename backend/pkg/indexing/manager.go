@@ -44,7 +44,7 @@ func (m *Manager) StartIndexer(project *models.Project, files []*models.FilePrev
 	}
 
 	// Create and register the new indexer
-	newIndexer, err := NewIndexer(project, vectorStore, m.eventEmitter, client)
+	newIndexer, err := NewIndexer(project, vectorStore, client, m.eventEmitter)
 	if err != nil {
 		return err
 	}

@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Dynamic Language Parser System**: Transitioned from hardcoded Go-based parsers to a dynamic, TOML-configurable engine using Tree-sitter queries for symbol extraction, enabling support for new languages without backend recompilation.
-- **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI
+- **Dynamic TOML Parsing Engine**: Transitioned the core extraction logic to a fully declarative, query-based system. Language-specific features (symbols, imports, usages, metadata) are now defined in `.toml` files using Tree-sitter queries, enabling instant updates and new language support without backend recompilation.
+- **Human-Readable Symbol IDs**: Replaced opaque SHA-256 hashes with semantic, human-readable IDs in the format `path|Lstart-end|name`. This improves database transparency, simplifies AI cross-referencing, and reduces token overhead.
+- **Atomic File Persistence**: Implemented `InsertFileTasksInTransaction` to ensure that all file artifacts (chunks, symbols, outlines, and usages) are saved in a single, durable SQLite transaction, eliminating referential integrity errors (Foreign Key constraints).
+- **Two-Stage Indexing Pipeline**: Optimized processing throughput by decoupling CPU-heavy tasks (parsing/tokenization) from GPU/DB operations (embedding/persistence) using a prioritized semaphore-controlled queue.
+- **Tree-sitter Inspector (ti)**: Introduced a specialized CLI tool for real-time validation of TOML configurations and AST inspection, dramatically accelerating parser development and debugging.
+- **Automated ONNX Runtime Setup**: One-click download and installation of required libraries for Windows, Linux, and macOS directly from the Settings UI.
 - **Heavy Embedding Rework (GPU/CPU Optimization)**:
   - **Dynamic Batch Scaling**: Automatically adjusts embedding batch sizes based on available VRAM to maximize GPU throughput while preventing Out-of-Memory (OOM) errors.
   - **Power-of-2 Alignment**: Batch sizes are rounded to the nearest power of 2 for optimal hardware thread alignment and constant memory performance.

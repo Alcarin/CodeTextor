@@ -1,0 +1,14 @@
+{
+  "name": "Python Mixed with SQL",
+  "file": "mixed.py",
+  "language": "python",
+  "minSymbols": 8,
+  "expectSymbols": [
+    { "name": "DatabaseManager", "kind": "class" },
+    { "name": "create_tables", "kind": "method", "parent": "DatabaseManager" },
+    { "name": "users", "kind": "table" },
+    { "name": "add_user", "kind": "method", "parent": "DatabaseManager" },
+    { "name": "users", "kind": "table" },
+    { "name": "main", "kind": "function" }
+  ]
+}

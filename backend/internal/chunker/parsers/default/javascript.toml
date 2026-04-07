@@ -21,7 +21,7 @@ symbols = """
 
 imports = """
 (import_statement
-  source: (string) @import.path) @import
+  source: (string) @import) @_import_stmt
 """
 
 usages = """

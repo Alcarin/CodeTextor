@@ -9,14 +9,15 @@ symbols = """
 (class_definition
   name: (identifier) @name) @symbol.class
 
-(function_definition
-  name: (identifier) @name) @symbol.function
-
-;; Separate query for methods to distinguish them from top-level functions
+;; Methods: function definitions inside a class body
 (class_definition
   body: (block
     (function_definition
-      name: (identifier) @name))) @symbol.method
+      name: (identifier) @name) @symbol.method))
+
+;; Generic functions (will be overridden by method if they occupy same range)
+(function_definition
+  name: (identifier) @name) @symbol.function
 
 (assignment
   left: (identifier) @name) @symbol.variable
@@ -24,10 +25,10 @@ symbols = """
 
 imports = """
 (import_statement
-  name: (dotted_name) @import.path) @import
+  (dotted_name) @import)
 
 (import_from_statement
-  module_name: (dotted_name) @import.path) @import
+  module_name: (dotted_name) @import)
 """
 
 usages = """
@@ -41,14 +42,26 @@ usages = """
 """
 
 [queries.extra]
-# Add any Python specific extra queries here
-decorators = "(decorator) @extra.decorator"
+docstring = """
+(function_definition
+  body: (block
+    (expression_statement
+      (string) @docstring)))
+
+(class_definition
+  body: (block
+    (expression_statement
+      (string) @docstring)))
+"""
 
 [rules.visibility]
-type = "prefix"
+type = "prefix_underscore"
 private_prefix = "__"
 protected_prefix = "_"
 
 [rules.todo]
 pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
 node_types = ["comment"]
+
+[sub_languages]
+string_content = "detect"

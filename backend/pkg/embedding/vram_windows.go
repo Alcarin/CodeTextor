@@ -3,11 +3,13 @@
 package embedding
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"CodeTextor/backend/pkg/utils"
 )
@@ -52,10 +54,16 @@ func DetectAvailableGPUVRAM() int {
 
 // detectVRAMNvidiaSMI queries NVIDIA GPU VRAM using nvidia-smi.
 func detectVRAMNvidiaSMI() int {
-	cmd := exec.Command("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
 	utils.SetHideWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("Warning: nvidia-smi (memory.total) timed out after 3s")
+		}
 		return 0
 	}
 
@@ -77,11 +85,17 @@ func detectVRAMNvidiaSMI() int {
 
 // detectVRAMWMI queries GPU VRAM using Windows WMI via PowerShell.
 func detectVRAMWMI() int {
-	cmd := exec.Command("powershell", "-NoProfile", "-Command",
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command",
 		"(Get-CimInstance Win32_VideoController | Where-Object { $_.AdapterRAM -gt 0 } | Sort-Object AdapterRAM -Descending | Select-Object -First 1).AdapterRAM")
 	utils.SetHideWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("Warning: powershell (WMI VRAM) timed out after 3s")
+		}
 		return 0
 	}
 
@@ -99,7 +113,10 @@ func detectVRAMWMI() int {
 // GetProcessVRAMUsage returns the VRAM used by the current process, or the total GPU usage as fallback.
 func GetProcessVRAMUsage() int {
 	pid := os.Getpid()
-	cmd := exec.Command("nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits")
 	utils.SetHideWindow(cmd)
 	output, err := cmd.Output()
 	if err == nil {
@@ -116,6 +133,8 @@ func GetProcessVRAMUsage() int {
 				}
 			}
 		}
+	} else if ctx.Err() == context.DeadlineExceeded {
+		log.Printf("Warning: nvidia-smi (process usage) timed out after 3s")
 	}
 
 	// Fallback: Total GPU memory used
@@ -124,10 +143,16 @@ func GetProcessVRAMUsage() int {
 
 // GetTotalVRAMUsage returns the total occupied VRAM on the first GPU.
 func GetTotalVRAMUsage() int {
-	cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 	utils.SetHideWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("Warning: nvidia-smi (memory.used) timed out after 3s")
+		}
 		return 0
 	}
 	vram, _ := strconv.Atoi(strings.TrimSpace(string(output)))

@@ -1,0 +1,25 @@
+{
+  "name": "codetextor",
+  "version": "2.0.0",
+  "description": "Semantic code analysis tool",
+  "author": "Francesco",
+  "license": "MIT",
+  "keywords": ["code", "parser", "semantic"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codetextor/codetextor"
+  },
+  "dependencies": {
+    "tree-sitter": "^0.21.0",
+    "toml": "^3.0.0"
+  },
+  "scripts": {
+    "build": "go build ./...",
+    "test": "go test ./..."
+  },
+  "config": {
+    "maxFileSize": 1048576,
+    "debug": false,
+    "retries": 3
+  }
+}

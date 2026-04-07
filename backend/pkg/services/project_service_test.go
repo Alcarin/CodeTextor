@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"CodeTextor/backend/pkg/models"
@@ -13,7 +14,9 @@ func setupTestService(t *testing.T) (*ProjectService, func()) {
 	t.Setenv("HOME", tempHome)
 	t.Setenv("APPDATA", tempHome)
 	t.Setenv("LOCALAPPDATA", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 	t.Setenv("XDG_CONFIG_HOME", tempHome)
+	t.Setenv("CODETEXTOR_INDEXES_DIR", filepath.Join(tempHome, "indexes"))
 
     service, err := NewProjectService(context.Background())
 	if err != nil {

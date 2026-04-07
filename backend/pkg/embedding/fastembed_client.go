@@ -26,6 +26,7 @@ type FastEmbedClient struct {
 	batchSizeMu  sync.Mutex
 	modelID      string
 	pendingCount atomic.Int32
+	closed       atomic.Bool
 }
 
 const (
@@ -190,12 +191,18 @@ func (c *FastEmbedClient) SetBatchSize(batchSize int) {
 func (c *FastEmbedClient) ModelID() string {
 	return c.modelID
 }
-
+// IsClosed returns true if the client has been shut down.
+func (c *FastEmbedClient) IsClosed() bool {
+	return c.closed.Load()
+}
 
 // GenerateEmbeddings embeds the provided texts using the fastembed runtime.
 func (c *FastEmbedClient) GenerateEmbeddings(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return [][]float32{}, nil
+	}
+	if c.closed.Load() {
+		return nil, fmt.Errorf("fastembed client is closed")
 	}
 
 	c.updateActivity()
@@ -214,17 +221,35 @@ func (c *FastEmbedClient) GenerateEmbeddings(texts []string) ([][]float32, error
 	}
 
 	resultChan := make(chan jobResult, 1)
-	c.jobChan <- embeddingJob{
+	
+	select {
+	case c.jobChan <- embeddingJob{
 		texts:      texts,
 		resultChan: resultChan,
+	}:
+	case <-c.stopChan:
+		return nil, fmt.Errorf("fastembed client is stopping")
 	}
 
 	result := <-resultChan
 	return result.embeddings, result.err
 }
 
+// EmbedTokenizedBatch extracts text from already tokenized chunks and processes them via the standard embedding queue.
+// FastEmbed doesn't support direct token injection, so we fall back to raw text.
+func (c *FastEmbedClient) EmbedTokenizedBatch(chunks []*TokenizedChunk) ([][]float32, error) {
+	texts := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		texts[i] = chunk.Text
+	}
+	return c.GenerateEmbeddings(texts)
+}
+
 // Close releases any resources held by the fastembed runtime.
 func (c *FastEmbedClient) Close() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	close(c.stopChan)
 	c.wg.Wait()
 

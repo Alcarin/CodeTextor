@@ -1,0 +1,18 @@
+{
+  "name": "JavaScript",
+  "file": "sample.js",
+  "language": "javascript",
+  "minSymbols": 4,
+  "expectSymbols": [
+    { "name": "AppController", "kind": "class" },
+    { "name": "start", "kind": "method" },
+    { "name": "_internalSetup", "kind": "method" },
+    { "name": "handleRequest", "kind": "function" }
+  ],
+  "expectImports": ["fs", "express"],
+  "minUsages": 1,
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "HACK" }
+  ]
+}

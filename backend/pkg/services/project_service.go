@@ -667,21 +667,24 @@ func (s *ProjectService) GetVectorStore(projectID string) (*store.VectorStore, e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if vs, ok := s.vectorStores[projectID]; ok {
-		return vs, nil
-	}
-
+	// 1. Resolve the project first to get the canonical ID (slug).
+	// This prevents multiple VectorStore instances for the same project due to casing.
 	project, err := s.GetProject(projectID)
 	if err != nil {
 		return nil, err
 	}
+	canonicalID := project.ID
 
-	vs, err := store.NewVectorStore(project.ID, project.ID)
+	if vs, ok := s.vectorStores[canonicalID]; ok {
+		return vs, nil
+	}
+
+	vs, err := store.NewVectorStore(canonicalID, canonicalID)
 	if err != nil {
 		return nil, err
 	}
 
-	s.vectorStores[projectID] = vs
+	s.vectorStores[canonicalID] = vs
 	return vs, nil
 }
 
@@ -1038,17 +1041,29 @@ func (s *ProjectService) getEmbeddingClient(project *models.Project) (embedding.
 		s.clientsMu.Lock()
 		client, ok := s.embeddingClients[meta.ID]
 		if ok {
-			s.clientsMu.Unlock()
-			log.Printf("GPU Cache: Reusing existing ONNX client for %s", meta.ID)
-			return client, nil
+			if client.IsClosed() {
+				log.Printf("GPU Cache: Detected closed zombie client for %s, removing from cache", meta.ID)
+				delete(s.embeddingClients, meta.ID)
+			} else {
+				s.clientsMu.Unlock()
+				log.Printf("GPU Cache: Reusing existing ONNX client for %s", meta.ID)
+				return client, nil
+			}
 		}
 
 		waitChan, isLoading := s.loadingClients[meta.ID]
 		if isLoading {
-			// Another thread is loading this model. Wait for it.
+			// Another thread is loading this model. Wait for it with a timeout.
 			s.clientsMu.Unlock()
 			log.Printf("GPU Cache: Waiting for concurrent ONNX initialization of %s...", meta.ID)
-			<-waitChan
+			
+			select {
+			case <-waitChan:
+				// Success, continue below
+			case <-time.After(60 * time.Second):
+				log.Printf("GPU Cache: Timeout waiting for ONNX initialization of %s", meta.ID)
+				return nil, fmt.Errorf("timeout waiting for embedding model initialization")
+			}
 
 			// Try again, now it should be in cache
 			return s.getEmbeddingClient(project)
@@ -1301,7 +1316,7 @@ func (s *ProjectService) Search(projectID string, query string, k int) (*models.
 		return nil, err
 	}
 
-	results, err := vectorStore.SearchSimilarChunks(vecs[0], k)
+	results, err := vectorStore.SearchSimilarChunks(vecs[0], project.Config.EmbeddingModelInfo.ID, k)
 	if err != nil {
 		return nil, err
 	}
@@ -2562,34 +2577,38 @@ func (s *ProjectService) startEcoModeCleaner() {
 	for range ticker.C {
 		s.clientsMu.Lock()
 		now := time.Now()
-		unloaded := false
+		
+		var toUnload []embedding.EmbeddingClient
 		for id, client := range s.embeddingClients {
 			// If the model hasn't been used for more than 5 minutes, close it.
 			if now.Sub(client.LastActivity()) > 5*time.Minute {
-				log.Printf("Eco-Mode: Unloading idle embedding model %s to free resources", id)
-				if err := client.Close(); err != nil {
-					log.Printf("Error closing idle embedding client %s: %v", id, err)
-				}
+				log.Printf("Eco-Mode: Marking idle embedding model %s for unloading", id)
+				toUnload = append(toUnload, client)
 				delete(s.embeddingClients, id)
-				unloaded = true
 			}
 		}
-		if len(s.embeddingClients) == 0 {
-			// Se non ci sono modelli carichi, ricalibriamo la baseline del sistema
-			// Utile se l'utente ha aperto un video o un gioco mentre l'app era in idle
+
+		if len(s.embeddingClients) == 0 && len(toUnload) > 0 {
+			// Ricalbriamo la baseline se stiamo scaricando gli ultimi modelli
 			s.initialSystemVRAM = embedding.GetTotalVRAMUsage()
 			log.Printf("Eco-Mode: Recalibrated system VRAM baseline to %d MB", s.initialSystemVRAM)
 		}
 		s.clientsMu.Unlock()
-		if unloaded {
+
+		// Eseguiamo la chiusura effettiva fuori dal lock per evitare deadlock
+		if len(toUnload) > 0 {
+			for _, client := range toUnload {
+				if err := client.Close(); err != nil {
+					log.Printf("Error closing idle embedding client: %v", err)
+				}
+			}
 			s.rebalanceBatchSizes()
 		}
 	}
 }
 
-// refreshVRAMBudget calculates the total batch capacity based on available GPU memory.
-// Returns an even number (multiple of 2) for cleaner partitioning.
 func (s *ProjectService) refreshVRAMBudget() int {
+	// Base batch is 128 (max), but we scale down if VRAM is tight.
 	totalGPU := embedding.DetectGPUVRAM()
 	if totalGPU <= 0 {
 		return 16 // Fallback

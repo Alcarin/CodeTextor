@@ -1,0 +1,21 @@
+{
+  "name": "TypeScript",
+  "file": "sample.ts",
+  "language": "typescript",
+  "minSymbols": 5,
+  "expectSymbols": [
+    { "name": "Nameable", "kind": "interface" },
+    { "name": "User", "kind": "class" },
+    { "name": "getName", "kind": "method" },
+    { "name": "_validate", "kind": "method", "visibility": "protected" },
+    { "name": "add", "kind": "function" },
+    { "name": "multiply", "kind": "function" },
+    { "name": "watch callback", "kind": "function" }
+  ],
+  "expectImports": ["events", "path"],
+  "minUsages": 2,
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "FIXME" }
+  ]
+}

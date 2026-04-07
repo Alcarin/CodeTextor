@@ -8,6 +8,7 @@
 package chunker
 
 import (
+	"CodeTextor/backend/pkg/utils"
 	"fmt"
 	"strings"
 )
@@ -112,17 +113,32 @@ func (sc *SemanticChunker) ChunkFile(filePath string, source []byte) ([]CodeChun
 //   - *ParseResult: The raw parse result with symbols, imports, errors
 //   - error: Any error encountered
 func (sc *SemanticChunker) ChunkFileWithResult(filePath string, source []byte) ([]CodeChunk, *ParseResult, error) {
-	// Parse the file
+	// Step 1: Parse the file
 	result, err := sc.parser.ParseFile(filePath, source)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Enrich and process
+	// Step 2: Enrich symbols into chunks
 	chunks := sc.enricher.EnrichParseResult(result)
+
+	// Step 3: Merge small chunks
 	if sc.config.MergeSmallChunks {
 		chunks = sc.enricher.MergeSmallChunks(chunks)
 	}
+
+	// Step 4: Split large chunks
+	chunks = sc.enricher.SplitLargeChunks(chunks)
+
+	// Step 5: Fill gaps - create chunks for uncovered parts of the file
+	chunks = sc.fillFileGaps(chunks, source, filePath, result.Language)
+
+	// Step 6: Merge small gap-fillers with adjacent chunks
+	if sc.config.MergeSmallChunks {
+		chunks = sc.enricher.MergeSmallChunks(chunks)
+	}
+
+	// Step 7: Split large chunks (including merged gap-fillers)
 	chunks = sc.enricher.SplitLargeChunks(chunks)
 
 	return chunks, result, nil
@@ -255,6 +271,7 @@ func (sc *SemanticChunker) createGapChunk(lines []string, filePath, language str
 	symbolName := extractMeaningfulName(gapLines, startLine, endLine)
 
 	chunk := CodeChunk{
+		ID:          utils.GenerateSymbolID(filePath, startLine, endLine, symbolName, 1),
 		FilePath:    filePath,
 		Language:    language,
 		SymbolName:  symbolName,
@@ -362,6 +379,7 @@ func (sc *SemanticChunker) createFallbackChunks(source []byte, filePath, languag
 	totalLines := uint32(len(lines))
 	sourceCode := string(source)
 	chunk := CodeChunk{
+		ID:          utils.GenerateSymbolID(filePath, 1, totalLines, "file-content", 1),
 		FilePath:    filePath,
 		Language:    language,
 		SymbolName:  "file-content",

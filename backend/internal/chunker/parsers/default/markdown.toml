@@ -1,0 +1,81 @@
+[language]
+name = "markdown"
+extensions = [".md", ".markdown"]
+grammar = "tree-sitter-markdown"
+
+[queries]
+symbols = """
+(atx_heading) @symbol.heading
+(setext_heading) @symbol.heading
+
+(fenced_code_block
+  (info_string (language) @signature)
+  (code_fence_content) @name) @symbol.code_block
+"""
+
+# Leave empty as the current grammar doesn't expose link nodes clearly
+imports = ""
+
+# Use regex to extract all links and filter them using exclude_import_pattern
+import_pattern = '\[[^\]]+\]\(([^)]+)\)'
+exclude_import_pattern = '^https?://'
+
+# Signature mappings for headings
+[[queries.symbol_patterns]]
+kind = "heading"
+pattern = '(?m)^#\s+(.*)'
+signature_prefix = "h1"
+signature_group = -1
+name_group = 1
+
+[[queries.symbol_patterns]]
+kind = "heading"
+pattern = '(?m)^##\s+(.*)'
+signature_prefix = "h2"
+signature_group = -1
+name_group = 1
+
+[[queries.symbol_patterns]]
+kind = "heading"
+pattern = '(?m)^###\s+(.*)'
+signature_prefix = "h3"
+signature_group = -1
+name_group = 1
+
+[[queries.symbol_patterns]]
+kind = "heading"
+pattern = '(?m)^####\s+(.*)'
+signature_prefix = "h4"
+signature_group = -1
+name_group = 1
+
+[[queries.symbol_patterns]]
+kind = "heading"
+pattern = '(?m)^#####\s+(.*)'
+signature_prefix = "h5"
+signature_group = -1
+name_group = 1
+
+[[queries.symbol_patterns]]
+kind = "heading"
+pattern = '(?m)^######\s+(.*)'
+signature_prefix = "h6"
+signature_group = -1
+name_group = 1
+
+# Link extraction as symbols
+[[queries.symbol_patterns]]
+kind = "link"
+pattern = '\[([^\]]+)\]\(([^)]+)\)'
+name_group = 2        # Destination as name
+signature_group = 1   # Text as signature
+
+[rules]
+comment_prefixes = ["<!--", "-->"]
+
+[rules.todo]
+pattern = '(?m)^\s*-\s*\[[ xX]\].*|(?i)(TODO|FIXME|HACK|XXX|NOTE):?.*'
+node_types = ["text", "paragraph", "list_item", "atx_heading"]
+
+[sub_languages]
+fenced_code_block = "info_string"

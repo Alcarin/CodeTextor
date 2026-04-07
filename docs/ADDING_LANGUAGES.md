@@ -1,163 +1,147 @@
 # 🌍 Adding Support for New Languages
 
-CodeTextor uses a dynamic, query-based engine for code parsing. Adding support for a new language typically requires zero changes to the core logic—only configuration and grammar registration.
+CodeTextor uses a hybrid parsing engine: a high-performance **CGO-based Tree-sitter core** for tokenization and a **declarative TOML-based configuration** for semantic extraction. 
+
+Adding a new language is a two-step process:
+1.  **Grammar Registration**: Compiling the Tree-sitter binding in Go.
+2.  **Parser Configuration**: Defining queries and rules in a TOML file.
 
 ---
 
-## 🚀 Quick Start: 3-Step Process
+## 🛠️ Step 1: Register the Grammar (Go/CGO)
 
-### 1. Register the Tree-sitter Grammar (Static/CGO)
+Tree-sitter grammars are written in C and must be compiled into the Go binary.
 
-Before you can use a TOML file, the underlying Tree-sitter grammar must be compiled into the Go binary. This requires a C compiler and a full rebuild.
+1.  **Add the Go binding**: If not already present in `go.mod`, add the corresponding Tree-sitter binding for your language (e.g., `github.com/tree-sitter/tree-sitter-rust`).
+2.  **Update the Registry**: Modify `backend/internal/chunker/grammar_registry.go`:
+    - Add the import for the new grammar.
+    - Register it in the `grammarRegistry` map:
+      ```go
+      "tree-sitter-rust": func() *sitter.Language { return sitter.NewLanguage(tree_sitter_rust.Language()) },
+      ```
+3.  **Rebuild**: Run `wails dev` or `wails build`. This step is **mandatory** because C dependencies cannot be loaded dynamically at runtime.
 
-**File:** `backend/internal/chunker/grammar_registry.go`
+---
 
-1. Add the import (ensure the vendor folder is updated if needed).
-2. Add a line to the `grammarRegistry` map:
+## 📄 Step 2: Configure the Parser (TOML)
 
-```go
-var grammarRegistry = map[string]func() *sitter.Language{
-    // ... existing grammars
-    "tree-sitter-rust": func() *sitter.Language { return sitter.NewLanguage(tree_sitter_rust.Language()) },
-}
-```
+Once the grammar is registered, you can define how CodeTextor should "understand" the language using a TOML file. 
 
-1. **Rebuild the Application**: Run `wails build` or `wails dev` to include the new grammar in the binary. This step is **mandatory** when adding a language that wasn't previously supported.
+Default configurations are located in `backend/internal/chunker/parsers/default/<lang>.toml`.
 
-### 2. Create the TOML Configuration
-
-Create a new TOML file in `backend/internal/chunker/parsers/default/<lang>.toml`. This file is the "brain" of your parser.
-
-#### **Structure Overview**
+### 🔹 Basic Structure
 
 ```toml
 [language]
-name = "rust"            # Must match the name in detectLanguage()
+name = "rust"
 grammar = "tree-sitter-rust"
 extensions = [".rs"]
 
 [queries]
-symbols = "..."          # Core structure extraction
-imports = "..."          # Dependency tracking
-usages = "..."           # Cross-reference tracking
-metadata = "..."         # Namespace/Package info
-
-[queries.extra]
-signature = "..."        # (Optional) Detailed params/return types
-docstring = "..."        # (Optional) For languages with internal docs like Python
+symbols = "(function_item name: (identifier) @name) @symbol.function"
+imports = """
+(use_declaration
+  argument: (scoped_identifier) @import)
+"""
 
 [rules]
-comment_prefixes = ["//", "/*"] # Used to clean docstrings
+comment_prefixes = ["//", "/*"]
 
 [rules.visibility]
-type = "prefix"          # Supported: "prefix", "first_letter_case", "keyword"
-# For type="prefix":
-private_prefix = "__"    
-protected_prefix = "_"
-# For type="keyword": (used by TS, Java, C#)
-# The engine looks for @visibility.public, @visibility.private, etc. in symbols query
+type = "prefix_underscore" # Options: first_letter_case, prefix_underscore, keyword, public
 
 [rules.todo]
-pattern = '(?i)(TODO|FIXME|HACK|NOTE)' # Regex for extraction
-node_types = ["comment", "line_comment", "block_comment"]
+pattern = '(?i)(TODO|FIXME|HACK):?\s*(.*)'
+node_types = ["line_comment", "block_comment"]
 ```
 
 ---
 
-## 💎 Mastering Queries: Capture Reference
+## 💎 Mastering TOML Parameters
 
-### **1. Symbol Metadata (`symbols` query)**
+### 1. Queries (`[queries]`)
 
-Capture the *entire* node you want as a chunk using `@symbol.<kind>`, and capture the *identifier* part using `@name`.
+CodeTextor uses **Tree-sitter Queries** with specific capture tags:
 
-| Capture Name | Target Field | Notes |
+| Capture Tag | Target Field | Notes |
 | :--- | :--- | :--- |
-| `@symbol.function` | `Kind = "function"` | Top-level functions |
-| `@symbol.method` | `Kind = "method"` | Functions inside classes/structs |
-| `@symbol.class` | `Kind = "class"` | |
-| `@symbol.struct` | `Kind = "struct"` | |
-| `@symbol.interface` | `Kind = "interface"` | |
-| `@symbol.variable` | `Kind = "variable"` | |
-| `@symbol.constant` | `Kind = "constant"` | |
-| **`@name`** | **`Name`** | **Mandatory**. The identifier node. |
-| `@visibility.public` | `Visibility = "public"` | Used when `rules.visibility.type = "keyword"` |
-| `@signature` | `Signature` | Parameters and return types. |
+| `@symbol.<kind>` | `Kind` | Defines the chunk type (e.g., `@symbol.function`, `@symbol.class`). |
+| `@name` | `Name` | **Mandatory**. The identifier of the symbol. |
+| `@parent` | `Parent` | Hints the hierarchical container (used if range matching fails). |
+| `@signature` | `Signature` | Extra context (parameters, return types). |
+| `@import` | `Imports` | Used in the `imports` query to track dependencies. |
+| `@meta.<key>` | `Metadata` | Custom metadata (e.g., `@meta.package` for Go packages). |
+| `@call.name` | `Usage` | Target name for cross-references. |
 
-#### **Handling Methods vs Functions**
+#### **Extra Queries (`[queries.extra]`)**
+Used to extract supplemental data that might be easier to target with a separate pass (e.g., `docstring`, `signature`).
 
-Tree-sitter queries are executed in order. To distinguish methods, use a nested query:
+#### **Regex Patterns (`[[queries.symbol_patterns]]`)**
+A list of fallback rules for languages where Tree-sitter queries are overly complex or insufficient.
 
-```query
-;; 1. Catch all functions
-(function_definition
-  name: (identifier) @name) @symbol.function
-
-;; 2. Catch functions inside classes as methods (overrides previous match)
-(class_definition
-  body: (block
-    (function_definition
-      name: (identifier) @name))) @symbol.method
-```
-
-> [!TIP]
-> **Precision matters**: Do not capture the name of a function as `@symbol.function`. Capture the `function_declaration` node as `@symbol.function` and its internal `identifier` as `@name`.
-
-### **Usages (`usages` query)**
-
-Used to build the call graph and find references.
-
-| Capture Name | Target Field | Purpose |
-| :--- | :--- | :--- |
-| `@call.name` | `Usage.Name` | The name of the function/method being called. |
-| `@call.receiver` | `Usage.Context` | The object/package calling it (e.g., `fmt` in `fmt.Println`). |
-
-### **Metadata (`metadata` query)**
-
-| Capture Name | Target Field | Purpose |
-| :--- | :--- | :--- |
-| `@meta.package` | `metadata["package"]` | Logic grouping (Go `package`, Java `package`). |
-| `@meta.module` | `metadata["module"]` | File grouping (Python `module`). |
-
----
-
-## 🛡️ Best Practices & Pitfalls
-
-### **1. Use Tree-sitter Playground**
-
-Before writing TOML, use the [Tree-sitter Playground](https://tree-sitter.github.io/tree-sitter/playground) to inspect the AST of your target language. This is the only way to know the exact node names (e.g., `function_item` vs `function_declaration`).
-
-### **2. Avoid "Over-capturing"**
-
-If you have multiple types of functions (e.g., arrow functions and standard functions), write two separate blocks in the `symbols` query rather than one complex regex.
-
-### **3. The `[language]` Header**
-
-**CRITICAL**: Every TOML file *must* start with the `[language]` header. If you put `name = "..."` at the top level without the header, the parser will fail to initialize and complain that the grammar is missing.
-
-### **4. Signature Extraction**
-
-If your language makes it hard to distinguish the signature from the name in a single query, use the `[queries.extra]` block:
-
+### 2. Value Formatting (`[rules.formatting]`)
+Allows you to transform captured values before they are stored.
 ```toml
-[queries.extra]
-signature = """
-(function_item
-  name: (identifier) @_name
-  parameters: (parameter_list) @signature)
+[rules.formatting]
+id = { prefix = "#", lowercase = true } # Applied to @name.id or @signature.id
+```
+
+### 3. Sub-Languages (`[sub_languages]`)
+Defines tags or node types that contain embedded code in other languages.
+```toml
+[sub_languages]
+script_element = "javascript"
+style_element = "css"
+interpreted_string_literal_content = "detect" # Automatic detection (e.g., SQL in Go)
+```
+
+---
+
+## 💡 Examples
+
+### Go Configuration (Simple)
+```toml
+[language]
+name = "go"
+grammar = "tree-sitter-go"
+
+[queries]
+symbols = """
+(function_declaration name: (identifier) @name) @symbol.function
+(type_declaration (type_spec name: (type_identifier) @name type: (struct_type)) @symbol.struct)
+"""
+
+[rules.visibility]
+type = "first_letter_case" # Uppercase = Public
+```
+
+### Vue Configuration (Advanced Sub-Languages)
+```toml
+[sub_languages]
+script_element = "javascript"
+style_element = "css"
+
+[queries]
+symbols = """
+(element (start_tag (tag_name) @name (#eq? @name "template"))) @symbol.element
 """
 ```
 
-*Note: captures starting with `_` (like `@_name`) are used for matching but are discarded by the engine.*
+---
+
+## 🚀 Iteration & Debugging
+
+1.  **User Customization**: Users can override default parsers by placing a TOML file in the **Config Directory** under `parsers/`.
+    - **Windows**: `%LOCALAPPDATA%\codetextor\parsers\`
+    - **Linux**: `~/.local/share/codetextor/parsers/`
+    - **macOS**: `~/Library/Application Support/codetextor/parsers/`
+2.  **Live Debugging**: Use the `ti` tool to test your TOML files against source code without restarting the app:
+    ```bash
+    .tmp/ti.exe rust sample.rs path/to/rust.toml
+    ```
 
 ---
 
-## 🛠️ Testing Your Changes
+## 🧩 Advanced Implementation (Go Only)
 
-1. **Wails Dev**: If you are running `wails dev`, the backend will rebuild and pick up the new grammar registration and TOML file.
-2. **Dynamic Iteration**: Once the grammar is registered, you can modify the TOML queries and simply restart the app to see changes without full recompilation.
-3. **Unit Tests**: Add a small test case in `backend/internal/chunker/parser_test.go` using a sample snippet of the new language. Ensure you call `NewParser(DefaultChunkConfig())` to trigger the TOML engine.
-
-## 💡 Pro Tips
-
-- **Nested Languages**: If your language contains embedded code (like HTML in JavaScript), the `SubLanguageManager` is automatically available.
-- **Manual Overrides**: Users can override your default TOML by placing a file with the same name in `<AppData>/parsers/`.
+If a language requires logic that cannot be expressed via TOML (e.g., complex symbol resolution that depends on external state), you can implement the `LanguageParser` interface in `backend/internal/chunker/types.go` and register it manually in `parser.go`.

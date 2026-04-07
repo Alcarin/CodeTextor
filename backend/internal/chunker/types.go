@@ -7,7 +7,11 @@
 
 package chunker
 
-import sitter "github.com/tree-sitter/go-tree-sitter"
+import (
+	"reflect"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
+)
 
 // SymbolKind represents the type of code symbol extracted from the AST.
 type SymbolKind string
@@ -144,4 +148,17 @@ func DefaultChunkConfig() ChunkConfig {
 		MergeSmallChunks:  true,
 		IncludeComments:   true,
 	}
+}
+
+// isNil checks if an interface is nil, including typed nil pointers.
+// This is necessary because some tree-sitter methods return typed nil pointers as errors.
+func isNil(i interface{}) bool {
+	if i == nil {
+		return true
+	}
+	v := reflect.ValueOf(i)
+	if v.Kind() == reflect.Ptr && v.IsNil() {
+		return true
+	}
+	return false
 }

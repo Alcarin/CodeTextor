@@ -1,0 +1,24 @@
+{
+  "name": "Go",
+  "file": "sample.go",
+  "language": "go",
+  "minSymbols": 8,
+  "expectSymbols": [
+    { "name": "Calculator", "kind": "struct" },
+    { "name": "Computable", "kind": "interface" },
+    { "name": "NewCalculator", "kind": "function" },
+    { "name": "Add", "kind": "method", "parent": "Calculator" },
+    { "name": "Subtract", "kind": "method", "parent": "Calculator" },
+    { "name": "Sqrt", "kind": "function" },
+    { "name": "Format", "kind": "function" },
+    { "name": "MAX_PRECISION", "kind": "constant" },
+    { "name": "defaultRounding", "kind": "variable" }
+  ],
+  "expectImports": ["fmt", "math", "os"],
+  "minUsages": 1,
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "FIXME" }
+  ],
+  "expectMetadata": { "package": "calculator" }
+}

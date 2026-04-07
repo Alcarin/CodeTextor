@@ -1,0 +1,15 @@
+{
+  "name": "Vue",
+  "file": "sample.vue",
+  "language": "vue",
+  "minSymbols": 3,
+  "expectSymbols": [
+    { "name": "template", "kind": "element" },
+    { "name": "script", "kind": "script" },
+    { "name": "style", "kind": "style" },
+    { "name": "div#app", "kind": "element" }
+  ],
+  "expectTodos": [
+    { "contains": "TODO" }
+  ]
+}

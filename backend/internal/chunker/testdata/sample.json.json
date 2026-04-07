@@ -1,0 +1,13 @@
+{
+  "name": "JSON",
+  "file": "sample.json",
+  "language": "json",
+  "minSymbols": 8,
+  "expectSymbols": [
+    { "name": "name", "kind": "property", "signature": "\"codetextor\"" },
+    { "name": "version", "kind": "property", "signature": "\"2.0.0\"" },
+    { "name": "license", "kind": "property", "signature": "\"MIT\"" },
+    { "name": "debug", "kind": "property", "signature": "false" },
+    { "name": "retries", "kind": "property", "signature": "3" }
+  ]
+}

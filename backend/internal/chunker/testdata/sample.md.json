@@ -1,0 +1,29 @@
+{
+  "name": "Markdown",
+  "file": "sample.md",
+  "language": "markdown",
+  "minSymbols": 4,
+  "expectSymbols": [
+    { "name": "CodeTextor Architecture", "kind": "heading", "signature": "h1" },
+    { "name": "Parser Engine", "kind": "heading", "signature": "h2" },
+    { "name": "Query-Based Extraction", "kind": "heading", "signature": "h3" },
+    { "name": "Semantic Chunker", "kind": "heading", "signature": "h2" }
+  ],
+  "symbolKindSets": {
+    "code_block": 2,
+    "link": 3
+  },
+  "expectImports": [
+    "./docs/ADDING_LANGUAGES.md",
+    "./docs/SUB_LANGUAGES.md",
+    "./docs/CHUNKS.md"
+  ],
+  "absentImports": [
+    "https://tree-sitter.github.io/"
+  ],
+  "expectTodos": [
+    { "contains": "Rust" },
+    { "contains": "Java" },
+    { "contains": "TODO" }
+  ]
+}

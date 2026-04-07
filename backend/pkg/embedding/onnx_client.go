@@ -42,10 +42,26 @@ type ONNXEmbeddingClient struct {
 	modelID          string
 	mu               sync.Mutex
 	lastUsed         time.Time
-	jobChan          chan embeddingJob
+	chunkChan        chan chunkJob
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
 	pendingCount     atomic.Int32
+	closed           atomic.Bool
+
+	// Global Throughput Stats
+	totalTokenized atomic.Int64
+	totalEmbedded  atomic.Int64
+	lastEfficiency atomic.Int32 // Efficiency percentage (0-100) of the last GPU batch
+	startTime      time.Time
+
+	// Centralized Tokenization Pipeline
+	tokenizerChan chan tokenizerJob
+	gpuWaitTime   atomic.Int64 // Cumulative nanoseconds GPU spent waiting for work
+}
+
+type tokenizerJob struct {
+	text       string
+	resultChan chan *TokenizedChunk
 }
 
 // computeOptimalBatchSize determines the batch size based on AVAILABLE GPU VRAM.
@@ -109,15 +125,6 @@ func (c *ONNXEmbeddingClient) SetBatchSize(batchSize int) {
 func (c *ONNXEmbeddingClient) ModelID() string {
 	return c.modelID
 }
-
-// TokenizedChunk holds tokenized data for a single text, ready for batch assembly.
-// Created by TokenizeOne() in CPU workers, consumed by EmbedTokenizedBatch() in GPU worker.
-type TokenizedChunk struct {
-	IDs   []int64
-	Masks []int64
-	Types []int64
-}
-
 // NewONNXEmbeddingClient constructs an embedding client backed by an ONNX model.
 func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClient, error) {
 	if meta == nil {
@@ -130,15 +137,16 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		return nil, fmt.Errorf("model %s is missing a tokenizer.json path", meta.ID)
 	}
 	if err := ensureONNXRuntimeInitialized(); err != nil {
-		log.Printf("DEBUG: ensureONNXRuntimeInitialized failed: %v", err)
+		log.Printf("ONNX: Failed to initialize runtime: %v", err)
 		return nil, err
 	}
-	log.Printf("DEBUG: ONNX Runtime initialized successfully")
+	log.Printf("ONNX: Runtime initialized. Provider: %s", GetActiveExecutionProvider())
 
 	// Compute optimal batch size based on ACTUAL available VRAM at the moment of client creation.
 	// This helps adapt to changing GPU load (e.g. after model unloads/leaking memory).
 	batchSize := computeOptimalBatchSize()
 
+	log.Printf("ONNX: Loading tokenizer from %s", meta.LocalPath)
 	tk, err := pretrained.FromFile(meta.TokenizerLocalPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tokenizer for %s: %w", meta.ID, err)
@@ -167,6 +175,7 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 	infoOptions, _ := onnx.NewSessionOptions()
 	defer infoOptions.Destroy()
 
+	log.Printf("ONNX: Inspecting model %s", meta.LocalPath)
 	inputInfo, outputInfo, err := onnx.GetInputOutputInfoWithOptions(meta.LocalPath, infoOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect ONNX file %s: %w", meta.LocalPath, err)
@@ -184,11 +193,13 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		outputNames[i] = info.Name
 	}
 
+	log.Printf("ONNX: Creating session for %s...", meta.ID)
 	session, err := newONNXSessionWithBestProvider(meta.LocalPath, inputNames, outputNames)
 	if err != nil {
-		log.Printf("DEBUG: newONNXSessionWithBestProvider failed: %v", err)
+		log.Printf("ONNX: Failed to create session: %v", err)
 		return nil, fmt.Errorf("failed to create ONNX session: %w", err)
 	}
+	log.Printf("ONNX: Session created. Batch Size: %d", batchSize)
 
 	client := &ONNXEmbeddingClient{
 		session:          session,
@@ -204,29 +215,221 @@ func NewONNXEmbeddingClient(meta *models.EmbeddingModelInfo) (*ONNXEmbeddingClie
 		dimension:        meta.Dimension,
 		batchSize:        batchSize,
 		modelID:          meta.ID,
-		jobChan:          make(chan embeddingJob, 64),
+		chunkChan:        make(chan chunkJob, 2048), // Large buffer for atomic chunks (the "basket")
 		stopChan:         make(chan struct{}),
 		lastUsed:         time.Now(),
+		startTime:        time.Now(),
+		tokenizerChan:    make(chan tokenizerJob, 2048),
 	}
 	client.wg.Add(1)
-	go client.batchWorker()
+	go client.inferenceWorker()
+	
+	// Start Tokenizer Worker Pool (Micro-Batching enabled)
+	concurrency := runtime.NumCPU()
+	for i := 0; i < concurrency; i++ {
+		client.wg.Add(1)
+		go client.tokenizerWorker()
+	}
+	
+
+
 	return client, nil
 }
 
+func (c *ONNXEmbeddingClient) tokenizerWorker() {
+	defer c.wg.Done()
+	
+	const maxBatchSize = 32
+	const flushInterval = 10 * time.Millisecond
+	
+	batch := make([]tokenizerJob, 0, maxBatchSize)
+	timer := time.NewTimer(flushInterval)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	
+	processBuffer := func() {
+		if len(batch) == 0 {
+			return
+		}
+		
+		// 1. Prepare batch for library
+		sanitizedInputs := make([]tokenizer.EncodeInput, len(batch))
+		rawTexts := make([]string, len(batch))
+		for i, job := range batch {
+			s := sanitizeTokenizerInput(job.text)
+			rawTexts[i] = s
+			sanitizedInputs[i] = tokenizer.NewSingleEncodeInput(tokenizer.NewInputSequence(s))
+		}
+		
+		// 2. Call EncodeBatch with recover
+		encodings, err := func() (encs []tokenizer.Encoding, err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("tokenizer batch crashed")
+				}
+			}()
+			return c.tokenizer.EncodeBatch(sanitizedInputs, true)
+		}()
+		
+		// 3. Process results
+		if err != nil {
+			for _, job := range batch {
+				job.resultChan <- nil
+			}
+		} else {
+			for i := range encodings {
+				encoding := &encodings[i]
+				c.normalizeEncoding(encoding)
+				
+				if encoding.Len() > c.maxSeqLen {
+					truncated, _ := encoding.Truncate(c.maxSeqLen, 0)
+					if truncated != nil {
+						encoding = truncated
+					}
+				}
+				if encoding.Len() < c.maxSeqLen {
+					encoding = encoding.Pad(c.maxSeqLen, c.padID, c.padTypeID, c.padToken, c.padDirection)
+				}
+				
+				rawIDs := encoding.GetIds()
+				rawMasks := encoding.GetAttentionMask()
+				rawTypes := encoding.GetTypeIds()
+
+				ids := make([]int64, c.maxSeqLen)
+				masks := make([]int64, c.maxSeqLen)
+				types := make([]int64, c.maxSeqLen)
+
+				for j := 0; j < c.maxSeqLen; j++ {
+					if j < len(rawIDs) {
+						ids[j] = int64(rawIDs[j])
+					} else {
+						ids[j] = int64(c.padID)
+					}
+					if j < len(rawMasks) {
+						masks[j] = int64(rawMasks[j])
+					}
+					if c.expectTokenTypes && j < len(rawTypes) {
+						types[j] = int64(rawTypes[j])
+					}
+				}
+				
+				c.totalTokenized.Add(1)
+				batch[i].resultChan <- &TokenizedChunk{IDs: ids, Masks: masks, Types: types, Text: rawTexts[i]}
+			}
+		}
+		
+		// Clear batch and restart timer
+		batch = batch[:0]
+		timer.Stop()
+		select {
+		case <-timer.C:
+		default:
+		}
+		timer.Reset(flushInterval)
+	}
+	
+	for {
+		select {
+		case job, ok := <-c.tokenizerChan:
+			if !ok {
+				processBuffer()
+				return
+			}
+			
+			if len(batch) == 0 {
+				timer.Reset(flushInterval)
+			}
+			batch = append(batch, job)
+			if len(batch) >= maxBatchSize {
+				processBuffer()
+			}
+			
+		case <-timer.C:
+			processBuffer()
+			
+		case <-c.stopChan:
+			processBuffer()
+			return
+		}
+	}
+}
+
+
+
 // GenerateEmbeddings converts input strings into normalized embedding vectors.
 // Uses the batch worker for optimal GPU utilization.
+// It tokenizes texts in parallel before sending them to the background worker.
 func (c *ONNXEmbeddingClient) GenerateEmbeddings(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return [][]float32{}, nil
 	}
+	if c.closed.Load() {
+		return nil, fmt.Errorf("embedding client is closed or closing")
+	}
 	c.updateActivity()
-	// Incrementiamo il carico pendente
-	c.pendingCount.Add(int32(len(texts)))
 
-	resultChan := make(chan jobResult, 1)
-	c.jobChan <- embeddingJob{texts: texts, resultChan: resultChan}
-	result := <-resultChan
-	return result.embeddings, result.err
+	results := make([][]float32, len(texts))
+	errs := make([]error, len(texts))
+	
+	// Stream chunks to the GPU worker as they are tokenized
+	var wg sync.WaitGroup
+	for i, t := range texts {
+		wg.Add(1)
+		go func(idx int, text string) {
+			defer wg.Done()
+			
+			if c.closed.Load() {
+				errs[idx] = fmt.Errorf("client closed during operation")
+				return
+			}
+
+			tkResChan := make(chan *TokenizedChunk, 1)
+			
+			// Safe send to tokenizerChan
+			select {
+			case c.tokenizerChan <- tokenizerJob{text: text, resultChan: tkResChan}:
+			case <-c.stopChan:
+				errs[idx] = fmt.Errorf("client stopping")
+				return
+			}
+			
+			tkChunk := <-tkResChan
+			if tkChunk == nil {
+				errs[idx] = fmt.Errorf("tokenization failed")
+				return
+			}
+			
+			if c.closed.Load() {
+				errs[idx] = fmt.Errorf("client closed during operation")
+				return
+			}
+
+			embResChan := make(chan embeddingResult, 1)
+			
+			// Safe send to chunkChan
+			select {
+			case c.chunkChan <- chunkJob{chunk: tkChunk, resultChan: embResChan}:
+			case <-c.stopChan:
+				errs[idx] = fmt.Errorf("client stopping")
+				return
+			}
+			
+			res := <-embResChan
+			if res.err != nil {
+				errs[idx] = res.err
+			} else {
+				results[idx] = res.embedding
+			}
+		}(i, t)
+	}
+	
+	wg.Wait()
+	for _, e := range errs {
+		if e != nil { return nil, e }
+	}
+	
+	return results, nil
 }
 
 func (c *ONNXEmbeddingClient) updateActivity() {
@@ -243,80 +446,91 @@ func (c *ONNXEmbeddingClient) PendingWork() int {
 	return int(c.pendingCount.Load())
 }
 
-// batchWorker collects embedding requests and processes them in large batches.
-func (c *ONNXEmbeddingClient) batchWorker() {
+type chunkJob struct {
+	chunk      *TokenizedChunk
+	resultChan chan embeddingResult
+}
+
+type embeddingResult struct {
+	embedding []float32
+	err       error
+}
+
+func (c *ONNXEmbeddingClient) IsClosed() bool {
+	return c.closed.Load()
+}
+
+// inferenceWorker acts as the GREEDY BATCHER: it pulls chunks directly from the basket (chunkChan).
+func (c *ONNXEmbeddingClient) inferenceWorker() {
 	defer c.wg.Done()
 
-	var pendingTexts []string
-	var pendingJobs []embeddingJob
-
-	var maxBatchSize = c.batchSize // Optimal batch for this instance
-
-	flush := func() {
-		if len(pendingTexts) == 0 {
+	for {
+		// 1. Wait for at least one chunk in the basket
+		waitStart := time.Now()
+		job, ok := <-c.chunkChan
+		c.gpuWaitTime.Add(int64(time.Since(waitStart)))
+		if !ok {
 			return
 		}
 
-		// Perform batch embedding
-		log.Printf("GPU Batch (ONNX): Processing %d texts (from %d jobs)", len(pendingTexts), len(pendingJobs))
-		embeddings, err := c.embedBatch(pendingTexts)
-
-		// Distribute results back to original callers
-		offset := 0
-		for _, job := range pendingJobs {
-			count := len(job.texts)
-			var jobEmbeds [][]float32
-			var jobErr error
-
-			if err != nil {
-				jobErr = err
-			} else {
-				if offset+count <= len(embeddings) {
-					jobEmbeds = make([][]float32, count)
-					copy(jobEmbeds, embeddings[offset:offset+count])
-				} else {
-					jobErr = fmt.Errorf("onnx embedding count mismatch")
+		// 2. Greedy pick: take up to maxBatchSize immediately
+		jobs := []chunkJob{job}
+		
+		// Drain the channel up to c.batchSize
+		for len(jobs) < c.batchSize {
+			select {
+			case nextJob, ok2 := <-c.chunkChan:
+				if !ok2 {
+					goto process
+				}
+				jobs = append(jobs, nextJob)
+			default:
+				// If not full, wait a tiny bit (50ms) to see if more chunks arrive
+				// This avoids wasting a GPU cycle if we could reach full efficiency.
+				timer := time.NewTimer(50 * time.Millisecond)
+				select {
+				case nextJob, ok3 := <-c.chunkChan:
+					timer.Stop()
+					if !ok3 {
+						goto process
+					}
+					jobs = append(jobs, nextJob)
+				case <-timer.C:
+					goto process
 				}
 			}
-
-			job.resultChan <- jobResult{embeddings: jobEmbeds, err: jobErr}
-			offset += count
-			// Decrementiamo il carico pendente quando il job è completato
-			c.pendingCount.Add(int32(-count))
 		}
 
-		pendingTexts = nil
-		pendingJobs = nil
-	}
+	process:
+		chunks := make([]*TokenizedChunk, len(jobs))
+		for i, j := range jobs {
+			chunks[i] = j.chunk
+		}
 
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
+		embeddings, err := c.embedTokenizedBatch(chunks)
 
-	for {
-		select {
-		case job, ok := <-c.jobChan:
-			if !ok {
-				return
+		// Map results back to individual channels
+		for i, j := range jobs {
+			if err != nil {
+				j.resultChan <- embeddingResult{err: err}
+			} else if i < len(embeddings) {
+				j.resultChan <- embeddingResult{embedding: embeddings[i]}
+			} else {
+				j.resultChan <- embeddingResult{err: fmt.Errorf("missing result for chunk %d", i)}
 			}
-			pendingTexts = append(pendingTexts, job.texts...)
-			pendingJobs = append(pendingJobs, job)
-
-			if len(pendingTexts) >= maxBatchSize {
-				flush()
-				ticker.Reset(50 * time.Millisecond)
-			}
-		case <-ticker.C:
-			flush()
-		case <-c.stopChan:
-			flush()
-			return
 		}
 	}
 }
 
 // Close releases ONNX runtime resources.
 func (c *ONNXEmbeddingClient) Close() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil // Already closed
+	}
+
 	close(c.stopChan)
+	close(c.tokenizerChan)
+	close(c.chunkChan)
 	c.wg.Wait()
 
 	c.mu.Lock()
@@ -330,104 +544,140 @@ func (c *ONNXEmbeddingClient) Close() error {
 	return nil
 }
 
-// embedBatch processes a batch of texts through ONNX with fixed batch shape.
+// embedBatch is now a convenience wrapper around TokenizeOne + embedTokenizedBatch.
+// Note: for high volume indexing, use EmbedTokenizedBatch directly.
 func (c *ONNXEmbeddingClient) embedBatch(texts []string) ([][]float32, error) {
-	actualCount := len(texts)
+	if len(texts) == 0 {
+		return [][]float32{}, nil
+	}
+	
+	chunks := make([]*TokenizedChunk, len(texts))
+	for i, t := range texts {
+		chunk, err := c.TokenizeOne(t)
+		if err != nil {
+			return nil, err
+		}
+		chunks[i] = chunk
+	}
+	
+	return c.embedTokenizedBatch(chunks)
+}
+
+// embedTokenizedBatch processes pre-tokenized chunks with fixed batch shape.
+func (c *ONNXEmbeddingClient) embedTokenizedBatch(chunks []*TokenizedChunk) ([][]float32, error) {
+	actualCount := len(chunks)
 	if actualCount == 0 {
 		return [][]float32{}, nil
 	}
 
-	// Split into sub-batches if needed
-	if actualCount > c.batchSize {
-		var allResults [][]float32
-		for i := 0; i < actualCount; i += c.batchSize {
-			end := i + c.batchSize
-			if end > actualCount {
-				end = actualCount
-			}
-			sub, err := c.embedBatch(texts[i:end])
-			if err != nil {
-				return nil, err
-			}
-			allResults = append(allResults, sub...)
+	// Split into sub-batches if needed (internal loop to avoid Go channel overhead)
+	// We want to ensure that each call to runInference respects the fixed batch size (c.batchSize)
+	var allResults [][]float32
+	for i := 0; i < actualCount; i += c.batchSize {
+		end := i + c.batchSize
+		if end > actualCount {
+			end = actualCount
 		}
-		return allResults, nil
+		
+		sub, err := c.runInference(chunks[i:end])
+		if err != nil {
+			return nil, err
+		}
+		allResults = append(allResults, sub...)
 	}
+	return allResults, nil
+}
 
-	batchSize := actualCount
-	if actualCount < c.batchSize {
-		batchSize = c.batchSize
+// TokenizeOne tokenizes a single text into a TokenizedChunk via the global pipeline.
+func (c *ONNXEmbeddingClient) TokenizeOne(text string) (*TokenizedChunk, error) {
+	resChan := make(chan *TokenizedChunk, 1)
+	c.tokenizerChan <- tokenizerJob{text: text, resultChan: resChan}
+	res := <-resChan
+	if res == nil {
+		return nil, fmt.Errorf("tokenization failed")
 	}
+	return res, nil
+}
 
+// EmbedTokenizedBatch is now a wrapper that streams pre-tokenized chunks.
+func (c *ONNXEmbeddingClient) EmbedTokenizedBatch(chunks []*TokenizedChunk) ([][]float32, error) {
+	if len(chunks) == 0 {
+		return [][]float32{}, nil
+	}
+	
 	c.updateActivity()
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.pendingCount.Add(int32(len(chunks)))
 
-	if c.session == nil {
-		return nil, fmt.Errorf("ONNX session is closed")
+	results := make([][]float32, len(chunks))
+	errs := make([]error, len(chunks))
+	
+	var wg sync.WaitGroup
+	for i, ch := range chunks {
+		wg.Add(1)
+		go func(idx int, currentChunk *TokenizedChunk) {
+			defer wg.Done()
+			
+			embResChan := make(chan embeddingResult, 1)
+			c.chunkChan <- chunkJob{chunk: currentChunk, resultChan: embResChan}
+			
+			res := <-embResChan
+			if res.err != nil {
+				errs[idx] = res.err
+			} else {
+				results[idx] = res.embedding
+			}
+		}(i, ch)
+	}
+	
+	wg.Wait()
+	c.pendingCount.Add(int32(-len(chunks)))
+	
+	for _, e := range errs {
+		if e != nil { return nil, e }
+	}
+	return results, nil
+}
+
+// runInference (renamed from old EmbedTokenizedBatch) performs the actual session.Run.
+func (c *ONNXEmbeddingClient) runInference(chunks []*TokenizedChunk) ([][]float32, error) {
+	actualCount := len(chunks)
+	if actualCount == 0 {
+		return [][]float32{}, nil
 	}
 
-	log.Printf("GPU Shape (ONNX): [%d, %d] (%d real texts, %d padding)",
-		batchSize, c.maxSeqLen, actualCount, batchSize-actualCount)
+	efficiency := (actualCount * 100) / c.batchSize
+	c.lastEfficiency.Store(int32(efficiency))
+	c.totalEmbedded.Add(int64(actualCount))
 
 	gpuStart := time.Now()
 
+	// Assemble pre-tokenized chunks into batch arrays with FIXED padding
+	// Dual-Mode Batching: 
+	// Se abbiamo pochi chunk (es. ricerca), usiamo un batch piccolo fisso (4) per risparmiare VRAM.
+	// Altrimenti usiamo il batch size ottimale calcolato.
+	batchSize := c.batchSize
+	if actualCount <= 4 && batchSize > 4 {
+		batchSize = 4
+	}
 	totalLen := int64(batchSize) * int64(c.maxSeqLen)
 	allIds := make([]int64, totalLen)
 	allMasks := make([]int64, totalLen)
 	allTypes := make([]int64, totalLen)
 
-	for i, text := range texts {
-		text = sanitizeTokenizerInput(text)
-		// Recovery block to handle library panics (e.g. index out of range in tokenizer)
-		encoding, err := func() (enc *tokenizer.Encoding, err error) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("PANIC: Tokenizer crashed on text %d of %d (length %d chars). Recovering. Error: %v", i, len(texts), len(text), r)
-					err = fmt.Errorf("tokenizer crashed")
-				}
-			}()
-			return c.tokenizer.EncodeSingle(text, true)
-		}()
-		if err != nil {
-			log.Printf("Tokenizer error for text %d: %v", i, err)
-			continue
-		}
-		c.normalizeEncoding(encoding)
-
-		if encoding.Len() > c.maxSeqLen {
-			truncated, _ := encoding.Truncate(c.maxSeqLen, 0)
-			if truncated != nil {
-				encoding = truncated
-			}
-		}
-		if encoding.Len() < c.maxSeqLen {
-			encoding = encoding.Pad(c.maxSeqLen, c.padID, c.padTypeID, c.padToken, c.padDirection)
-		}
-
-		ids := encoding.GetIds()
-		masks := encoding.GetAttentionMask()
-		types := encoding.GetTypeIds()
-
-		base := i * c.maxSeqLen
-		for j := 0; j < c.maxSeqLen; j++ {
-			if j < len(ids) {
-				allIds[base+j] = int64(ids[j])
-			} else {
-				allIds[base+j] = int64(c.padID)
-			}
-
-			if j < len(masks) {
-				allMasks[base+j] = int64(masks[j])
-			}
-
-			if c.expectTokenTypes && j < len(types) {
-				allTypes[base+j] = int64(types[j])
-			}
-		}
+	// Pre-fill with padID
+	for j := range allIds {
+		allIds[j] = int64(c.padID)
 	}
 
-	// Build Tensors
+	for i, chunk := range chunks {
+		if i >= batchSize { break }
+		base := i * c.maxSeqLen
+		copy(allIds[base:base+c.maxSeqLen], chunk.IDs)
+		copy(allMasks[base:base+c.maxSeqLen], chunk.Masks)
+		copy(allTypes[base:base+c.maxSeqLen], chunk.Types)
+	}
+
+	// Build Tensors with FIXED batch shape for VRAM stability
 	shape := onnx.NewShape(int64(batchSize), int64(c.maxSeqLen))
 	idTensor, err := onnx.NewTensor(shape, allIds)
 	if err != nil {
@@ -478,197 +728,10 @@ func (c *ONNXEmbeddingClient) embedBatch(texts []string) ([][]float32, error) {
 		return nil, err
 	}
 
-	log.Printf("GPU Inference: %dms (VRAM Sys: %d MB)", time.Since(gpuStart).Milliseconds(), GetProcessVRAMUsage())
-
-	// Post-process batch
-	tensor, ok := outputValues[0].(*onnx.Tensor[float32])
-	if !ok {
-		return nil, fmt.Errorf("unexpected output tensor type")
+	if actualCount > 1 || time.Since(gpuStart) > 200*time.Millisecond {
+		log.Printf("GPU Inference: %dms | real:%d/%d (%d%% eff) | Queue:{Tok:%d, Chunk:%d}", 
+			time.Since(gpuStart).Milliseconds(), actualCount, c.batchSize, efficiency, len(c.tokenizerChan), len(c.chunkChan))
 	}
-
-	rawData := tensor.GetData()
-	outShape := tensor.GetShape()
-
-	results := make([][]float32, batchSize)
-
-	if len(outShape) == 2 {
-		hidden := int(outShape[1])
-		for i := 0; i < batchSize; i++ {
-			vec := make([]float32, hidden)
-			copy(vec, rawData[i*hidden:(i+1)*hidden])
-			normalizeVector(vec)
-			results[i] = vec
-		}
-	} else if len(outShape) == 3 {
-		seqLen := int(outShape[1])
-		hidden := int(outShape[2])
-		for i := 0; i < batchSize; i++ {
-			rowMask := make([]int, seqLen)
-			base := i * c.maxSeqLen
-			for j := 0; j < seqLen && j < c.maxSeqLen; j++ {
-				rowMask[j] = int(allMasks[base+j])
-			}
-
-			rowOutput := rawData[i*seqLen*hidden : (i+1)*seqLen*hidden]
-			vec, err := postProcessSingleEmbedding(rowOutput, seqLen, hidden, rowMask)
-			if err != nil {
-				return nil, err
-			}
-			normalizeVector(vec)
-			results[i] = vec
-		}
-	} else {
-		return nil, fmt.Errorf("unsupported output shape: %v", outShape)
-	}
-
-	// Return only actual results, discarding padding entries
-	return results[:actualCount], nil
-}
-
-// TokenizeOne tokenizes a single text into a TokenizedChunk.
-// This is thread-safe: the tokenizer is read-only during encoding and each call
-// creates independent encoding objects. Safe for concurrent use from CPU workers.
-func (c *ONNXEmbeddingClient) TokenizeOne(text string) (*TokenizedChunk, error) {
-	text = sanitizeTokenizerInput(text)
-	// Recovery block to handle library panics
-	encoding, err := func() (enc *tokenizer.Encoding, err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("PANIC: Tokenizer crashed on text (length %d chars): %q. Recovering. Error: %v", len(text), truncateString(text, 50), r)
-				err = fmt.Errorf("tokenizer crashed")
-			}
-		}()
-		return c.tokenizer.EncodeSingle(text, true)
-	}()
-	if err != nil {
-		return nil, err
-	}
-	c.normalizeEncoding(encoding)
-
-	if encoding.Len() > c.maxSeqLen {
-		truncated, _ := encoding.Truncate(c.maxSeqLen, 0)
-		if truncated != nil {
-			encoding = truncated
-		}
-	}
-	if encoding.Len() < c.maxSeqLen {
-		encoding = encoding.Pad(c.maxSeqLen, c.padID, c.padTypeID, c.padToken, c.padDirection)
-	}
-
-	rawIDs := encoding.GetIds()
-	rawMasks := encoding.GetAttentionMask()
-	rawTypes := encoding.GetTypeIds()
-
-	ids := make([]int64, c.maxSeqLen)
-	masks := make([]int64, c.maxSeqLen)
-	types := make([]int64, c.maxSeqLen)
-
-	for j := 0; j < c.maxSeqLen; j++ {
-		if j < len(rawIDs) {
-			ids[j] = int64(rawIDs[j])
-		} else {
-			ids[j] = int64(c.padID)
-		}
-		if j < len(rawMasks) {
-			masks[j] = int64(rawMasks[j])
-		}
-		if c.expectTokenTypes && j < len(rawTypes) {
-			types[j] = int64(rawTypes[j])
-		}
-	}
-
-	return &TokenizedChunk{IDs: ids, Masks: masks, Types: types}, nil
-}
-
-// EmbedTokenizedBatch takes pre-tokenized chunks (from TokenizeOne), assembles them
-// into a GPU batch, and runs inference. The GPU worker calls ONLY this — zero CPU
-// tokenization overhead between batches.
-// chunks must have len <= fixedBatchSize. Padding to fixedBatchSize is automatic.
-func (c *ONNXEmbeddingClient) EmbedTokenizedBatch(chunks []*TokenizedChunk) ([][]float32, error) {
-	actualCount := len(chunks)
-	if actualCount == 0 {
-		return [][]float32{}, nil
-	}
-
-	c.updateActivity()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.session == nil {
-		return nil, fmt.Errorf("ONNX session is closed")
-	}
-
-	log.Printf("GPU Shape (ONNX): [%d, %d] (%d texts)",
-		actualCount, c.maxSeqLen, actualCount)
-
-	gpuStart := time.Now()
-
-	// Assemble pre-tokenized chunks into batch arrays
-	totalLen := int64(actualCount) * int64(c.maxSeqLen)
-	allIds := make([]int64, totalLen)
-	allMasks := make([]int64, totalLen)
-	allTypes := make([]int64, totalLen)
-
-	for i, chunk := range chunks {
-		base := i * c.maxSeqLen
-		copy(allIds[base:base+c.maxSeqLen], chunk.IDs)
-		copy(allMasks[base:base+c.maxSeqLen], chunk.Masks)
-		copy(allTypes[base:base+c.maxSeqLen], chunk.Types)
-	}
-
-	// Build Tensors
-	shape := onnx.NewShape(int64(actualCount), int64(c.maxSeqLen))
-	idTensor, err := onnx.NewTensor(shape, allIds)
-	if err != nil {
-		return nil, err
-	}
-	defer idTensor.Destroy()
-
-	maskTensor, err := onnx.NewTensor(shape, allMasks)
-	if err != nil {
-		return nil, err
-	}
-	defer maskTensor.Destroy()
-
-	var typeTensor *onnx.Tensor[int64]
-	if c.expectTokenTypes {
-		typeTensor, err = onnx.NewTensor(shape, allTypes)
-		if err != nil {
-			return nil, err
-		}
-		defer typeTensor.Destroy()
-	}
-
-	// Prepare inputs/outputs
-	inputValues := make([]onnx.Value, 0, len(c.inputNames))
-	for _, name := range c.inputNames {
-		switch strings.ToLower(name) {
-		case "input_ids":
-			inputValues = append(inputValues, idTensor)
-		case "attention_mask":
-			inputValues = append(inputValues, maskTensor)
-		case "token_type_ids":
-			if typeTensor != nil {
-				inputValues = append(inputValues, typeTensor)
-			}
-		}
-	}
-
-	outputValues := make([]onnx.Value, len(c.outputNames))
-	err = c.session.Run(inputValues, outputValues)
-	defer func() {
-		for _, v := range outputValues {
-			if v != nil {
-				v.Destroy()
-			}
-		}
-	}()
-	if err != nil {
-		return nil, err
-	}
-
-	log.Printf("GPU Inference: %dms (VRAM Sys: %d MB)", time.Since(gpuStart).Milliseconds(), GetProcessVRAMUsage())
 
 	// Post-process batch
 	tensor, ok := outputValues[0].(*onnx.Tensor[float32])
@@ -933,14 +996,17 @@ func sanitizeTokenizerInput(s string) string {
 	// sugarme/tokenizer has a bug in offset mapping when strings have trailing newlines
 	// or CRLF sequences that get normalized to LF (or vice versa) in a way that breaks
 	// the internal range calculation.
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
+	if strings.Contains(s, "\r") {
+		s = strings.ReplaceAll(s, "\r\n", "\n")
+		s = strings.ReplaceAll(s, "\r", "\n")
+	}
+	
 	s = strings.TrimSpace(s)
 	
 	// Adding a trailing space is a common workaround for tokenizers that crash 
 	// when the last token ends exactly at the string boundary with certain normalizers.
 	if s != "" && !strings.HasSuffix(s, " ") {
-		s += " "
+		return s + " "
 	}
 	return s
 }

@@ -12,19 +12,41 @@ symbols = """
 (interface_declaration
   name: (type_identifier) @name) @symbol.interface
 
+(class_declaration
+  (class_heritage
+    (implements_clause
+      (type_identifier) @implements)))
+
 (function_declaration
   name: (identifier) @name) @symbol.function
 
 (method_definition
   name: (property_identifier) @name) @symbol.method
 
+;; Arrow functions or regular functions assigned to variables
+(variable_declarator
+  name: (identifier) @name
+  value: (arrow_function)) @symbol.function
+
+(variable_declarator
+  name: (identifier) @name
+  value: (function_expression)) @symbol.function
+
+;; Regular variables - deduplication in QueryParser will ensure functions/classes take priority
 (variable_declarator
   name: (identifier) @name) @symbol.variable
+
+;; Watch callback arrow function
+(call_expression
+  function: (identifier) @_watch_fn (#eq? @_watch_fn "watch")
+  arguments: (arguments
+    (_)
+    (arrow_function))) @symbol.function
 """
 
 imports = """
 (import_statement
-  source: (string) @import.path) @import
+  source: (string) @import) @_import_stmt
 """
 
 usages = """
@@ -40,8 +62,14 @@ usages = """
   constructor: (identifier) @call.name) @call
 """
 
+[[queries.symbol_patterns]]
+kind = "function"
+name_prefix = "watch callback"
+pattern = 'watch\s*\([^,]+,\s*\(?[^)]*\)?\s*=>'
+name_group = -1
+
 [rules.visibility]
-type = "prefix"
+type = "prefix_underscore"
 private_prefix = "_"
 
 [rules.todo]

@@ -1,0 +1,23 @@
+{
+  "name": "PHP Hybrid Mixed",
+  "file": "mixed.php",
+  "language": "php",
+  "minSymbols": 9,
+  "expectSymbols": [
+    { "name": "UserController", "kind": "class" },
+    { "name": "getProfile", "kind": "method", "parent": "UserController" },
+    { "name": "deleteUser", "kind": "method", "parent": "UserController" },
+    { "name": "render_header", "kind": "function" },
+    { "name": "html", "kind": "element" },
+    { "name": "head", "kind": "element" },
+    { "name": "body", "kind": "element" },
+    { "name": "div#user-profile", "kind": "element" },
+    { "name": "style", "kind": "style" },
+    { "name": "script", "kind": "script" }
+  ],
+  "symbolKindSets": {
+    "method": 2,
+    "element": 4,
+    "function": 1
+  }
+}

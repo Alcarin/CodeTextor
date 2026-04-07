@@ -1,0 +1,18 @@
+{
+  "name": "HTML Mixed with CSS/JS",
+  "file": "mixed.html",
+  "language": "html",
+  "minSymbols": 7,
+  "expectSymbols": [
+    { "name": "html", "kind": "element" },
+    { "name": "head", "kind": "element", "parent": "html" },
+    { "name": "style", "kind": "style", "parent": "html" },
+    { "name": "body", "kind": "element", "parent": "html" },
+    { "name": "div", "kind": "element", "parent": "html" },
+    { "name": "h1#main-title", "kind": "element", "parent": "html" },
+    { "name": "script", "kind": "script", "parent": "html" }
+  ],
+  "symbolKindSets": {
+    "element": 5
+  }
+}

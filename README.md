@@ -10,49 +10,27 @@ CodeTextor analyzes your source code using [Tree-sitter](https://tree-sitter.git
 ## ✨ Overview
 
 CodeTextor is a **local-first semantic indexer** for your projects.
-It extracts structural code chunks (functions, classes, comments, modules), generates embeddings, and serves them through a simple **MCP (Model Context Protocol)** API.
+It extracts structural code chunks (functions, classes, comments, modules), generates embeddings, and serves them through a modular **MCP (Model Context Protocol)** API.
 
-Specifiche CodeTextor:
-
-- **Local-first**:
-- **Isolated**: Each project has its own database.
-- **Transparent**: All data is inspectable.
-- **Standards-based**: Uses the Model Context Protocol.
-- IDE plugins or AI assistants to query the local codebase semantically.
-- Fast "where is this defined?" or "show me related functions" queries.
-- Offline RAG-style context retrieval for LLMs without cloud APIs.
+- **Local-first**: Zero cloud dependencies, complete data sovereignty.
+- **Isolated**: Each project has its own dedicated SQLite-vec database.
+- **Standards-based**: Uses the Model Context Protocol for universal IDE/AI integration.
+- **Efficient**: Human-readable Symbol IDs and two-stage asynchronous indexing.
 
 ---
 
 ## 🔍 Key Features
 
-- 🚀 **Dynamic Tree-sitter Parsing**: Advanced AST-aware chunking engine driven by TOML configurations. Add or customize symbol extraction logic without changing Go code (requires a one-time grammar registration for completely new languages).
-- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) with perfect offset preservation using specialized sub-language delegation.
-- 🛠️ **Technical Debt Extraction**: Automatically surfaces `TODO`, `FIXME`, and `HACK` comments across all supported formats, including Markdown task lists, for a unified project status overview.
-- ⚡ **Dynamic Batch Scaling**: VRAM-aware batching (power-of-2 aligned) to maximize GPU throughput and prevent OOM errors
-- 🧩 **Adaptive chunking strategy**
-  - Collapses large functions/classes (`{ ... }`)
-  - Merges small ones with comments and metadata
-- 💾 **Embedded vector store** (SQLite-vec, no external DB)
-- 🗂️ **Multi-project management** with complete isolation
-  - Each project has its own database
-  - Switch between projects seamlessly
-  - No data cross-contamination
-- 📊 **Real-time statistics**
-  - Per-project metrics (files, chunks, symbols)
-  - Cumulative statistics across all projects
-  - Live indexing progress tracking
-- 🌲 **Code navigation**
-  - Hierarchical outline view (functions, classes, symbols)
-  - Semantic chunks browser with metadata
-  - File tree with per-file loading
-- 🧠 **MCP Server mode** for use with IDEs and LLM agents
-  - Streamable HTTP server with `getProjectDetails`, `listFiles`, `search`, `outline`, `nodeSource`, `findReferences`, `getCallGraph`, and `findImplementations` tools
-  - Per-project routing via `/mcp/<projectId>`
-  - Optimized output for token efficiency
-- 🖥️ **Frontend UI** (built with Wails + Vue) for local indexing, browsing, and search
-- 🧠 **Per-project embedding selection** with dual FastEmbed/ONNX backends (both require ONNX Runtime), automatic runtime detection, downloadable catalog entries, and a "custom model" modal
-- 🔒 100% **local & private**, no data leaves your machine
+- 🚀 **Dynamic Tree-sitter Parsing**: Advanced AST-aware chunking engine driven by TOML configurations. Add or customize language support without backend recompilation.
+- 🧬 **Nested Code Parsing**: Automatically detects and parses embedded code (e.g., JS/CSS in Vue, SQL in Go) with precise offset preservation.
+- 🛠️ **Technical Debt Extraction**: Surfaces `TODO`, `FIXME`, and `HACK` comments across all formats for a unified project status overview.
+- ⚡ **Asynchronous Indexing Pipeline**: Decoupled CPU workers (parsing) and GPU/DB workers (embedding/persistence) with prioritized semaphore control.
+- 💾 **Integrated Vector Store**: Uses `sqlite-vec` for embedded vector search without external database servers.
+- 🗂️ **Multi-Project Isolation**: Complete separation between codebases; switch between projects seamlessly with no data cross-contamination.
+- 📊 **Real-time Statistics**: Per-project and cumulative metrics (files, chunks, symbols) with live progress tracking.
+- 🌲 **Symbol Outline & Chunks**: Explore code structure through a hierarchical symbol tree or inspect semantic chunks with full metadata.
+- 🧠 **Multi-Model Support**: Support for dual FastEmbed/ONNX backends with automatic runtime detection and downloadable model catalog.
+- 🔒 **Privacy-First**: 100% local and private; your code and embeddings never leave your machine.
 
 ---
 

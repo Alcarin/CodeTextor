@@ -1,0 +1,17 @@
+{
+  "name": "SQL",
+  "file": "sample.sql",
+  "language": "sql",
+  "minSymbols": 4,
+  "expectSymbols": [
+    { "name": "users", "kind": "table" },
+    { "name": "posts", "kind": "table" },
+    { "name": "users", "kind": "table" },
+    { "name": "posts", "kind": "table" },
+    { "name": "users", "kind": "table" }
+  ],
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "FIXME" }
+  ]
+}

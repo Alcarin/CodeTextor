@@ -15,6 +15,7 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 | **`findImplementations`** | **High**: Requires type/interface resolution during parsing. | **High**: Crucial for OOP polymorphism. | High | **DONE** |
 | **`getPackageGraph`** | **Medium**: File-level and folder-level dependency math. | **Very High**: Architectural understanding. | Medium | **DONE** |
 | **`findTodos`** | **Very High**: Easy AST query for comment nodes. | **High**: Easy discovery of tech-debt and tasks. | Low | **DONE** |
+| **`listParsingErrors`** | **High**: Uses the optimized error extraction from the index. | **Medium**: Helps AI identify corrupted or partial context. | Low | **PLANNED** |
 
 ---
 
@@ -81,3 +82,11 @@ This document outlines potential new tools for the CodeTextor MCP server, includ
 - **Description**: Literal or regex search across the project files.
 - **Feasibility**: Can be implemented in Go by scanning files and looking for matches, ensuring OS-independence.
 - **Cost/Benefit**: Highly valuable for cases where semantic search is too fuzzy (e.g., error codes, unique constants, specific patterns). Low development cost.
+
+### 5. Project Health & Diagnostics
+
+#### `listParsingErrors` PLANNED
+
+- **Description**: Returns a list of all files that failed to parse correctly during indexing, including line/column of the errors.
+- **Feasibility**: Very High. The optimized `extractParseErrors` already collects this data. We just need to expose it through a new tool.
+- **Cost/Benefit**: High value for "closing the loop" on AI context. If an agent can't find a symbol, it can check if the file was simply unparseable due to syntax errors.

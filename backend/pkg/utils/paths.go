@@ -13,14 +13,42 @@ import (
 )
 
 // GetAppDataDir returns the application data directory for CodeTextor.
-// This directory is OS-specific:
-//   - Linux: ~/.local/share/codetextor
-//   - macOS: ~/Library/Application Support/codetextor
-//   - Windows: %LOCALAPPDATA%/codetextor
+// Hierarchy of priority:
+// 1. Environment variable CODE_TEXTOR_APP_DATA (if set)
+// 2. Local "./tmp" directory if running in development mode (detected by go.mod)
+// 3. OS-specific standard data directory (default)
 //
 // The directory is created if it doesn't exist.
 // Returns an error if the directory cannot be created.
 func GetAppDataDir() (string, error) {
+	// 1. Check for environment variable override
+	if envDir := os.Getenv("CODETEXTOR_APP_DATA"); envDir != "" {
+		absDir, err := filepath.Abs(envDir)
+		if err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(absDir, 0755); err != nil {
+			return "", err
+		}
+		return absDir, nil
+	}
+
+	// 2. Check if we are in development mode (running from source)
+	// We look for go.mod in the current directory or parent.
+	if isDevMode() {
+		// In dev mode, we use the ".tmp" directory in the project root.
+		root, err := findProjectRoot()
+		if err == nil {
+			devDir := filepath.Join(root, ".tmp")
+
+			if err := os.MkdirAll(devDir, 0755); err != nil {
+				return "", err
+			}
+			return devDir, nil
+		}
+	}
+
+	// 3. Fallback to OS-specific data directory
 	var baseDir string
 
 	// Get the user's home directory
@@ -150,4 +178,33 @@ func isWindows() bool {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// isDevMode returns true if we are running in a development environment.
+// It checks for the existence of go.mod in the project hierarchy.
+func isDevMode() bool {
+	_, err := findProjectRoot()
+	return err == nil
+}
+
+// findProjectRoot attempts to find the project root by looking for go.mod.
+func findProjectRoot() (string, error) {
+	curr, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for {
+		if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
+			return curr, nil
+		}
+
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		curr = parent
+	}
+
+	return "", os.ErrNotExist
 }

@@ -29,10 +29,11 @@ The project's goal is to:
 CodeTextor maintains documentation in `/docs/`:
 
 | Document | Purpose | Keep Updated |
-|----------|---------|--------------|
+| :--- | :--- | :--- |
 | **DEV_GUIDE.md** | Development standards and practices | Always (this is the source of truth) |
 | **ADDING_LANGUAGES.md** | Canonical guide for adding new language support | When adding/modifying TOML parsers |
 | **ARCHITECTURE.md** | System design, data flow, component interaction | When architecture changes |
+| **TI_TOOL.md** | Universal debugging tool for AST and TOML | When 'ti' functionality changes |
 | **API_REFERENCE.md** | Wails and MCP API specifications | When APIs change |
 | **TODO.md** | Development roadmap and task tracking | As tasks complete/added |
 | **CHANGELOG.md** | User-facing changes per version | At release time |
@@ -40,35 +41,39 @@ CodeTextor maintains documentation in `/docs/`:
 ### 📝 When to Document
 
 **DO create/update documentation for:**
-- ✅ Architectural decisions (new subsystems, major refactors)
-- ✅ Non-obvious design choices (why we chose X over Y)
-- ✅ Public APIs and interfaces (MCP tools, Wails bindings)
-- ✅ Development workflows (how to add migrations, run tests, fix vendor folders)
-- ✅ Breaking changes or migration paths
+
+* ✅ Architectural decisions (new subsystems, major refactors)
+* ✅ Non-obvious design choices (why we chose X over Y)
+* ✅ Public APIs and interfaces (MCP tools, Wails bindings)
+* ✅ Development workflows (how to add migrations, run tests, fix vendor folders)
+* ✅ Breaking changes or migration paths
 
 **DON'T create documentation for:**
-- ❌ Individual bug fixes (use commit messages + code comments)
-- ❌ Implementation details already clear from code
-- ❌ Temporary workarounds (add to TODO.md, never in code comments)
-- ❌ Experimental features (add to TODO.md as pending tasks)
+
+* ❌ Individual bug fixes (use commit messages + code comments)
+* ❌ Implementation details already clear from code
+* ❌ Temporary workarounds (add to TODO.md, never in code comments)
+* ❌ Experimental features (add to TODO.md as pending tasks)
 
 ### 📏 Documentation Proportionality
 
 **Size guideline:** Documentation should be proportional to complexity and impact.
 
-- **Small change** (bug fix, minor feature): Good commit message + code comments
-- **Medium change** (new component, API change): Update relevant section in existing docs
-- **Large change** (new subsystem, architecture shift): New section or document
+* **Small change** (bug fix, minor feature): Good commit message + code comments
+* **Medium change** (new component, API change): Update relevant section in existing docs
+* **Large change** (new subsystem, architecture shift): New section or document
 
 **Example:**
-- ✅ Database migration system → Short section in DEV_GUIDE.md (32 lines)
-- ❌ Database migration system → 3 separate documents + 220 lines in DEV_GUIDE
-- ✅ Bug fix (null array) → Commit message + inline comment explaining the fix
-- ❌ Bug fix (null array) → Separate BUGFIX_NULL_ARRAY.md document
+
+* ✅ Database migration system → Short section in DEV_GUIDE.md (32 lines)
+* ❌ Database migration system → 3 separate documents + 220 lines in DEV_GUIDE
+* ✅ Bug fix (null array) → Commit message + inline comment explaining the fix
+* ❌ Bug fix (null array) → Separate BUGFIX_NULL_ARRAY.md document
 
 ### 🔄 Documentation Maintenance
 
 **Update docs when:**
+
 1. **Architecture changes**: Update ARCHITECTURE.md with new components or data flows
 2. **API changes**: Update API_REFERENCE.md (DEV_GUIDE.md only for API guidelines)
 3. **Development workflow changes**: Update DEV_GUIDE.md procedures
@@ -76,24 +81,27 @@ CodeTextor maintains documentation in `/docs/`:
 5. **Releases**: Update CHANGELOG.md with user-facing changes
 
 **How to update:**
-- Keep changes minimal and focused
-- Remove outdated information rather than adding "deprecated" notes
-- Consolidate related information (don't scatter across multiple files)
-- Link to code when appropriate instead of duplicating
+
+* Keep changes minimal and focused
+* Remove outdated information rather than adding "deprecated" notes
+* Consolidate related information (don't scatter across multiple files)
+* Link to code when appropriate instead of duplicating
 
 ### 🎯 Documentation Quality
 
 **Good documentation:**
-- Explains **why**, not just **what** (code already shows what)
-- Provides context and rationale for decisions
-- Is concise and scannable (use bullet points, tables)
-- Stays synchronized with code
+
+* Explains **why**, not just **what** (code already shows what)
+* Provides context and rationale for decisions
+* Is concise and scannable (use bullet points, tables)
+* Stays synchronized with code
 
 **Poor documentation:**
-- Repeats what code already says
-- Contains outdated information
-- Focuses on minutiae instead of concepts
-- Exists in multiple contradictory places
+
+* Repeats what code already says
+* Contains outdated information
+* Focuses on minutiae instead of concepts
+* Exists in multiple contradictory places
 
 ---
 
@@ -101,11 +109,11 @@ CodeTextor maintains documentation in `/docs/`:
 
 ### 🔹 Layers
 
-| Layer        | Language                    | Purpose                                                                                     |
-| ------------ | --------------------------- | ------------------------------------------------------------------------------------------- |
-| **Frontend** | TypeScript + Vue            | Provide GUI for project management, indexing progress, search results, and code exploration. |
-| **Backend**  | Go (Wails)                  | Handle parsing, chunking, embedding, storage, and MCP API endpoints with project isolation.  |
-| **Storage**  | SQLite-vec (per-project)    | One database file per project (`indexes/<projectId>.db`) for complete isolation.             |
+| Layer | Language | Purpose |
+| :--- | :--- | :--- |
+| **Frontend** | TypeScript + Vue | Provide GUI for project management, indexing progress, search results, and code exploration. |
+| **Backend** | Go (Wails) | Handle parsing, chunking, embedding, storage, and MCP API endpoints with project isolation. |
+| **Storage** | SQLite-vec (per-project) | One database file per project (`indexes/<projectId>.db`) for complete isolation. |
 
 ### 🔹 Core Subsystems
 
@@ -129,7 +137,7 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 
 ### 🔹 Storage Strategy
 
-```
+```text
 /indexes/
   project-abc123.db       → SQLite-vec database for project "abc123"
   project-def456.db       → SQLite-vec database for project "def456"
@@ -140,6 +148,7 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 ```
 
 **Benefits:**
+
 * **Complete isolation**: No risk of mixing data between projects
 * **Easy backup/restore**: Copy single `.db` file + project config
 * **Independent lifecycle**: Delete, archive, or migrate projects independently
@@ -148,40 +157,42 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 ### 🔹 Project Lifecycle
 
 1. **Creation**: User provides project name, project ID, optional description
-   - **Note**: Projects do NOT have a single root path. Instead, users configure flexible indexing scope.
+   * **Note**: Projects do NOT have a single root path. Instead, users configure flexible indexing scope.
 2. **Initialization**: Create `indexes/<projectId>.db` and project config entry
 3. **Indexing Configuration**:
-   - User selects a root folder that anchors the project; include paths are stored relative to that root
-   - User adds relative include folders (root is always included by default)
-   - User defines exclude patterns (e.g., `node_modules`, `.git`, `.cache`)
-   - User optionally filters by file extensions
-   - Auto-exclude hidden directories option
+   * User selects a root folder that anchors the project; include paths are stored relative to that root
+   * User adds relative include folders (root is always included by default)
+   * User defines exclude patterns (e.g., `node_modules`, `.git`, `.cache`)
+   * User optionally filters by file extensions
+   * Auto-exclude hidden directories option
 
    All of those settings are persisted inside the project's own vector database (`indexes/project-<id>.db`), so moving a project to a new machine is as simple as copying that single file while include paths stay relative to the configured root.
 
    The Indexing view now exposes a **"File Type Filter"** card: it lists the files that match the include/exclude configuration and lets you pin which extensions should end up in the index. Selection is saved immediately into the project configuration (`fileExtensions`) and is reloaded every time the view opens, so the filter stays persistent. In the future the panel can evolve to exclude single files in addition to extensions.
-  4. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
+
+4. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
 5. **Querying**: All MCP tools receive `projectId` and query the correct DB
 6. **Deletion**: Remove `indexes/<projectId>.db` and config entry
 
 ### 🔹 Virtual Symbol Garbage Collection (GC)
 
 CodeTextor maintains a specific cleanup logic for external references (`@external/` symbols) to prevent database bloat over time.
-- **Selective Purge**: Unlike physical files which are removed if missing from disk, virtual symbols are only removed via `PurgeOrphanedVirtualFiles()` if they are no longer referenced by any `symbol_usage` in the project.
-- **Automatic Execution**: This purge is triggered at the end of both bulk indexing and incremental (file watcher) updates within the `LinkerService`.
-- **Testing**: When adding support for new languages, ensure that the parser correctly identifies external calls so the linker can bridge them to virtual symbols, and verify that removing those calls triggers the purge.
+
+* **Selective Purge**: Unlike physical files which are removed if missing from disk, virtual symbols are only removed via `PurgeOrphanedVirtualFiles()` if they are no longer referenced by any `symbol_usage` in the project.
+* **Automatic Execution**: This purge is triggered at the end of both bulk indexing and incremental (file watcher) updates within the `LinkerService`.
+* **Testing**: When adding support for new languages, ensure that the parser correctly identifies external calls so the linker can bridge them to virtual symbols, and verify that removing those calls triggers the purge.
 
 ### 🔹 Indexing Status & Active Project
 
-   * **Active Project**: The project currently selected in the UI for configuration/viewing (stored in the global `projects.db` under `app_config`)
+* **Active Project**: The project currently selected in the UI for configuration/viewing (stored in the global `projects.db` under `app_config`)
 * **Indexing Status**: Indicates which projects are currently being indexed by the backend
-  - **Multiple projects can be indexed concurrently** using separate goroutines/watchers per project
-  - Each project has its own file system watcher and indexing queue to avoid interference
-  - The UI displays an "Indexing" badge on project cards that are currently being indexed
-  - Active project ≠ Indexing projects (user can configure one project while multiple others are indexing)
+  * **Multiple projects can be indexed concurrently** using separate goroutines/watchers per project
+  * Each project has its own file system watcher and indexing queue to avoid interference
+  * The UI displays an "Indexing" badge on project cards that are currently being indexed
+  * Active project ≠ Indexing projects (user can configure one project while multiple others are indexing)
 * **MCP Server**: Serves all indexed projects simultaneously
-  - All MCP tool calls **require a `projectId` parameter** to specify which project's index to query
-  - This ensures queries are executed against the correct isolated database (`indexes/<projectId>.db`)
+  * All MCP tool calls **require a `projectId` parameter** to specify which project's index to query
+  * This ensures queries are executed against the correct isolated database (`indexes/<projectId>.db`)
 
 ### 🔹 Security & Boundaries
 
@@ -196,14 +207,14 @@ CodeTextor maintains a specific cleanup logic for external references (`@externa
 
 ### Root layout
 
-```
+```text
 /frontend/         → UI source (Vue/React, TypeScript)
   /components/
   /views/
   /store/
   /styles/
 
- /backend/          → Go backend (Wails)
+/backend/          → Go backend (Wails)
   /internal/
     /chunker/       → Tree-sitter logic, code parsing, collapsing
     /indexer/       → Embedding generation, vector storage
@@ -242,6 +253,7 @@ CodeTextor has two types of migrations:
 ### Adding a Migration
 
 1. Create SQL files in the appropriate directory:
+
    ```bash
    # Format: NNNNNN_description.{up|down}.sql
    000003_add_column.up.sql    # Apply change
@@ -249,6 +261,7 @@ CodeTextor has two types of migrations:
    ```
 
 2. Write idempotent SQL:
+
    ```sql
    ALTER TABLE projects ADD COLUMN new_col INTEGER DEFAULT 0;
    CREATE INDEX IF NOT EXISTS idx_new_col ON projects(new_col);
@@ -258,11 +271,12 @@ CodeTextor has two types of migrations:
 
 ### Critical Rules
 
-- **NEVER modify existing migrations** after release
-- Always use sequential version numbers (000001, 000002, ...)
-- Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
-- Add `DEFAULT` values for new columns
-- Test on both empty and existing databases
+* **NEVER modify existing migrations** after release
+* Always use sequential version numbers (000001, 000002, ...)
+* Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
+* **Atomic Persistence**: Ensure that file-related data (chunks, symbols, outlines) is saved within a single transaction via `InsertFileTasksInTransaction`.
+* Add `DEFAULT` values for new columns
+* Test on both empty and existing databases
 
 ### Handling Data in Migrations
 
@@ -271,13 +285,15 @@ When a migration alters the schema in a way that adds new constraints (e.g., `UN
 **Key Takeaway:** A migration is not just about schema changes; it's about safely transitioning **both the schema and the data** to a new state. Always assume the database is not empty.
 
 Migrations are embedded in the binary and run automatically:
-- **Config DB migrations**: Run once at app startup
-- **Per-project migrations**: Run when each project database is opened/created
+
+* **Config DB migrations**: Run once at app startup
+* **Per-project migrations**: Run when each project database is opened/created
 
 **Recent Per-Project Migrations:**
-- `000004_extend_chunks_metadata`: Added 11 semantic metadata fields to chunks table (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
-- `000005_unique_chunks_constraint`: Added unique constraint on chunks (file_id, line_start, line_end) to prevent duplicate chunks
-- `000006_normalize_schema`: Major schema normalization - replaced path-based references with integer file IDs, added foreign keys, created chunk_symbols mapping table, restructured outline storage
+
+* `000004_extend_chunks_metadata`: Added 11 semantic metadata fields to chunks table (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
+* `000005_unique_chunks_constraint`: Added unique constraint on chunks (file_id, line_start, line_end) to prevent duplicate chunks
+* `000006_normalize_schema`: Major schema normalization - replaced path-based references with integer file IDs, added foreign keys, created chunk_symbols mapping table, restructured outline storage
 
 ---
 
@@ -286,12 +302,15 @@ Migrations are embedded in the binary and run automatically:
 Tree-sitter grammars may sometimes have missing files in the `vendor/` folder when generated on Windows or due to missing generated files in upstream repositories.
 
 ### Procedure for fixing vendor issues:
+
 If you encounter compilation errors related to missing `.c` or `.h` files in the `vendor/` directory:
 
+```bash
 1. **Windows**: Run `powershell -File vendor_updates/fix_vendor.ps1`
 2. **Linux/macOS**: Run `bash vendor_updates/fix_vendor.sh`
+```
 
-See [vendor_updates/README.md](file:///d:/Sviluppo/CodeTextor/vendor_updates/README.md) for more details.
+See [vendor_updates/README.md](../vendor_updates/README.md) for more details.
 
 ---
 
@@ -301,7 +320,6 @@ See [vendor_updates/README.md](file:///d:/Sviluppo/CodeTextor/vendor_updates/REA
 
 * **All identifiers (functions, variables, files, directories) must be in English.**
 * **Every function—named, anonymous, or arrow—must be preceded by a comment** describing:
-
   1. Its purpose and expected behavior.
   2. Input parameters and expected types.
   3. Returned values and possible side effects.
@@ -321,7 +339,7 @@ func collapseFunction(node *sitter.Node, src []byte) string { ... }
 
 Each source file should begin with:
 
-```
+```text
 /*
   File: collapse.go
   Purpose: Tree-sitter utilities for collapsing long function/class blocks.
@@ -334,22 +352,35 @@ Use the native doc-comment style of each language. For example, TypeScript/Vue f
 
 ---
 
-## 8. Chunking & Indexing Strategy
+## 9. Chunking & Indexing Strategy
 
 ### Core principles
 
-1. **Dynamic TOML-based parsing:** Query-driven AST extraction allows adding or modifying language support without changing Go code. See [ADDING_LANGUAGES.md](file:///d:/Sviluppo/CodeTextor/docs/ADDING_LANGUAGES.md) for details.
+1. **Dynamic TOML-based parsing:** Query-driven AST extraction allows adding or modifying language support without changing Go code. See [ADDING_LANGUAGES.md](ADDING_LANGUAGES.md) for details.
 2. **Chunk enrichment:**
    * Prepend file, package, and symbol info.
    * Merge leading comments.
    * Collapse long blocks (`{ ... }` placeholder) using Tree-sitter ranges.
    * Extract only semantically relevant symbols (functions, classes, methods) to avoid noise.
 3. **Adaptive chunk size:**
-
    * Split large nodes targeting ~400 tokens (max 800).
    * Merge small ones (< 100 tokens) with neighbors or file context.
 4. **Semantic embedding:** Generate vector representations for chunk content + metadata.
 5. **Incremental indexing:** Only update changed files (based on hash + mtime).
+
+### 🔹 Backend Internal Architecture Details
+
+To ensure performance, data integrity, and cross-tool consistency, CodeTextor follows these internal patterns:
+
+1. **Two-Stage Indexing Pipeline**: The indexing process is decoupled into two asynchronous stages:
+   * **Stage 1 (CPU)**: Parsing, tokenization, and outline generation.
+   * **Stage 2 (GPU/DB)**: Embedding inference and database persistence.
+   This prevents database locking or GPU waiting from stalling the CPU workers.
+2. **Concurrency Control (Semaphore)**: The `Indexer` uses a semaphore (buffered channel) to limit active CPU tasks. By default, it uses `runtime.NumCPU() / 2` to maintain system responsiveness while still utilizing multi-core performance.
+3. **Atomic Persistence**: CodeTextor strictly enforces referential integrity. All file artifacts (chunks, symbols, outlines, and usages) are saved via `InsertFileTasksInTransaction`. This ensures that a file is only marked as "indexed" if *all* its related data was successfully persisted.
+4. **WAL Mode**: Project databases use SQLite's **Write-Ahead Logging (WAL)** mode to allow concurrent reads during indexing operations.
+5. **Human-Readable Symbol IDs**: Symbols are identified by deterministic strings (`path|Lstart-end|name`) rather than hashes. This makes the database human-inspectable and allows external tools (like IDE plugins) to easily link to specific code ranges without re-calculating complex hashes.
+6. **Path Normalization**: All paths stored in the database or used as keys are normalized via `NormalizeRelativePath`. This prevents duplicate entries caused by inconsistent slash usage or trailing dots.
 
 ### Per-Project Indexing
 
@@ -359,9 +390,9 @@ Each project maintains its own complete indexing state with concurrent indexing 
 * **Per-project configuration**: Indexing parameters (chunk size, embedding model, file filters) are stored in project metadata
 * **Isolated file watchers**: Each project runs its own goroutine with a dedicated file system watcher for incremental updates
 * **Concurrent indexing**: Multiple projects can be indexed simultaneously without interference
-  - Each project has its own indexing queue and worker pool
-  - Projects do not share resources or slow each other down
-  - UI shows "Indexing" badge on all projects currently being processed
+  * Each project has its own indexing queue and worker pool
+  * Projects do not share resources or slow each other down
+  * UI shows "Indexing" badge on all projects currently being processed
 * **Project-specific exclusions**: `.gitignore`, custom ignore patterns are applied per project
 
 ### Embedding Model Catalog & Selection
@@ -375,18 +406,16 @@ Each project maintains its own complete indexing state with concurrent indexing 
 * **Per-project snapshot**: `ProjectConfig.EmbeddingModelInfo` captures the metadata (id, label, dimension, download status, local path, etc.) inside `project_meta`. When a project `.db` moves to another machine, CodeTextor can recreate the catalog entry and re-download the artifact using this snapshot.
 * **FastEmbed backend**: Lightweight CPU-friendly models (BGE Small, GTE Small, etc.) ship preconfigured under the "FastEmbed" group. They still rely on ONNX Runtime (same requirement as the ONNX group), but cache/download artifacts automatically and expose a consistent API to the backend.
 * **Runtime detection & reuse**: At startup, the backend attempts to initialize the ONNX Runtime shared library. Upon success, a single session per model is maintained.
-- **Low Memory Footprint**: To ensure stability on systems with limited memory (e.g., 8-16GB RAM) or when multiple projects are indexed concurrently, use the `Priority` system to throttle resource-heavy operations.
-- **Dynamic Batch Scaling**: The batch size for GPU inference is no longer fixed. It is calculated upon each client creation based on the **available VRAM** detected on the system. The formula (`2^round(log2(Available_VRAM_GB * 8.0))`) ensures the batch is always a **power of 2**, optimizing thread alignment on the GPU and preventing out-of-memory errors.
-- **Priority-Based Embedding Tasks**: Indexing and retrieval tasks are assigned a priority to ensure UI responsiveness:
-  - `PriorityHigh (2)`: User-initiated searches and manual re-indexing.
-  - `PriorityNormal (1)`: Default for initial project indexing and startup synchronization.
-  - `PriorityLow (0)`: Background file modifications and continuous indexing updates.
-
-
+* **Low Memory Footprint**: To ensure stability on systems with limited memory (e.g., 8-16GB RAM) or when multiple projects are indexed concurrently, use the `Priority` system to throttle resource-heavy operations.
+* **Dynamic Batch Scaling**: The batch size for GPU inference is no longer fixed. It is calculated upon each client creation based on the **available VRAM** detected on the system. The formula (`2^round(log2(Available_VRAM_GB * 8.0))`) ensures the batch is always a **power of 2**, optimizing thread alignment on the GPU and preventing out-of-memory errors.
+* **Priority-Based Embedding Tasks**: Indexing and retrieval tasks are assigned a priority to ensure UI responsiveness:
+  * `PriorityHigh (2)`: User-initiated searches and manual re-indexing.
+  * `PriorityNormal (1)`: Default for initial project indexing and startup synchronization.
+  * `PriorityLow (0)`: Background file modifications and continuous indexing updates.
 
 ---
 
-## 9. MCP Server Responsibilities
+## 10. MCP Server Responsibilities
 
 Expose lightweight, composable tools over the **streamable HTTP** transport (modelcontextprotocol/go-sdk). Clients must call `http://<host>:<port>/mcp/<projectId>`; requests without a projectId are rejected.
 
@@ -394,19 +423,21 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 
 **All MCP tools require a `projectId` (via the URL path).** Requests without it are rejected.
 
-| Tool                | Description                                                          |
-| ------------------- | -------------------------------------------------------------------- |
-| `getProjectDetails` | Overview of project scope, configuration, and statistics             |
-| `listFiles`         | Explore project file tree with relative paths and sizes              |
-| `search`            | Semantic natural language search (results grouped by file)           |
-| `outline`           | Hierarchical symbol tree (classes, functions) for a file             |
-| `nodeSource`        | Precise source snippets for identified symbols/chunks (uses IDs)     |
-| `getRecentChanges`  | Show recently modified files (VCS) and recently indexed files (DB)   |
-| `grepSearch`        | Literal or regex search across files (precise and OS-independent)    |
-| `findReferences`    | Find all locations where a symbol is referenced or used              |
-| `getCallGraph`      | Get the hierarchical call relationships for a specific function      |
-| `findTodos`        | Instantly surface all TODO, FIXME, and HACK across the project       |
-| `getPackageGraph`   | Get a high-level overview of package dependencies and coupling            |
+| Tool | Description |
+| :--- | :--- |
+| `getProjectDetails` | Overview of project configuration and statistics |
+| `listFiles` | Explore project file tree with relative paths and sizes |
+| `semanticSearchFiles` | Suggests the most relevant files for a conceptual topic |
+| `search` | Semantic natural language search for relevant code chunks |
+| `outline` | Hierarchical symbol tree (classes, functions) for a file |
+| `nodeSource` | Precise source snippets for identified symbols (uses IDs) |
+| `getRecentChanges` | Show recently modified files (VCS) and indexed files (DB) |
+| `grepSearch` | Literal or regex search across files (OS-independent) |
+| `findReferences` | Find all locations where a symbol is referenced or used |
+| `findImplementations` | Find all classes or interfaces that implement an interface |
+| `getCallGraph` | Trace function execution paths (callers/callees) |
+| `findTodos` | Instantly surface all TODO, FIXME, and HACK markers |
+| `getPackageGraph` | High-level overview of package dependencies and coupling |
 
 ### 🔹 MCP Server Requirements
 
@@ -420,13 +451,13 @@ All endpoints must:
 * **Support pagination**: When returning large result sets
 * **Never leak cross-project data**: Results must be strictly scoped to the requested project
 * **Concurrent serving**: Support serving multiple projects simultaneously
-  - MCP server handles requests for any indexed project via `projectId` parameter
-  - Multiple projects can be actively indexing while MCP serves queries on all of them
-  - Each query is isolated to its project's database
+  * MCP server handles requests for any indexed project via `projectId` parameter
+  * Multiple projects can be actively indexing while MCP serves queries on all of them
+  * Each query is isolated to its project's database
 
 ---
 
-## 10. Frontend Guidelines
+## 11. Frontend Guidelines
 
 * Written in **TypeScript**, using **Vue 3** (Tailwind).
 * Components must be modular: one component = one purpose.
@@ -434,8 +465,6 @@ All endpoints must:
 * Use composition API / hooks for business logic separation.
 * All UI strings in English.
 * Document every component with JSDoc block at the top.
-
-Example:
 
 ```ts
 /** 
@@ -447,7 +476,21 @@ Example:
 
 ---
 
-## 11. Testing and Documentation
+## 12. Debugging & Tools
+
+### 🔹 Tree-sitter Inspector (ti)
+
+The `ti` tool is the primary way to debug AST extraction and TOML configurations. It allows you to:
+
+* Visualize the AST of any source file.
+* Test Tree-sitter queries against source code.
+* Fully validate a language's TOML configuration without restarting the backend.
+
+See [TI_TOOL.md](TI_TOOL.md) for usage instructions and examples.
+
+---
+
+## 13. Testing and Documentation
 
 * **Unit tests** for each backend package (`*_test.go`) and frontend component.
 * **Integration tests** for MCP endpoints with multi-project scenarios.
@@ -458,7 +501,6 @@ Example:
   * Test MCP tools with valid and invalid projectId parameters
   * Test path boundary enforcement
 * Maintain `/docs/` directory with:
-
   * `ARCHITECTURE.md`
   * `API_REFERENCE.md`
   * `DEV_GUIDE.md` (this document)
@@ -467,19 +509,19 @@ Example:
 
 ---
 
-## 12. Quality & Readability Targets
+## 14. Quality & Readability Targets
 
-| Metric                   | Target      |
-| ------------------------ | ----------- |
-| Function doc coverage    | 100%        |
-| File header doc coverage | 100%        |
-| Average file length      | ≤ 300 lines |
-| Lint/format errors       | 0           |
-| Tests passing            | 100%        |
+| Metric | Target |
+| :--- | :--- |
+| Function doc coverage | 100% |
+| File header doc coverage | 100% |
+| Average file length | ≤ 300 lines |
+| Lint/format errors | 0 |
+| Tests passing | 100% |
 
 ---
 
-## 13. Design Philosophy Summary
+## 15. Design Philosophy Summary
 
 * **Local-first:** No cloud dependencies; everything runs locally.
 * **Modular:** Each concern isolated in its own package or component.
@@ -489,7 +531,7 @@ Example:
 
 ---
 
-## 14. AI Collaboration Principles
+## 16. AI Collaboration Principles
 
 This project will be co-developed by human and LLM agents.
 LLMs working on CodeTextor must:
@@ -501,6 +543,26 @@ LLMs working on CodeTextor must:
 * Always generate clear, documented functions with headers and comments.
 * Prioritize correctness and clarity over conciseness.
 * Avoid hallucinating APIs or renaming functions arbitrarily.
+
+---
+
+## 17. Development Workflow
+
+### 🔹 Isolated Data Directory
+
+To prevent conflicts between a production/stable instance and a development instance (e.g., when running `wails dev` alongside a compiled version), CodeTextor supports an isolated data directory mechanism.
+
+**Priority of data directory resolution:**
+
+1. **Environment Variable**: `CODETEXTOR_APP_DATA` — If set, this absolute or relative path is used for all application data (config, indexes, models).
+2. **Development Mode (Automatic)**: If the application detects it's running from source (heuristic: presence of `go.mod` in the current or parent directory), it automatically redirects all data to a `./.tmp` folder within the project root.
+3. **System Default**: Fallback to standard OS-specific paths (e.g., `%LOCALAPPDATA%/codetextor` on Windows).
+
+**Recommended Comparative Testing Workflow:**
+
+1. **Stable Instance**: Run normally on the default MCP port (3030). Ensure "Continuous Indexing" is disabled for the project being tested.
+2. **Dev Instance**: Run `wails dev`. It will use the isolated `./.tmp` folder.
+3. **Configuration**: In the Dev UI, create a new project for the same codebase and change the MCP port to `3031` in the settings to avoid binding conflicts.
 
 ---
 

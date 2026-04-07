@@ -69,22 +69,21 @@ Configuration & Storage Root:
     indexes/project-*.db     ← Per-project vector databases (one file per project)
 
 Per-Project Database Contents:
-  tables: files, chunks, symbols, chunk_symbols, outline_nodes, outline_metadata, project_meta
-  data: embeddings, semantic chunks with metadata, AST symbols, outlines, project config snapshot
+  tables: files, chunks, symbols, chunk_symbols, outline_nodes, outline_metadata, project_meta, symbol_usages, symbol_implementations
+  data: embeddings, semantic chunks with metadata, AST symbols, outlines, project config snapshot, cross-references
 ```
 
 **Implementation Details:**
-- Each per-project database is created automatically on project creation
-- Migrations for per-project DBs are embedded in `backend/internal/store/vector_migrations/`
-  - **Migration 000004**: Extended chunks table with semantic metadata (language, symbol_name, symbol_kind, parent, signature, visibility, package_name, doc_string, token_count, is_collapsed, source_code)
-  - **Migration 000005**: Added unique constraint on chunks (file_id, line_start, line_end) to prevent duplicates
-  - Migration 000006: Normalized schema with integer file IDs (files.pk), foreign key relationships, chunk_symbols mapping table, and restructured outline storage (outline_nodes + outline_metadata tables)
-  - Migration 000010: Added `symbol_implementations` table to track OOP relationships (extends/implements).
-- Global config DB only stores app-level metadata (selected project, future global settings)
-- **IMPORTANT:** No `project_id` columns in per-project tables - isolation via separate database files
-- Vector stores use WAL mode for concurrent access, single connection pool for ACID guarantees
-- File ID caching: In-memory cache (thread-safe with RWMutex) maps file paths to integer IDs for reduced database queries
-- `.gitignore` files under each project root are parsed into glob patterns and used as the default exclude list unless the user overrides it.
+- Each per-project database is created automatically on project creation.
+- OS-Specific Roots:
+  - Windows: `%LOCALAPPDATA%\codetextor`
+  - Linux: `~/.local/share/codetextor`
+  - macOS: `~/Library/Application Support/codetextor`
+- Migrations for per-project DBs are embedded in `backend/internal/store/vector_migrations/`.
+  - **Migration 000006**: Normalized schema with integer file IDs, foreign keys, and restructured outline storage.
+  - **Migration 000010**: Added `symbol_implementations` table to track OOP relationships.
+- **Transactional Consistency**: All file-related data (chunks, symbols, outlines) is saved within a single SQLite transaction via `InsertFileTasksInTransaction` to prevent partial indexing or "dirty" states.
+- **WAL Mode**: Project databases use Write-Ahead Logging to support concurrent read/write operations during heavy indexing.
 
 **Benefits:**
 - Projects are portable (copy `.db` + config entry)
@@ -228,36 +227,40 @@ The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with inte
 - Streamable HTTP transport using `modelcontextprotocol/go-sdk` with a shared server instance plus per-project bound servers resolved from `/mcp/<projectId>` URLs (calls without projectId are rejected)
 - Persisted config (host, port, protocol, autostart, max connections) stored in the config DB; optional auto-start on app launch
 - Status + tools telemetry emitted every 2s (`mcp:status`, `mcp:tools`) so the Vue MCP view can display uptime, active connections, total requests, and enablement
-- Tools: `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (source code snippets), `findReferences` (usage tracking), `getCallGraph` (call hierarchy), `getPackageGraph` (architectural dependency map), and `findImplementations` (OOP polymorphism discovery).
+- Tools: `getProjectDetails` (config & stats), `listFiles` (file tree), `semanticSearchFiles` (relevant files by concept), `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (source code snippets), `getRecentChanges` (recent mods), `grepSearch` (literal/regex search), `findReferences` (usage tracking), `findImplementations` (OOP polymorphism discovery), `getCallGraph` (call hierarchy), `findTodos` (marker discovery), and `getPackageGraph` (architectural dependency map).
 
 ---
 
 ## Data Flow Examples
 
-### Indexing Flow
+### Multi-Stage Indexing Pipeline
 
-```
-User configures project paths
-    ↓
-Backend watches file system
-    ↓
-File change detected
-    ↓
-Tree-sitter parses file → AST
-    ↓
-Chunker extracts semantic units
-    ↓
-Embedding model generates vectors
-    ↓
-Store chunks + vectors in project's SQLite-vec DB
-    ↓
-UI updates index stats
+CodeTextor uses a decoupled, asynchronous pipeline to maximize throughput and maintain UI responsiveness.
+
+```mermaid
+sequenceDiagram
+    participant Watcher as File Watcher
+    participant CPU as Stage 1 (CPU Worker)
+    participant Queue as Task Queue (Semaphore)
+    participant GPU as Stage 2 (GPU/DB Worker)
+    participant DB as SQLite (WAL)
+
+    Watcher->>CPU: File Changed
+    CPU->>CPU: Tree-sitter Parse
+    CPU->>CPU: Tokenization & Chunks
+    CPU->>CPU: Outline Generation
+    CPU->>Queue: Push Unified Task
+    Queue->>GPU: Pull Task (Priority)
+    GPU->>GPU: Generate Embeddings
+    GPU->>DB: Atomic Transaction (All Chunks/Symbols)
+    DB->>Watcher: Sync Complete
 ```
 
-**Key Decisions:**
-- Incremental: Only changed files re-indexed
-- Async: Background goroutine per project (concurrent indexing)
-- Isolated: Each project has dedicated file watcher
+**Key Architectural Decisions:**
+- **Asynchronous Decoupling**: CPU tasks (parsing) and GPU tasks (embedding) run in separate worker pools.
+- **Priority Queue**: User-initiated searches pre-empt background indexing tasks.
+- **Semantic Symbol IDs**: Instead of random hashes, symbols use deterministic IDs (`path|Lstart-end|name`). This allows external agents to reference code locations consistently without recalculating hashes.
+- **Normalization**: All database keys are strictly normalized to prevent duplicate discovery during indexing.
 
 ### Retrieval Flow
 
@@ -738,5 +741,5 @@ These principles guide all implementation decisions and should be preserved as t
 
 ---
 
-**Last Updated:** 2026-04-02
-**Version:** 0.2.0-dev
+**Last Updated:** 2026-04-07
+**Version:** 0.3.0-dev

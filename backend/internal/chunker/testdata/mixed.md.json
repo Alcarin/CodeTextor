@@ -1,0 +1,12 @@
+{
+  "name": "Markdown Mixed with Blocks",
+  "file": "mixed.md",
+  "language": "markdown",
+  "minSymbols": 4,
+  "expectSymbols": [
+    { "name": "Mixed Markdown Test", "kind": "heading" },
+    { "name": "Go Code Block", "kind": "heading" },
+    { "name": "SQL Code Block", "kind": "heading" },
+    { "name": "Another language?", "kind": "heading" }
+  ]
+}

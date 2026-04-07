@@ -1,0 +1,77 @@
+[language]
+name = "html"
+extensions = [".html", ".htm"]
+grammar = "tree-sitter-html"
+
+[queries]
+symbols = """
+; 1. Tag name only (Unified for standard and self-closing)
+(element
+  [(start_tag (tag_name) @name)
+   (self_closing_tag (tag_name) @name)]) @symbol.element
+
+; 2. ID for symbol name (tag#id)
+(element
+  [(start_tag (attribute (attribute_name) @id_attr (#eq? @id_attr "id") (quoted_attribute_value (attribute_value) @name.id @signature.id)))
+   (self_closing_tag (attribute (attribute_name) @id_attr (#eq? @id_attr "id") (quoted_attribute_value (attribute_value) @name.id @signature.id)))]
+) @symbol.element
+
+; 3. Classes and Title for signature only (not in symbol name)
+(element
+  [(start_tag (attribute (attribute_name) @class_attr (#eq? @class_attr "class") (quoted_attribute_value (attribute_value) @signature.class)))
+   (self_closing_tag (attribute (attribute_name) @class_attr (#eq? @class_attr "class") (quoted_attribute_value (attribute_value) @signature.class)))]
+) @symbol.element
+
+; 4. Generic attributes for signature (excluding id and class)
+(element
+  [(start_tag (attribute (attribute_name) @_generic_attr (#not-eq? @_generic_attr "id") (#not-eq? @_generic_attr "class")) @signature)
+   (self_closing_tag (attribute (attribute_name) @_generic_attr2 (#not-eq? @_generic_attr2 "id") (#not-eq? @_generic_attr2 "class")) @signature)]
+) @symbol.element
+
+; Special elements
+(script_element
+  (start_tag (tag_name) @name)) @symbol.script
+(style_element
+  (start_tag (tag_name) @name)) @symbol.style
+"""
+
+usages = """
+; Track tag names as usages (links to CSS tag selectors like 'body {}')
+(element 
+  [(start_tag (tag_name) @call.name) 
+   (self_closing_tag (tag_name) @call.name)]) @call
+
+; Track IDs as usages (links to CSS ID selectors like '#header {}')
+(attribute 
+  (attribute_name) @id_attr (#eq? @id_attr "id") 
+  (quoted_attribute_value (attribute_value) @call.name.id)) @call
+
+; Track Classes as usages (links to CSS class selectors like '.btn {}')
+; Generates multiple usages if the class string contains spaces
+(attribute 
+  (attribute_name) @class_attr (#eq? @class_attr "class") 
+  (quoted_attribute_value (attribute_value) @call.name.class)) @call
+"""
+
+imports = """
+(attribute
+  (attribute_name) @attr_name (#eq? @attr_name "src")
+  (quoted_attribute_value (attribute_value) @import))
+(element
+  (start_tag
+    (tag_name) @tag (#eq? @tag "link")
+    (attribute
+      (attribute_name) @attr_href (#eq? @attr_href "href")
+      (quoted_attribute_value (attribute_value) @import))))
+"""
+
+[rules]
+comment_prefixes = ["<!--"]
+
+[rules.formatting]
+id = { prefix = "#" }
+class = { prefix = ".", split = " " }
+
+[rules.todo]
+pattern = '(?m)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

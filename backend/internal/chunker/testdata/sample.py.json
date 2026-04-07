@@ -1,0 +1,23 @@
+{
+  "name": "Python",
+  "file": "sample.py",
+  "language": "python",
+  "minSymbols": 5,
+  "expectSymbols": [
+    { "name": "Calculator", "kind": "class" },
+    { "name": "add", "kind": "method" },
+    { "name": "_protected_method", "kind": "method", "visibility": "protected" },
+    { "name": "__private_method", "kind": "method", "visibility": "private" },
+    { "name": "multiply", "kind": "function" },
+    { "name": "result", "kind": "variable" }
+  ],
+  "expectImports": ["os", "pathlib"],
+  "minUsages": 2,
+  "expectUsages": [
+    { "name": "multiply" }
+  ],
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "FIXME" }
+  ]
+}

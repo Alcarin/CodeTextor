@@ -1,0 +1,41 @@
+[language]
+name = "sql"
+extensions = [".sql"]
+grammar = "tree-sitter-sql"
+
+[queries]
+symbols = "(statement) @symbol.sql_statement"
+
+[[queries.symbol_patterns]]
+kind = "table"
+pattern = '(?i)\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.]+)'
+name_prefix = ""
+name_group = 1
+signature_group = 0
+
+[[queries.symbol_patterns]]
+kind = "table"
+pattern = '(?i)\bINSERT\s+INTO\s+([\w.]+)'
+name_prefix = ""
+name_group = 1
+signature_group = 0
+
+[[queries.symbol_patterns]]
+kind = "table"
+pattern = '(?i)\bSELECT\s+.*?\s+FROM\s+([\w.]+)'
+name_prefix = ""
+name_group = 1
+signature_group = 0
+
+[[queries.symbol_patterns]]
+kind = "sql_statement"
+pattern = '(?i)\b(DROP\s+TABLE\s+([\w.]+))'
+name_group = 1
+signature_group = 1
+
+[rules]
+comment_prefixes = ["--", "/*"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

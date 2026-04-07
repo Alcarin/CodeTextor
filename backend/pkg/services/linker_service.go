@@ -3,10 +3,10 @@ package services
 import (
 	"CodeTextor/backend/internal/store"
 	"CodeTextor/backend/pkg/models"
+	"CodeTextor/backend/pkg/utils"
 	"fmt"
 	"log"
 	"strings"
-
 )
 
 // LinkerService handles the resolution of symbol references after indexing.
@@ -35,6 +35,7 @@ func (s *LinkerService) ResolveUsages(projectID string, vs *store.VectorStore) e
 
 	resolvedCount := 0
 	virtualCount := 0
+	updates := make(map[int64]string)
 
 	for _, u := range usages {
 		targetID, isVirtual, err := s.resolveTarget(u, vs)
@@ -44,14 +45,18 @@ func (s *LinkerService) ResolveUsages(projectID string, vs *store.VectorStore) e
 		}
 
 		if targetID != "" {
-			if err := vs.UpdateSymbolUsageTarget(u.ID, targetID); err != nil {
-				log.Printf("Error updating usage %d with target %s: %v", u.ID, targetID, err)
-				continue
-			}
-			resolvedCount++
+			updates[u.ID] = targetID
 			if isVirtual {
 				virtualCount++
 			}
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := vs.UpdateSymbolUsageTargets(updates); err != nil {
+			log.Printf("Error bulk updating usages: %v", err)
+		} else {
+			resolvedCount = len(updates)
 		}
 	}
 
@@ -76,6 +81,8 @@ func (s *LinkerService) ResolveFileUsages(projectID string, filePath string, vs 
 	}
 
 	resolvedCount := 0
+	updates := make(map[int64]string)
+
 	for _, u := range usages {
 		targetID, _, err := s.resolveTarget(u, vs)
 		if err != nil {
@@ -83,18 +90,18 @@ func (s *LinkerService) ResolveFileUsages(projectID string, filePath string, vs 
 		}
 
 		if targetID != "" {
-			if err := vs.UpdateSymbolUsageTarget(u.ID, targetID); err == nil {
-				resolvedCount++
-			}
+			updates[u.ID] = targetID
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := vs.UpdateSymbolUsageTargets(updates); err == nil {
+			resolvedCount = len(updates)
 		}
 	}
 
 	if resolvedCount > 0 {
 		log.Printf("Incremental linking for %s: %d symbols resolved", filePath, resolvedCount)
-	}
-
-	if purged, err := vs.PurgeOrphanedVirtualFiles(); err == nil && purged > 0 {
-		log.Printf("Cleanup for %s: Purged %d unused external library references", filePath, purged)
 	}
 
 	return nil
@@ -125,21 +132,16 @@ func (s *LinkerService) resolveTarget(u *models.SymbolUsage, vs *store.VectorSto
 	}
 
 	// 3. Fallback to Virtual Symbol (External Dependency)
-	// Example path: @external/go/fmt.Println
+	// Example path: @external/go/fmt
 	virtualPath := "@external/unknown"
 	if u.RawTargetContext != "" {
 		virtualPath = "@external/" + strings.ToLower(u.RawTargetContext)
 	}
 
-	// Create a stable ID for the virtual symbol to avoid duplicates
-	virtualID := fmt.Sprintf("v-%s-%s", u.RawTargetContext, u.RawTargetName)
-	if u.RawTargetContext == "" {
-		virtualID = fmt.Sprintf("v-root-%s", u.RawTargetName)
-	}
+	// Create a stable ID for the virtual symbol using the unified slug format
+	// Virtual symbols are treated as being at L0-0 (unknown location)
+	virtualID := utils.GenerateSymbolID(virtualPath, 0, 0, u.RawTargetName, 1)
 
-	// Clean up ID for valid UUID-like behavior or just keep it unique string (db prefers unique)
-	// Actually, the database ID is a TEXT field.
-	
 	virtualNode := &models.OutlineNode{
 		ID:        virtualID,
 		Name:      u.RawTargetName,
@@ -149,7 +151,8 @@ func (s *LinkerService) resolveTarget(u *models.SymbolUsage, vs *store.VectorSto
 	}
 
 	if err := vs.InsertVirtualSymbol(virtualPath, virtualNode); err != nil {
-		return "", false, fmt.Errorf("failed to create virtual symbol: %w", err)
+		return "", false, fmt.Errorf("failed to create virtual symbol '%s' (target from source code): %w", 
+			u.RawTargetName, err)
 	}
 
 	return virtualID, true, nil

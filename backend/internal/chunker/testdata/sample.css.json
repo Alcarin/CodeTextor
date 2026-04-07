@@ -1,0 +1,20 @@
+{
+  "name": "CSS",
+  "file": "sample.css",
+  "language": "css",
+  "minSymbols": 5,
+  "expectSymbols": [
+    { "name": ".container", "kind": "rule" },
+    { "name": "#header", "kind": "rule" },
+    { "name": ".btn.primary", "kind": "rule" }
+  ],
+  "symbolKindSets": {
+    "media": 1,
+    "keyframes": 2
+  },
+  "expectImports": ["reset.css", "variables.css"],
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "FIXME" }
+  ]
+}

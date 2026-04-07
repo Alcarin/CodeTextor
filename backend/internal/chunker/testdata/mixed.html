@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mixed HTML Test</title>
+    <style>
+        body { font-family: sans-serif; }
+        .header-bar {
+            background-color: #333;
+            color: white;
+            padding: 1rem;
+        }
+        @media (max-width: 600px) {
+            .header-bar { padding: 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <h1 id="main-title">CodeTextor Hybrid</h1>
+    </div>
+
+    <script>
+        const config = {
+            version: "1.0.0",
+            debug: true
+        };
+
+        function toggleMode() {
+            const body = document.body;
+            body.classList.toggle('dark-mode');
+        }
+
+        console.log("Hybrid HTML loaded");
+    </script>
+</body>
+</html>

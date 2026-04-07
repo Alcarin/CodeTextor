@@ -1,0 +1,37 @@
+[language]
+name = "css"
+extensions = [".css"]
+grammar = "tree-sitter-css"
+
+[queries]
+symbols = """
+(rule_set
+  (selectors) @name) @symbol.rule
+
+(media_statement) @name @symbol.media
+
+(keyframes_statement
+  (keyframes_name) @name) @symbol.keyframes
+"""
+
+imports = """
+(import_statement
+  (string_value) @import)
+
+(import_statement
+  (call_expression
+    (arguments (string_value) @import)))
+"""
+
+[[queries.symbol_patterns]]
+kind = "media"
+name_prefix = "@media "
+pattern = '@media\s+([^{]+)'
+name_group = 1
+
+[rules]
+comment_prefixes = ["/*"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

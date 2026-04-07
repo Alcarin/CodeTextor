@@ -15,6 +15,13 @@ import (
     // Note: markdown and sql might have different binding paths or versions
     tree_sitter_markdown "github.com/tree-sitter-grammars/tree-sitter-markdown/bindings/go"
     tree_sitter_sql "github.com/DerekStride/tree-sitter-sql/bindings/go"
+	"sync"
+)
+
+var (
+	// cache for initialized languages
+	languageCache = make(map[string]*sitter.Language)
+	cacheMu       sync.RWMutex
 )
 
 // grammarRegistry maps grammar names (from TOML) to their getter functions.
@@ -32,10 +39,31 @@ var grammarRegistry = map[string]func() *sitter.Language{
 }
 
 // GetGrammar returns the tree-sitter Language for the given grammar name.
+// It caches the result to avoid expensive re-initialization.
 func GetGrammar(name string) (*sitter.Language, error) {
+	// 1. Check cache with read lock
+	cacheMu.RLock()
+	lang, ok := languageCache[name]
+	cacheMu.RUnlock()
+	if ok {
+		return lang, nil
+	}
+
+	// 2. Not in cache, need write lock
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+
+	// Double check in case another goroutine initialized it while we were waiting
+	if lang, ok = languageCache[name]; ok {
+		return lang, nil
+	}
+
 	getter, ok := grammarRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("grammar not found in registry: %s", name)
 	}
-	return getter(), nil
+
+	lang = getter()
+	languageCache[name] = lang
+	return lang, nil
 }

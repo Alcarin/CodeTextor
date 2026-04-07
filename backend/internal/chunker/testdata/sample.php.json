@@ -1,0 +1,23 @@
+{
+  "name": "PHP",
+  "file": "sample.php",
+  "language": "php",
+  "minSymbols": 6,
+  "expectSymbols": [
+    { "name": "App\\Services", "kind": "namespace" },
+    { "name": "AuthService", "kind": "class" },
+    { "name": "Loggable", "kind": "interface" },
+    { "name": "Timestampable", "kind": "struct" },
+    { "name": "login", "kind": "method" },
+    { "name": "generateToken", "kind": "method" },
+    { "name": "validateSession", "kind": "method" },
+    { "name": "TOKEN_EXPIRY", "kind": "constant" },
+    { "name": "formatDate", "kind": "function" }
+  ],
+  "expectImports": ["App\\Models\\User", "App\\Contracts\\AuthInterface"],
+  "minUsages": 2,
+  "expectTodos": [
+    { "contains": "TODO" },
+    { "contains": "FIXME" }
+  ]
+}
