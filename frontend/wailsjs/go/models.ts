@@ -347,7 +347,7 @@ export namespace models {
 		}
 	}
 	export class ProjectSummary {
-	    languages: string[];
+	    languages: any[][];
 	    packages: string[];
 	    entryPoints: string[];
 	    mainComponents: string[];

@@ -179,7 +179,7 @@ type IndexingProgress struct {
 
 // ProjectSummary provides a structural overview of the project for AI understanding.
 type ProjectSummary struct {
-	Languages      []string `json:"languages"`
+	Languages      [][]any  `json:"languages"`
 	Packages       []string `json:"packages"`
 	EntryPoints    []string `json:"entryPoints"`
 	MainComponents []string `json:"mainComponents"`

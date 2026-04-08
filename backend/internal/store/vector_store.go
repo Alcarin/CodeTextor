@@ -1749,20 +1749,19 @@ func (s *VectorStore) GetStats() (*models.ProjectStats, error) {
 // GetProjectSummary aggregates structural information about the project.
 func (s *VectorStore) GetProjectSummary() (*models.ProjectSummary, error) {
 	summary := &models.ProjectSummary{
-		Languages:      []string{},
+		Languages:      [][]any{},
 		Packages:       []string{},
 		EntryPoints:    []string{},
 		MainComponents: []string{},
 	}
 
-	// 1. Get top 5 languages
+	// 1. Get languages distribution based on symbols count
 	rows, err := s.db.Query(`
 		SELECT language, COUNT(*) as count 
-		FROM chunks 
+		FROM symbols 
 		WHERE language IS NOT NULL AND language != "" 
 		GROUP BY language 
-		ORDER BY count DESC 
-		LIMIT 5
+		ORDER BY count DESC
 	`)
 	if err == nil {
 		defer rows.Close()
@@ -1770,7 +1769,7 @@ func (s *VectorStore) GetProjectSummary() (*models.ProjectSummary, error) {
 			var lang string
 			var count int
 			if err := rows.Scan(&lang, &count); err == nil {
-				summary.Languages = append(summary.Languages, lang)
+				summary.Languages = append(summary.Languages, []any{lang, count})
 			}
 		}
 	}

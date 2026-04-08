@@ -922,7 +922,6 @@ type projectDetailsOutput struct {
 	Name           string                `json:"name"`
 	Description    string                `json:"description"`
 	RootPath       string                `json:"rootPath" jsonschema_description:"Project absolute root path"`
-	FileExtensions []string              `json:"fileExtensions"`
 	Summary        *models.ProjectSummary `json:"summary,omitempty"`
 	Stats          *leanProjectStats     `json:"stats,omitempty"`
 }
@@ -1127,7 +1126,6 @@ func (m *Manager) handleProjectDetails(boundProjectID string) sdkmcp.ToolHandler
 			Name:           project.Name,
 			Description:    project.Description,
 			RootPath:       project.Config.RootPath,
-			FileExtensions: project.Config.FileExtensions,
 			Summary:        summary,
 			Stats:          leanStats,
 		}, nil
