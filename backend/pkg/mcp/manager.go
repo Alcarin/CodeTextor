@@ -510,7 +510,7 @@ func (m *Manager) initTools() {
 		},
 		"findTodos": {
 			name:        "findTodos",
-			description: "DEBT DISCOVERY. Locates all TODO, FIXME, HACK, and NOTE comments. Use this to identify pending tasks or known technical limitations.",
+			description: "DEBT DISCOVERY. Locates all TODO, FIXME, HACK, and NOTE comments. Returns a structured map by category with symbol IDs and global statistics.",
 		},
 		"getPackageGraph": {
 			name:        "getPackageGraph",
@@ -1019,7 +1019,9 @@ type nodeSourceResult struct {
 	Symbol    string `json:"symbol,omitempty"`
 }
 
-type findTodosInput struct{}
+type findTodosInput struct {
+	Category string `json:"category,omitempty" jsonschema_description:"Optional category filter (e.g., 'FIXME', 'TODO') to limit results."`
+}
 
 func (m *Manager) resolveProjectID(boundProjectID string) (string, error) {
 	projectID := strings.TrimSpace(boundProjectID)
@@ -1413,6 +1415,23 @@ func (m *Manager) handleFindTodos(boundProjectID string) sdkmcp.ToolHandlerFor[f
 		resp, err := m.projectService.FindTodos(projectID)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		// Apply category filter if requested
+		if input.Category != "" {
+			upperCat := strings.ToUpper(input.Category)
+			filtered := make(map[string][]string)
+			if ids, ok := resp.Categories[upperCat]; ok {
+				filtered[upperCat] = ids
+				
+				// Update stats for the filtered view
+				resp.Stats.Total = len(ids)
+				resp.Stats.ByCategory = map[string]int{upperCat: len(ids)}
+			} else {
+				resp.Stats.Total = 0
+				resp.Stats.ByCategory = make(map[string]int)
+			}
+			resp.Categories = filtered
 		}
 
 		return nil, resp, nil

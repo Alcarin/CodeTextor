@@ -2594,12 +2594,25 @@ func (s *ProjectService) FindTodos(projectID string) (*models.FindTodosResponse,
 		return nil, err
 	}
 
-	todos, err := vs.GetTodos()
+	categories, err := vs.GetTodos()
 	if err != nil {
 		return nil, err
 	}
 
-	return &models.FindTodosResponse{Todos: todos}, nil
+	stats := models.TodoStats{
+		ByCategory: make(map[string]int),
+	}
+
+	for cat, ids := range categories {
+		count := len(ids)
+		stats.Total += count
+		stats.ByCategory[cat] = count
+	}
+
+	return &models.FindTodosResponse{
+		Categories: categories,
+		Stats:      stats,
+	}, nil
 }
 
 func (s *ProjectService) Close() error {

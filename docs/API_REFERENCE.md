@@ -123,10 +123,12 @@ index; requests are read-only.
 
 #### `findTodos`
 
-- **Input**: `{}` (empty object)
-- **Response**: `{ todos: { type, content, path, line }[] }`
+- **Input**: `{ category?: string }`
+  - `category`: Optional filter (e.g., "FIXME", "TODO", "HACK") to limit results.
+- **Response**: `{ categories: { [type: string]: string[] }, stats: { total: number, byCategory: { [type: string]: number } } }`
   - Scans for standard comment tags: `TODO`, `FIXME`, `HACK`, `XXX`, `NOTE`.
-  - Returns the exact location and the full comment text.
+  - `categories`: A map where keys are categories and values are arrays of **Symbol IDs** (`path|Lstart-end|message`).
+  - `stats`: Provides a global and per-category count of technical debt markers.
 
 #### `getPackageGraph`
 

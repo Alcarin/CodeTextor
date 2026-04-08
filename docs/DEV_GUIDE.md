@@ -436,7 +436,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | `findReferences` | Find all locations where a symbol is referenced or used |
 | `findImplementations` | Find all classes or interfaces that implement an interface |
 | `getCallGraph` | Trace function execution paths (callers/callees) |
-| `findTodos` | Instantly surface all TODO, FIXME, and HACK markers |
+| `findTodos` | Instantly surface all TODO, FIXME, HACK, and NOTE markers in a structured category map |
 | `getPackageGraph` | High-level overview of package dependencies and coupling |
 
 ### 🔹 MCP Server Requirements

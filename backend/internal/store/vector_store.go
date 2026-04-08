@@ -2096,36 +2096,46 @@ func (s *VectorStore) GetDB() *sql.DB {
 	return s.db
 }
 
-// GetTodos retrieves all symbols of kind SymbolTodo from the database.
-func (s *VectorStore) GetTodos() ([]models.Todo, error) {
+// GetTodos retrieves all symbols of kind SymbolTodo from the database,
+// grouping them by category (TODO, FIXME, etc.) extracted from the message.
+func (s *VectorStore) GetTodos() (map[string][]string, error) {
 	rows, err := s.db.Query(`
-		SELECT s.name, f.path, s.line, s.parent
+		SELECT s.id, s.name
 		FROM symbols s
-		JOIN files f ON s.file_id = f.pk
 		WHERE s.kind = 'todo'
-		ORDER BY f.path, s.line
+		ORDER BY s.id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query todos: %w", err)
 	}
 	defer rows.Close()
 
-	var todos []models.Todo
+	categories := make(map[string][]string)
+	keywords := []string{"FIXME", "TODO", "HACK", "XXX", "NOTE"}
+
 	for rows.Next() {
-		var t models.Todo
-		var filePath string
-		var line int
-		var parent sql.NullString
-		if err := rows.Scan(&t.Message, &filePath, &line, &parent); err != nil {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
 			return nil, fmt.Errorf("failed to scan todo: %w", err)
 		}
-		if parent.Valid {
-			t.Parent = parent.String
+
+		upperName := strings.ToUpper(name)
+		category := "OTHER"
+		for _, kw := range keywords {
+			if strings.HasPrefix(upperName, kw) {
+				category = kw
+				break
+			}
 		}
-		t.Location = fmt.Sprintf("%s:%d", filePath, line)
-		todos = append(todos, t)
+
+		categories[category] = append(categories[category], id)
 	}
-	return todos, nil
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return categories, nil
 }
 
 // GetSymbolUsagePaths retrieves all pairs of file paths (source and target) 

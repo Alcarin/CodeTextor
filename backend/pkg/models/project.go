@@ -419,16 +419,16 @@ type CallGraphResponse struct {
 	Direction string      `json:"direction"`
 }
 
-// Todo represents a task or note extracted from the code.
-type Todo struct {
-	Location string `json:"location"` // Format: "path:line"
-	Message  string `json:"message"`
-	Parent   string `json:"parent,omitempty"` // The function/class containing the TODO
+// FindTodosResponse wraps the grouped list of discovered todos.
+type FindTodosResponse struct {
+	Categories map[string][]string `json:"categories"` // e.g., "FIXME" -> ["path|line|msg", ...]
+	Stats      TodoStats           `json:"stats"`
 }
 
-// FindTodosResponse wraps the list of discovered todos.
-type FindTodosResponse struct {
-	Todos []Todo `json:"todos"`
+// TodoStats provide a quick overview of technical debt counts.
+type TodoStats struct {
+	Total      int            `json:"total"`
+	ByCategory map[string]int `json:"byCategory"`
 }
 
 // SymbolImplementation represents an explicit implementation of an interface/class.
