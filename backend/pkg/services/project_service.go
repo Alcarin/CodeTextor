@@ -79,6 +79,7 @@ type ProjectServiceAPI interface {
 	ClearSelectedProject() error
 	SetProjectIndexing(projectID string, enabled bool) error
 	GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetProjectStructure(projectID string, subPath string, depth int) ([]*models.FilePreview, error)
 	GetFileOutline(projectID, path string) ([]*models.OutlineNode, error)
 	GetFileChunks(projectID, path string) ([]*models.Chunk, error)
 	GetChunkByID(projectID, chunkID string) (*models.Chunk, error)
@@ -1672,6 +1673,138 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 	}
 
 	return previews, nil
+}
+
+// GetProjectStructure returns a richer structure of files and directories with semantic metadata.
+// It uses Depth to limit recursion and fetches symbol/line statistics from the database.
+func (s *ProjectService) GetProjectStructure(projectID string, subPath string, depth int) ([]*models.FilePreview, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	finalConfig := project.Config
+	if finalConfig.RootPath == "" {
+		finalConfig.RootPath = project.Config.RootPath
+	}
+
+	// Merge gitignore patterns if enabled
+	if finalConfig.UseGitIgnore {
+		if giPatterns, err := s.GetGitIgnorePatterns(projectID); err == nil {
+			finalConfig.ExcludePatterns = append(finalConfig.ExcludePatterns, giPatterns...)
+		}
+	}
+
+	root := finalConfig.RootPath
+	cleanSub := filepath.ToSlash(filepath.Clean(subPath))
+	if cleanSub == "." || cleanSub == "/" {
+		cleanSub = ""
+	}
+	
+	absStart := filepath.Join(root, cleanSub)
+
+	var entries []*models.FilePreview
+	dirEntries := make(map[string]*models.FilePreview)
+	var filePaths []string
+
+	err = filepath.WalkDir(absStart, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if path == absStart {
+			return nil
+		}
+
+		// Calculate relative path to the start directory and project root
+		relToStart, _ := filepath.Rel(absStart, path)
+		relToStart = filepath.ToSlash(relToStart)
+		
+		relToRoot, _ := filepath.Rel(root, path)
+		relToRoot = filepath.ToSlash(relToRoot)
+
+		// Calculate depth relative to subPath
+		currentDepth := len(strings.Split(relToStart, "/"))
+
+		// Skip if excluded
+		if utils.ShouldSkipPath(root, path, finalConfig.ExcludePatterns, finalConfig.AutoExcludeHidden) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Handle depth limit
+		if depth > 0 && currentDepth > depth {
+			// Increment item count for parent if it's within the visible tree
+			parentRel := filepath.ToSlash(filepath.Dir(relToRoot))
+			if p, ok := dirEntries[parentRel]; ok {
+				p.ItemCount++
+			}
+
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		isHidden := strings.HasPrefix(d.Name(), ".") && len(d.Name()) > 1
+		info, _ := d.Info()
+		
+		preview := &models.FilePreview{
+			AbsolutePath: path,
+			RelativePath: relToRoot,
+			IsDir:        d.IsDir(),
+			Hidden:       isHidden,
+		}
+		
+		if info != nil {
+			preview.LastModified = info.ModTime().Unix()
+			if !d.IsDir() {
+				preview.Size = utils.FormatBytes(info.Size())
+				preview.Extension = filepath.Ext(d.Name())
+				filePaths = append(filePaths, relToRoot)
+			}
+		}
+
+		entries = append(entries, preview)
+		if d.IsDir() {
+			dirEntries[relToRoot] = preview
+		}
+		
+		// If it's a child of a visible directory, increment parent's item count
+		parentRel := filepath.ToSlash(filepath.Dir(relToRoot))
+		if p, ok := dirEntries[parentRel]; ok {
+			p.ItemCount++
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch semantic stats from DB for files in batch
+	if len(filePaths) > 0 {
+		vs, err := s.GetVectorStore(projectID)
+		if err == nil {
+			stats, err := vs.GetFileSemanticStats(filePaths)
+			if err == nil {
+				for _, entry := range entries {
+					if !entry.IsDir {
+						if s, ok := stats[entry.RelativePath]; ok {
+							entry.Lines = s.Lines
+							entry.Symbols = s.Symbols
+							entry.Languages = s.Languages
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return entries, nil
 }
 
 // GetFileOutline retrieves the stored outline for a single file.

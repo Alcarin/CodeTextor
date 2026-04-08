@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"CodeTextor/backend/internal/chunker"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -73,12 +74,80 @@ func main() {
 			}
 
 			fmt.Printf("\n--- RESULTS FROM CONFIGURATION (%s) ---\n", queryArg)
+			
+			// 1. Run raw queries for debugging
+			fmt.Printf("\n>> RAW QUERY CAPTURES\n")
 			runQuery(lang, "SYMBOLS", cfg.Queries.Symbols, tree.RootNode(), source)
 			runQuery(lang, "IMPORTS", cfg.Queries.Imports, tree.RootNode(), source)
 			runQuery(lang, "METADATA", cfg.Queries.Metadata, tree.RootNode(), source)
 			runQuery(lang, "USAGES", cfg.Queries.Usages, tree.RootNode(), source)
 			for name, qstr := range cfg.Queries.Extra {
 				runQuery(lang, "EXTRA:"+strings.ToUpper(name), qstr, tree.RootNode(), source)
+			}
+
+			// 2. Test full QueryParser logic (including sub-languages)
+			qp, err := chunker.NewQueryParser(cfg)
+			if err != nil {
+				fmt.Printf("\nQueryParser initialization error: %v\n", err)
+				return
+			}
+			
+			// Try to initialize a SubLanguageManager by loading other configs from the same directory
+			parsers := make(map[string]chunker.LanguageParser)
+			configDir := filepath.Dir(queryArg)
+			files, _ := os.ReadDir(configDir)
+			for _, f := range files {
+				if strings.HasSuffix(f.Name(), ".toml") {
+					path := filepath.Join(configDir, f.Name())
+					d, _ := os.ReadFile(path)
+					c, _ := chunker.LoadConfigFromBytes(d)
+					if c != nil {
+						p, _ := chunker.NewQueryParser(c)
+						if p != nil {
+							for _, ext := range c.Language.Extensions {
+								parsers[ext] = p
+							}
+						}
+					}
+				}
+			}
+			
+			slm := chunker.NewSubLanguageManager(parsers)
+			qp.SetSubLanguageManager(slm)
+			
+			// DO NOT FORGET: set the sub-language manager for all loaded sub-parsers too!
+			// This enables recursive extraction (e.g., PHP -> HTML -> JS)
+			for _, p := range parsers {
+				if aware, ok := p.(chunker.SubLanguageAware); ok {
+					aware.SetSubLanguageManager(slm)
+				}
+			}
+			
+			res, err := qp.Parse(source)
+			if err == nil {
+				fmt.Printf("\n>> FULL EXTRACTION RESULTS (QueryParser.Parse - %d symbols)\n", len(res.Symbols))
+				for _, s := range res.Symbols {
+					parentStr := ""
+					if s.Parent != "" {
+						parentStr = " (Parent: " + s.Parent + ")"
+					}
+					fmt.Printf("  [%s] %s [L:%d-%d]%s\n", s.Kind, s.Name, s.StartLine, s.EndLine, parentStr)
+				}
+			} else {
+				fmt.Printf("\nParse error: %v\n", err)
+			}
+
+			// 3. Test sub-languages discovery query
+			if len(cfg.SubLanguages) > 0 {
+				var qStr strings.Builder
+				qStr.WriteString("[")
+				for kind := range cfg.SubLanguages {
+					if !strings.ContainsAny(kind, "()[]{} @.") {
+						qStr.WriteString(fmt.Sprintf("(%s) ", kind))
+					}
+				}
+				qStr.WriteString("] @sub")
+				runQuery(lang, "SUB_LANGUAGE_CONTAINERS", qStr.String(), tree.RootNode(), source)
 			}
 		} else if _, err := os.Stat(queryArg); err == nil {
 			data, err := os.ReadFile(queryArg)

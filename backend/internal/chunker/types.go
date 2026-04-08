@@ -66,6 +66,7 @@ type Symbol struct {
 	Visibility string     `json:"visibility,omitempty"` // public, private, protected, etc.
 	DocString  string     `json:"doc_string,omitempty"` // Associated documentation/comment
 	Implements []string   `json:"implements,omitempty"` // Interfaces/classes implemented by this symbol
+	Language   string     `json:"language,omitempty"`   // Programming language for this symbol
 }
 
 // ParserSymbolUsage represents a raw symbol usage (function/method call)
@@ -122,12 +123,19 @@ type LanguageParser interface {
 	// GetFileExtensions returns the file extensions this parser handles.
 	// For example: [".go"] for Go, [".py"] for Python, [".ts", ".tsx"] for TypeScript.
 	GetFileExtensions() []string
+
+	// Parse is the unified entry point for parsing source code.
+	// It handles symbols, imports, usages, and metadata in one pass.
+	Parse(source []byte) (ParseResult, error)
 }
 
 // SubLanguageAware is implemented by parsers that can delegate nested code blocks
 // to the SubLanguageManager for statistical detection and precise extraction.
 type SubLanguageAware interface {
 	SetSubLanguageManager(manager *SubLanguageManager)
+	SetIncludedRanges(ranges []sitter.Range)
+	Lock()
+	Unlock()
 }
 
 // ChunkConfig defines configuration for chunking behavior.

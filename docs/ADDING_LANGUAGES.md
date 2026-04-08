@@ -87,12 +87,12 @@ id = { prefix = "#", lowercase = true } # Applied to @name.id or @signature.id
 ```
 
 ### 3. Sub-Languages (`[sub_languages]`)
-Defines tags or node types that contain embedded code in other languages.
+Defines tags or node types that contain embedded code. Use specific language names (e.g., `javascript`) or `"detect"` for automatic identification.
 ```toml
 [sub_languages]
 script_element = "javascript"
 style_element = "css"
-interpreted_string_literal_content = "detect" # Automatic detection (e.g., SQL in Go)
+raw_text = "detect" # Automatic detection (e.g., SQL in Go, or nested sub-languages)
 ```
 
 ---

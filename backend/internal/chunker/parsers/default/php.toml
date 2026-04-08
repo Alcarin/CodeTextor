@@ -82,5 +82,5 @@ pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
 node_types = ["comment"]
 
 [sub_languages]
-text = "html"
+text = "detect"
 string_content = "detect"

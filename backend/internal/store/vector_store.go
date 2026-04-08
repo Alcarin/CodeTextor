@@ -422,8 +422,8 @@ func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
 	symbol.FilePath = normalizedPath
 
 	stmt, err := s.db.Prepare(`
-		INSERT OR REPLACE INTO symbols (id, file_id, name, kind, line, character, parent, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT OR REPLACE INTO symbols (id, file_id, name, kind, line, character, parent, language, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert symbol statement: %w", err)
@@ -438,6 +438,7 @@ func (s *VectorStore) InsertSymbol(symbol *models.Symbol) error {
 		symbol.Line,
 		symbol.Character,
 		sql.NullString{String: symbol.Parent, Valid: symbol.Parent != ""},
+		symbol.Language,
 		symbol.CreatedAt,
 		symbol.UpdatedAt,
 	)
@@ -656,8 +657,8 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 	// 4. Batch insert symbols
 	if len(symbols) > 0 {
 		symStmt, err := tx.Prepare(`
-			INSERT INTO symbols (id, file_id, name, kind, line, character, parent, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO symbols (id, file_id, name, kind, line, character, parent, language, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare symbol statement for %s: %w", file.Path, err)
@@ -666,7 +667,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 
 		for _, sym := range symbols {
 			_, err = symStmt.Exec(sym.ID, fileID, sym.Name, sym.Kind, sym.Line, sym.Character,
-				sql.NullString{String: sym.Parent, Valid: sym.Parent != ""}, now, now)
+				sql.NullString{String: sym.Parent, Valid: sym.Parent != ""}, sym.Language, now, now)
 			if err != nil {
 				return fmt.Errorf("failed to insert symbol for %s: %w", file.Path, err)
 			}
@@ -2114,4 +2115,109 @@ func (s *VectorStore) GetSymbolImplementations(interfaceName string) ([]models.S
 	}
 
 	return impls, nil
+}
+
+// FileSemanticStats represents semantic metadata for a file extracted from the DB.
+type FileSemanticStats struct {
+	Lines     int
+	Symbols   int
+	Languages []string
+}
+
+func (s *VectorStore) GetFileSemanticStats(paths []string) (map[string]FileSemanticStats, error) {
+	if len(paths) == 0 {
+		return make(map[string]FileSemanticStats), nil
+	}
+
+	results := make(map[string]FileSemanticStats)
+	placeholders := s.makePlaceholders(len(paths))
+	args := make([]interface{}, len(paths))
+	for i, p := range paths {
+		args[i] = p
+	}
+
+	// 1. Get lines from chunks table
+	queryChunks := `
+		SELECT f.path, MAX(c.line_end)
+		FROM chunks c
+		JOIN files f ON f.pk = c.file_id
+		WHERE f.path IN (` + placeholders + `)
+		GROUP BY f.path
+	`
+
+	rowsChunks, err := s.db.Query(queryChunks, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query file semantic stats (chunks): %w", err)
+	}
+	defer rowsChunks.Close()
+
+	for rowsChunks.Next() {
+		var path string
+		var maxLine int
+		if err := rowsChunks.Scan(&path, &maxLine); err != nil {
+			return nil, err
+		}
+		
+		results[path] = FileSemanticStats{
+			Lines: maxLine,
+		}
+	}
+
+	// 2. Get symbol counts and languages from symbols table
+	querySym := `
+		SELECT f.path, COUNT(*), GROUP_CONCAT(DISTINCT s.language)
+		FROM symbols s
+		JOIN files f ON f.pk = s.file_id
+		WHERE f.path IN (` + placeholders + `)
+		GROUP BY f.path
+	`
+
+	rowsSym, err := s.db.Query(querySym, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query file semantic stats (symbols): %w", err)
+	}
+	defer rowsSym.Close()
+
+	for rowsSym.Next() {
+		var path string
+		var count int
+		var languages sql.NullString
+		if err := rowsSym.Scan(&path, &count, &languages); err != nil {
+			return nil, err
+		}
+		
+		stats, ok := results[path]
+		if !ok {
+			stats = FileSemanticStats{}
+		}
+		stats.Symbols = count
+		
+		if languages.Valid && languages.String != "" {
+			for _, l := range strings.Split(languages.String, ",") {
+				lang := strings.TrimSpace(l)
+				if lang != "" {
+					stats.Languages = append(stats.Languages, lang)
+				}
+			}
+			sort.Strings(stats.Languages)
+		}
+		
+		results[path] = stats
+	}
+
+	return results, nil
+}
+
+func (s *VectorStore) makePlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteString("?")
+		if i < n-1 {
+			b.WriteString(",")
+		}
+	}
+	return b.String()
 }

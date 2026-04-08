@@ -68,7 +68,7 @@ Configuration & Storage Root:
     config/projects.db       ← Global config (app_config table, embedding catalog, selected project)
     indexes/project-*.db     ← Per-project vector databases (one file per project)
 
-Per-Project Database Contents:
+ Per-Project Database Contents:
   tables: files, chunks, symbols, chunk_symbols, outline_nodes, outline_metadata, project_meta, symbol_usages, symbol_implementations
   data: embeddings, semantic chunks with metadata, AST symbols, outlines, project config snapshot, cross-references
 ```
@@ -82,6 +82,7 @@ Per-Project Database Contents:
 - Migrations for per-project DBs are embedded in `backend/internal/store/vector_migrations/`.
   - **Migration 000006**: Normalized schema with integer file IDs, foreign keys, and restructured outline storage.
   - **Migration 000010**: Added `symbol_implementations` table to track OOP relationships.
+  - **Migration 000012**: Added `language` column to `symbols` table for precise multi-language tracking.
 - **Transactional Consistency**: All file-related data (chunks, symbols, outlines) is saved within a single SQLite transaction via `InsertFileTasksInTransaction` to prevent partial indexing or "dirty" states.
 - **WAL Mode**: Project databases use Write-Ahead Logging to support concurrent read/write operations during heavy indexing.
 
@@ -155,7 +156,7 @@ The semantic chunking system consists of three main components:
    - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager` and dynamic delegation.
 
 2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
-   - **Statistical Detection**: Uses `github.com/go-enry/go-enry/v2` (Markov-chain based) to identify the language of embedded snippets. This provides a robust, data-driven approach to determine the language of code within a larger file (e.g., JavaScript inside an HTML script tag).
+   - **Statistical Detection**: Uses `github.com/go-enry/go-enry/v2` (Markov-chain based) to identify the language of embedded snippets when the config uses the `"detect"` keyword. This provides a robust, data-driven approach to determine the language of code within a larger file (e.g., JavaScript inside an HTML script tag).
    - **Precision Parsing**: Leverages Tree-sitter's `SetIncludedRanges` API. This powerful feature allows a sub-parser to focus on a specific byte range within the parent file while still having access to the full file's context. This is crucial for maintaining absolute line/byte offsets for symbols and chunks, eliminating the need for manual recalculation and ensuring accurate mapping back to the original source.
    - **Fallback Heuristics**: Custom rules for common short fragments (HTML, SQL) where statistical detection might lack sufficient context. These heuristics provide a quick and reliable way to identify languages in cases where `go-enry` might not have enough data for a confident prediction.
 

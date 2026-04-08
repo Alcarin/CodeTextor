@@ -141,12 +141,17 @@ func (m *EmbeddingModelInfo) Clone() *EmbeddingModelInfo {
 
 // FilePreview represents a file with its metadata for display in the frontend.
 type FilePreview struct {
-	AbsolutePath string `json:"absolutePath"`
-	RelativePath string `json:"relativePath"`
-	Extension    string `json:"extension"`
-	Size         string `json:"size"` // Human-readable size (e.g., "10 KB")
-	Hidden       bool   `json:"hidden"`
-	LastModified int64  `json:"lastModified"` // Unix timestamp of last modification
+	AbsolutePath string   `json:"absolutePath"`
+	RelativePath string   `json:"relativePath"`
+	Extension    string   `json:"extension"`
+	Size         string   `json:"size"` // Human-readable size (e.g., "10 KB")
+	Hidden       bool     `json:"hidden"`
+	LastModified int64    `json:"lastModified"` // Unix timestamp of last modification
+	IsDir        bool     `json:"isDir"`
+	Lines        int      `json:"lines,omitempty"`
+	Symbols      int      `json:"symbols,omitempty"`
+	Languages    []string `json:"languages,omitempty"`
+	ItemCount    int      `json:"itemCount,omitempty"`
 }
 
 // IndexingStatus defines the possible states of the indexing process.
@@ -297,6 +302,7 @@ type Symbol struct {
 	Character int    `json:"character"`
 	Parent     string   `json:"parent,omitempty"`
 	Implements []string `json:"implements,omitempty"`
+	Language   string   `json:"language,omitempty"`
 	CreatedAt  int64    `json:"createdAt"`
 	UpdatedAt  int64    `json:"updatedAt"`
 }

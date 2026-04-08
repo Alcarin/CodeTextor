@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Enhanced `listFiles` Tool**: Rewritten for tabular output (`Lang`, `Size`, `Lines`, `Sym`) and added support for `extension` and `depth` filters.
+- **Recursive Sub-Language Parsing**: Improved support for nested code (e.g., PHP -> HTML -> JS) using the `"detect"` keyword in TOML configurations and automated `go-enry` detection.
+- **Symbol Language Tracking**: Added `language` column to the `symbols` table for precise multi-language symbol identification.
+- **Improved `ti` Debug Tool**: Enhanced with automatic config loading and recursive sub-language extraction testing capabilities.
 - **Dynamic TOML Parsing Engine**: Transitioned the core extraction logic to a fully declarative, query-based system. Language-specific features (symbols, imports, usages, metadata) are now defined in `.toml` files using Tree-sitter queries, enabling instant updates and new language support without backend recompilation.
 - **Human-Readable Symbol IDs**: Replaced opaque SHA-256 hashes with semantic, human-readable IDs in the format `path|Lstart-end|name`. This improves database transparency, simplifies AI cross-referencing, and reduces token overhead.
 - **Atomic File Persistence**: Implemented `InsertFileTasksInTransaction` to ensure that all file artifacts (chunks, symbols, outlines, and usages) are saved in a single, durable SQLite transaction, eliminating referential integrity errors (Foreign Key constraints).

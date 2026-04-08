@@ -426,7 +426,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | Tool | Description |
 | :--- | :--- |
 | `getProjectDetails` | Overview of project configuration and statistics |
-| `listFiles` | Explore project file tree with relative paths and sizes |
+| `listFiles` | Explore project file tree with detailed file statistics and language detection |
 | `semanticSearchFiles` | Suggests the most relevant files for a conceptual topic |
 | `search` | Semantic natural language search for relevant code chunks |
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |

@@ -30,7 +30,7 @@ describe('OutlineView.vue', () => {
       refreshCurrentProject: vi.fn(),
     });
     vi.spyOn(backend, 'getFilePreviews').mockResolvedValue([
-      { absolutePath: '/root/main.ts', relativePath: 'main.ts', extension: '.ts', size: '1 KB', hidden: false, lastModified: Date.now() / 1000 },
+      { absolutePath: '/root/main.ts', relativePath: 'main.ts', extension: '.ts', size: '1 KB', hidden: false, lastModified: Date.now() / 1000, isDir: false },
     ]);
   });
 

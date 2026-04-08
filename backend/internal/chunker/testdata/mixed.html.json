@@ -6,11 +6,11 @@
   "expectSymbols": [
     { "name": "html", "kind": "element" },
     { "name": "head", "kind": "element", "parent": "html" },
-    { "name": "style", "kind": "style", "parent": "html" },
+    { "name": "style", "kind": "style", "parent": "head" },
     { "name": "body", "kind": "element", "parent": "html" },
-    { "name": "div", "kind": "element", "parent": "html" },
-    { "name": "h1#main-title", "kind": "element", "parent": "html" },
-    { "name": "script", "kind": "script", "parent": "html" }
+    { "name": "div", "kind": "element", "parent": "body" },
+    { "name": "h1#main-title", "kind": "element", "parent": "div" },
+    { "name": "script", "kind": "script", "parent": "body" }
   ],
   "symbolKindSets": {
     "element": 5

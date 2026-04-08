@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -30,6 +31,8 @@ type QueryParser struct {
 	importRegex          *regexp.Regexp
 	excludeImportRegex   *regexp.Regexp
 	symbolPatternRegexes []*regexp.Regexp
+	includedRanges       []sitter.Range
+	mu                   sync.Mutex
 }
 
 // NewQueryParser creates a new QueryParser for the given configuration.
@@ -118,19 +121,14 @@ func NewQueryParser(config *LanguageConfig) (*QueryParser, error) {
 
 	// Compile Sub-languages Discovery Query
 	// Compile Sub-languages Discovery Query
+	// Compile Sub-languages Discovery Query
 	if len(config.SubLanguages) > 0 {
 		var qStr strings.Builder
 		qStr.WriteString("[")
 		
-		// Always include common HTML containers if we are in an HTML-like grammar
-		// This helps with 'vue' and 'html' files even if the user didn't specify them
-		if config.Language.Name == "vue" || config.Language.Name == "html" {
-			qStr.WriteString("(element) (script_element) (style_element) ")
-		}
-
 		for kind := range config.SubLanguages {
-			// Skip keys that are clearly not node types or already included
-			if strings.ContainsAny(kind, "()[]{} @.") || kind == "element" || kind == "script_element" || kind == "style_element" {
+			// Skip special keys or already handled ones
+			if strings.ContainsAny(kind, "()[]{} @.") {
 				continue
 			}
 			
@@ -139,8 +137,6 @@ func NewQueryParser(config *LanguageConfig) (*QueryParser, error) {
 			if isNil(err) && !isNil(qTest) {
 				qStr.WriteString(fmt.Sprintf("(%s) ", kind))
 				qTest.Close()
-			} else {
-				log.Printf("Warning: ignoring invalid node type %q for sub-language discovery in %s", kind, config.Language.Name)
 			}
 		}
 		qStr.WriteString("] @sub")
@@ -159,7 +155,15 @@ func NewQueryParser(config *LanguageConfig) (*QueryParser, error) {
 // Parse implements the LanguageParser interface.
 func (qp *QueryParser) Parse(source []byte) (ParseResult, error) {
 	parser := sitter.NewParser()
+	defer parser.Close()
 	parser.SetLanguage(qp.language)
+	
+	// Use local copy of ranges to avoid state leaks, then reset
+	ranges := qp.includedRanges
+	if len(ranges) > 0 {
+		parser.SetIncludedRanges(ranges)
+		qp.includedRanges = nil // Auto-reset after use
+	}
 
 	tree := parser.Parse(source, nil)
 	if tree == nil {
@@ -199,6 +203,21 @@ func (qp *QueryParser) Parse(source []byte) (ParseResult, error) {
 // SetSubLanguageManager implements the SubLanguageAware interface.
 func (qp *QueryParser) SetSubLanguageManager(manager *SubLanguageManager) {
 	qp.subLangManager = manager
+}
+
+// SetIncludedRanges implements the SubLanguageAware interface.
+func (qp *QueryParser) SetIncludedRanges(ranges []sitter.Range) {
+	qp.includedRanges = ranges
+}
+
+// Lock implements the SubLanguageAware interface.
+func (qp *QueryParser) Lock() {
+	qp.mu.Lock()
+}
+
+// Unlock implements the SubLanguageAware interface.
+func (qp *QueryParser) Unlock() {
+	qp.mu.Unlock()
 }
 
 // GetLanguage returns the tree-sitter Language for this parser.
@@ -305,6 +324,7 @@ func (qp *QueryParser) ExtractSymbols(tree *sitter.Tree, source []byte) ([]Symbo
 
 		if kind != "" {
 			sym.Kind = kind
+			sym.Language = qp.config.Language.Name
 			sym.Name = strings.Trim(strings.TrimSpace(sym.Name), "\"")
 			if sym.Name == "" {
 				sym.Name = "anonymous"
@@ -745,6 +765,7 @@ func (qp *QueryParser) extractTodos(node *sitter.Node, source []byte) []Symbol {
 				todos = append(todos, Symbol{
 					Name:      strings.TrimSpace(cleanComment(content)),
 					Kind:      SymbolTodo,
+					Language:  qp.config.Language.Name,
 					StartLine: uint32(n.StartPosition().Row) + 1,
 					EndLine:   uint32(n.EndPosition().Row) + 1,
 					StartByte: uint32(n.StartByte()),
@@ -793,72 +814,25 @@ func (qp *QueryParser) processSubLanguages(tree *sitter.Tree, source []byte, sym
 			node := capture.Node
 			kind := node.Kind()
 			
-			// 1. Determine target language and specific tag logic
-			targetLang := ""
-			tagName := ""
-			
-			if kind == "element" || kind == "script_element" || kind == "style_element" {
-				for i := uint(0); i < node.ChildCount(); i++ {
-					child := node.Child(i)
-					if child.Kind() == "start_tag" {
-						for j := uint(0); j < child.ChildCount(); j++ {
-							if child.Child(j).Kind() == "tag_name" {
-								tagName = strings.ToLower(string(source[child.Child(j).StartByte():child.Child(j).EndByte()]))
-								break
-							}
-						}
-					} else if child.Kind() == "tag_name" {
-						tagName = strings.ToLower(string(source[child.StartByte():child.EndByte()]))
-					}
-					if tagName != "" { break }
-				}
-			}
-			
-			if tagName != "" {
-				targetLang = qp.config.SubLanguages[tagName]
-			}
-			
-			// Fallback to node kind if tag name lookup failed
+			// 1. Determine target language strategy from config
+			targetLang := qp.config.SubLanguages[kind]
 			if targetLang == "" {
-				targetLang = qp.config.SubLanguages[kind]
+				continue
 			}
-			
-			if targetLang == "" { continue }
 			
 			// 2. Identify the actual content node (raw_text/text for tags, or the node itself)
-			var contentNode *sitter.Node
-			tempNode := node
-			contentNode = &tempNode
-
-			if tagName != "" {
-				found := false
-				for i := uint(0); i < node.ChildCount(); i++ {
-					child := node.Child(i)
-					cKind := child.Kind()
-					if cKind == "raw_text" || cKind == "text" {
-						contentNode = child
-						found = true
-						break
-					}
+			contentNode := &node
+			// If this node is a container (like script_element), its actual code is usually in a 'raw_text' or 'text' child.
+			for i := uint(0); i < node.ChildCount(); i++ {
+				child := node.Child(i)
+				cKind := child.Kind()
+				if cKind == "raw_text" || cKind == "text" {
+					contentNode = child
+					break
 				}
-				if !found { continue }
 			}
 			
-			// 3. Queue for batch processing
-			batch, ok := batches[targetLang]
-			if !ok {
-				batch = &langBatch{}
-				batches[targetLang] = batch
-			}
-
-			batch.ranges = append(batch.ranges, sitter.Range{
-				StartByte:  uint(contentNode.StartByte()),
-				EndByte:    uint(contentNode.EndByte()),
-				StartPoint: sitter.Point{Row: uint(contentNode.StartPosition().Row), Column: uint(contentNode.StartPosition().Column)},
-				EndPoint:   sitter.Point{Row: uint(contentNode.EndPosition().Row), Column: uint(contentNode.EndPosition().Column)},
-			})
-
-			// Identify the best parent name: host symbol > tag name > node kind
+			// Identify the best parent name: host symbol > node kind
 			containerPrefix := ""
 			for _, sym := range symbols {
 				if uint(node.StartByte()) >= uint(sym.StartByte) && uint(node.EndByte()) <= uint(sym.EndByte) {
@@ -867,12 +841,38 @@ func (qp *QueryParser) processSubLanguages(tree *sitter.Tree, source []byte, sym
 			}
 
 			if containerPrefix == "" {
-				containerPrefix = tagName
-				if containerPrefix == "" {
-					containerPrefix = kind
-				}
+				containerPrefix = kind
 			}
-			batch.parentNames = append(batch.parentNames, containerPrefix)
+			
+			// 3. Queue for batch processing (with range deduplication)
+			newRange := sitter.Range{
+				StartByte:  uint(contentNode.StartByte()),
+				EndByte:    uint(contentNode.EndByte()),
+				StartPoint: sitter.Point{Row: uint(contentNode.StartPosition().Row), Column: uint(contentNode.StartPosition().Column)},
+				EndPoint:   sitter.Point{Row: uint(contentNode.EndPosition().Row), Column: uint(contentNode.EndPosition().Column)},
+			}
+			
+			// Check if this exact range was already added to ANY batch
+			duplicate := false
+			for _, b := range batches {
+				for _, r := range b.ranges {
+					if r.StartByte == newRange.StartByte && r.EndByte == newRange.EndByte {
+						duplicate = true
+						break
+					}
+				}
+				if duplicate { break }
+			}
+			
+			if !duplicate {
+				batch, ok := batches[targetLang]
+				if !ok {
+					batch = &langBatch{}
+					batches[targetLang] = batch
+				}
+				batch.ranges = append(batch.ranges, newRange)
+				batch.parentNames = append(batch.parentNames, containerPrefix)
+			}
 		}
 	}
 

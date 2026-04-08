@@ -901,16 +901,12 @@ func (m *Manager) loadDisabledTools() error {
 type listFilesInput struct {
 	Path      string `json:"path,omitempty" jsonschema_description:"Optional sub-path to list files from (relative to project root)"`
 	Extension string `json:"extension,omitempty" jsonschema_description:"Optional file extension to filter by (e.g. .go, .ts)"`
-	Recursive bool   `json:"recursive,omitempty" jsonschema_description:"If true, lists files in subdirectories recursively (default false)"`
-}
-
-type mcpFilePreview struct {
-	Path string `json:"path"`
-	Size string `json:"size"`
+	Depth     *int   `json:"depth,omitempty" jsonschema_description:"Depth limit for recursive scan (default 1, 0 = unlimited)."`
 }
 
 type listFileOutput struct {
-	Files []mcpFilePreview `json:"files" jsonschema_description:"List of files matching the criteria"`
+	Files [][]any `json:"files" jsonschema_description:"Table of files [Name, Lang, Size, Lines, Sym]"`
+	Dirs  [][]any `json:"dirs" jsonschema_description:"Table of directories [Name, Items]"`
 }
 
 type leanProjectStats struct {
@@ -1051,53 +1047,44 @@ func (m *Manager) handleListFiles(boundProjectID string) sdkmcp.ToolHandlerFor[l
 			}
 		}
 
-		// We use GetFilePreviews which already handles filtering and exclusion patterns
-		config := models.ProjectConfig{
-			IncludePaths: []string{input.Path},
+		// Default depth to 1 if not specified, 0 means unlimited
+		effectiveDepth := 1
+		if input.Depth != nil {
+			effectiveDepth = *input.Depth
 		}
-		if input.Extension != "" {
-			config.FileExtensions = []string{input.Extension}
-		}
-
-		previews, err := m.projectService.GetFilePreviews(projectID, config)
+		
+		previews, err := m.projectService.GetProjectStructure(projectID, input.Path, effectiveDepth)
 		if err != nil {
 			return nil, listFileOutput{}, err
 		}
 
-		// If not recursive, filter out files that are not in the immediate directory
-		if !input.Recursive {
-			cleanPath := strings.Trim(filepath.ToSlash(input.Path), "/")
-			if cleanPath == "." {
-				cleanPath = ""
-			}
-			filtered := make([]*models.FilePreview, 0)
-			for _, p := range previews {
-				rel := strings.Trim(filepath.ToSlash(p.RelativePath), "/")
-				if cleanPath == "" {
-					if !strings.Contains(rel, "/") {
-						filtered = append(filtered, p)
-					}
-				} else {
-					if strings.HasPrefix(rel, cleanPath+"/") {
-						sub := strings.TrimPrefix(rel, cleanPath+"/")
-						if !strings.Contains(sub, "/") {
-							filtered = append(filtered, p)
-						}
-					}
+		files := [][]any{{"Name", "Lang", "Size", "Lines", "Sym"}}
+		dirs := [][]any{{"Name", "Items"}}
+		extension := strings.ToLower(input.Extension)
+		
+		for _, p := range previews {
+			// Apply extension filter if specified
+			if !p.IsDir && extension != "" {
+				if !strings.HasSuffix(strings.ToLower(p.RelativePath), extension) {
+					continue
 				}
 			}
-			previews = filtered
-		}
 
-		files := make([]mcpFilePreview, len(previews))
-		for i, p := range previews {
-			files[i] = mcpFilePreview{
-				Path: p.RelativePath,
-				Size: p.Size,
+			if p.IsDir {
+				dirs = append(dirs, []any{p.RelativePath, p.ItemCount})
+			} else {
+				lang := strings.Join(p.Languages, ",")
+				files = append(files, []any{
+					p.RelativePath,
+					lang,
+					p.Size,
+					p.Lines,
+					p.Symbols,
+				})
 			}
 		}
 
-		return nil, listFileOutput{Files: files}, nil
+		return nil, listFileOutput{Files: files, Dirs: dirs}, nil
 	}
 }
 

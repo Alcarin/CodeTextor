@@ -73,5 +73,10 @@ id = { prefix = "#" }
 class = { prefix = ".", split = " " }
 
 [rules.todo]
-pattern = '(?m)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
 node_types = ["comment"]
+
+[sub_languages]
+script_element = "javascript"
+style_element = "css"
+raw_text = "detect"

@@ -201,64 +201,39 @@ func (m *SubLanguageManager) BatchExtractAll(
 	}
 
 	parser := m.parsers[targetLang]
-	pool, hasPool := m.parserPools[targetLang]
 
-	var tsParser *sitter.Parser
-	if hasPool {
-		tsParser = pool.Get().(*sitter.Parser)
-		defer pool.Put(tsParser)
-	} else {
-		tsParser = sitter.NewParser()
-		defer tsParser.Close()
-		lang := parser.GetLanguage()
-		if isNil(lang) {
-			return nil, nil, nil
-		}
-		if err := tsParser.SetLanguage(lang); err != nil {
-			return nil, nil, nil
-		}
+	// 0. Set included ranges if supported (using lock to ensure atomicity of state + parse)
+	if aware, ok := parser.(SubLanguageAware); ok {
+		aware.Lock()
+		defer aware.Unlock()
+		aware.SetIncludedRanges(ranges)
 	}
 
-	if err := tsParser.SetIncludedRanges(ranges); err != nil {
+	// 1. Perform full parse (this enables recursion if it's a QueryParser)
+	res, err := parser.Parse(fullSource)
+	if err != nil {
 		return nil, nil, nil
 	}
 
-	tree := tsParser.Parse(fullSource, nil)
-	if tree == nil {
-		return nil, nil, nil
-	}
-	defer tree.Close()
-
-	// 1. Extract Symbols
-	symbols, err := parser.ExtractSymbols(tree, fullSource)
-	if err == nil {
-		// Attach parent relationships correctly for each fragment in the batch
-		for i := range symbols {
-			// Find which range this symbol belongs to
-			for idx, r := range ranges {
-				if uint32(symbols[i].StartByte) >= uint32(r.StartByte) && uint32(symbols[i].EndByte) <= uint32(r.EndByte) {
-					if idx < len(parentNames) {
-						pn := parentNames[idx]
-						if symbols[i].Parent == "" {
-							symbols[i].Parent = pn
-						}
+	// 2. Process results (Symbols)
+	symbols := res.Symbols
+	// Attach parent relationships correctly for each fragment in the batch
+	for i := range symbols {
+		// Find which range this symbol belongs to
+		for idx, r := range ranges {
+			if uint32(symbols[i].StartByte) >= uint32(r.StartByte) && uint32(symbols[i].EndByte) <= uint32(r.EndByte) {
+				if idx < len(parentNames) {
+					pn := parentNames[idx]
+					if symbols[i].Parent == "" {
+						symbols[i].Parent = pn
 					}
-					break
 				}
+				break
 			}
 		}
 	}
 
-	// 2. Extract Imports
-	imports, _ := parser.ExtractImports(tree, fullSource)
-
-	// 3. Extract Usages
-	var usages []ParserSymbolUsage
-	if mainSymbols != nil {
-		usages = parser.ExtractUsages(tree, fullSource, mainSymbols)
-	}
-
-	return symbols, imports, usages
+	return symbols, res.Imports, res.Usages
 }
 
 func (m *SubLanguageManager) batchExtractWithDetection(
@@ -296,8 +271,23 @@ func (m *SubLanguageManager) batchExtractWithDetection(
 				lang = "SQL"
 			} else if strings.Contains(lowerContent, "<div>") || strings.Contains(lowerContent, "<h1>") || 
 				strings.Contains(lowerContent, "<p>") || strings.Contains(lowerContent, "</span>") ||
-				strings.Contains(lowerContent, "</div>") {
+				strings.Contains(lowerContent, "</div>") || strings.Contains(lowerContent, "<html>") ||
+				strings.Contains(lowerContent, "<head>") || strings.Contains(lowerContent, "<body>") ||
+				strings.Contains(lowerContent, "<style") || strings.Contains(lowerContent, "<script") ||
+				strings.Contains(lowerContent, "<section") || strings.Contains(lowerContent, "<footer") ||
+				strings.Contains(lowerContent, "<header") {
 				lang = "HTML"
+			} else if (strings.HasPrefix(strContent, "{") && strings.HasSuffix(strContent, "}")) || 
+				(strings.HasPrefix(strContent, "[") && strings.HasSuffix(strContent, "]")) {
+				// Basic heuristic for JSON
+				if strings.Contains(strContent, ":") {
+					lang = "JSON"
+				}
+			} else if strings.Contains(lowerContent, "package ") || strings.Contains(lowerContent, "func ") || 
+				strings.Contains(lowerContent, "import (") || strings.Contains(lowerContent, "chan ") ||
+				strings.Contains(lowerContent, "select {") {
+				// Basic heuristic for Go
+				lang = "Go"
 			} else if strings.Contains(lowerContent, "function") && (strings.Contains(lowerContent, "=>") || strings.Contains(lowerContent, "return ")) {
 				// Basic heuristic for JS
 				lang = "JavaScript"
@@ -464,6 +454,13 @@ func (m *SubLanguageManager) BatchExtractUsages(
 		return nil
 	}
 	defer tree.Close()
+
+	if qp, ok := parser.(*QueryParser); ok {
+		// For QueryParsers, we must respect their internal recursive logic
+		// This is a bit of a fallback since usages usually need mainSymbols for better context
+		res, _ := qp.Parse(fullSource)
+		return res.Usages
+	}
 
 	return parser.ExtractUsages(tree, fullSource, symbols)
 }

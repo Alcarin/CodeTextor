@@ -5,7 +5,8 @@
 ## Key Features
 
 - **AST Inspection**: Hierarchical node visualization for any code snippet or file.
-- **TOML Support**: Automatically load and execute all queries (`symbols`, `imports`, `metadata`, `usages`, `extra`) defined in a CodeTextor configuration file.
+- **TOML Support**: Automatically load all queries (`symbols`, `imports`, `metadata`, `usages`, `extra`) defined in a CodeTextor configuration file.
+- **Sub-Language Debugging**: Automatically loads all `.toml` parsers from the same directory to initialize a `SubLanguageManager`, enabling recursive extraction testing (e.g., PHP -> HTML -> JS).
 - **Query Validation**: Test individual queries with capture highlighting (`@name`, `@symbol.class`, etc.).
 - **Flexible Input**: Accepts both raw code strings and local file paths.
 
@@ -60,4 +61,5 @@ Tree-sitter grammars can behave differently depending on the version or specific
 
 1. **Discover Nodes**: Understand if an element is a direct child or mediated by lists (e.g., `import_spec_list`).
 2. **Instant Validation**: Test entire `.toml` configurations in a few milliseconds.
-3. **Fast Debugging**: Resolve `Impossible pattern` errors or missing captures without launching the full application.
+3. **Sub-language Testing**: Verify that embedded blocks (HTML/JS/SQL) are correctly identified and parsed using the full power of the dynamic engine.
+4. **Fast Debugging**: Resolve `Impossible pattern` errors or missing captures without launching the full application.

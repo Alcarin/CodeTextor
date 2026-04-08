@@ -340,6 +340,7 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) 
 				Character:  int(sym.StartByte),
 				Parent:     sym.Parent,
 				Implements: sym.Implements,
+				Language:   sym.Language,
 			})
 		}
 

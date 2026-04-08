@@ -25,6 +25,7 @@ type MockProjectServiceAPI struct {
 	ClearSelectedProjectFunc     func() error
 	SetProjectIndexingFunc       func(projectID string, enabled bool) error
 	GetFilePreviewsFunc          func(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
+	GetProjectStructureFunc      func(projectID string, subPath string, depth int) ([]*models.FilePreview, error)
 	GetFileOutlineFunc           func(projectID, path string) ([]*models.OutlineNode, error)
 	GetFileChunksFunc            func(projectID, path string) ([]*models.Chunk, error)
 	GetChunkByIDFunc             func(projectID, chunkID string) (*models.Chunk, error)
@@ -127,6 +128,12 @@ func (m *MockProjectServiceAPI) SetProjectIndexing(projectID string, enabled boo
 func (m *MockProjectServiceAPI) GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error) {
 	if m.GetFilePreviewsFunc != nil {
 		return m.GetFilePreviewsFunc(projectID, config)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetProjectStructure(projectID string, subPath string, depth int) ([]*models.FilePreview, error) {
+	if m.GetProjectStructureFunc != nil {
+		return m.GetProjectStructureFunc(projectID, subPath, depth)
 	}
 	return nil, nil
 }

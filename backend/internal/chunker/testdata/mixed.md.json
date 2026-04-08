@@ -2,11 +2,18 @@
   "name": "Markdown Mixed with Blocks",
   "file": "mixed.md",
   "language": "markdown",
-  "minSymbols": 4,
+  "minSymbols": 11,
   "expectSymbols": [
     { "name": "Mixed Markdown Test", "kind": "heading" },
     { "name": "Go Code Block", "kind": "heading" },
+    { "name": "code:go", "kind": "code_block" },
+    { "name": "SayHello", "kind": "function", "parent": "code:go" },
     { "name": "SQL Code Block", "kind": "heading" },
-    { "name": "Another language?", "kind": "heading" }
+    { "name": "code:sql", "kind": "code_block" },
+    { "name": "results", "kind": "table", "parent": "code:sql" },
+    { "name": "Another language?", "kind": "heading" },
+    { "name": "code:json", "kind": "code_block" },
+    { "name": "status", "kind": "property", "parent": "code:json" },
+    { "name": "data", "kind": "property", "parent": "code:json" }
   ]
 }

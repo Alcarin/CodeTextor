@@ -48,10 +48,11 @@ index; requests are read-only.
 
 #### `listFiles`
 
-- **Input**: `{ path?: string, extension?: string, recursive?: boolean }`
-- **Response**: `{ files: { path, size }[] }`
-  - `path` is relative to the project root.
-  - Validates that `path` exists; returns an error with the project root if it does not.
+- **Input**: `{ path?: string, extension?: string, depth?: number }`
+- **Response**: `{ files: [][]any, dirs: [][]any }`
+  - Returns tabular data (`[Name, Lang, Size, Lines, Sym]` for files, `[Name, Items]` for dirs).
+  - `depth`: limit for recursive scan (default 1, 0 = unlimited).
+  - Validates that `path` exists relative to the project root.
 
 #### `search`
 

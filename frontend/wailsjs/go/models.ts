@@ -141,6 +141,11 @@ export namespace models {
 	    size: string;
 	    hidden: boolean;
 	    lastModified: number;
+	    isDir: boolean;
+	    lines?: number;
+	    symbols?: number;
+	    languages?: string[];
+	    itemCount?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new FilePreview(source);
@@ -154,6 +159,11 @@ export namespace models {
 	        this.size = source["size"];
 	        this.hidden = source["hidden"];
 	        this.lastModified = source["lastModified"];
+	        this.isDir = source["isDir"];
+	        this.lines = source["lines"];
+	        this.symbols = source["symbols"];
+	        this.languages = source["languages"];
+	        this.itemCount = source["itemCount"];
 	    }
 	}
 	export class IndexingProgress {

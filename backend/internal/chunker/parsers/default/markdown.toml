@@ -78,4 +78,4 @@ pattern = '(?m)^\s*-\s*\[[ xX]\].*|(?i)(TODO|FIXME|HACK|XXX|NOTE):?.*'
 node_types = ["text", "paragraph", "list_item", "atx_heading"]
 
 [sub_languages]
-fenced_code_block = "info_string"
+code_fence_content = "detect"
