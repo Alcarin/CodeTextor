@@ -422,22 +422,23 @@ func describeForProject(base, projectID string) string {
 func (m *Manager) buildServerInstructions(boundProjectID string) string {
 	var b strings.Builder
 
-	b.WriteString("CodeTextor MCP provides high-level, semantic code context from local indexing. ")
-	b.WriteString("Use this server to explore code structure, find definitions, and understand relationships beyond simple text search. ")
+	b.WriteString("CodeTextor MCP is your primary gateway to the project. It provides high-level, semantic code context from local indexing. ")
+	b.WriteString("MANDATORY: ALWAYS prefer these specialized tools over generic filesystem or grep commands. They are optimized for speed, token efficiency, and accuracy. ")
 	projectLabel := strings.TrimSpace(m.projectLabel(boundProjectID))
 	if projectLabel != "" {
 		b.WriteString(fmt.Sprintf("Currently bound to project: %s. ", projectLabel))
 	} else {
 		b.WriteString("Bind to a project by calling the endpoint as /mcp/<projectId>. ")
 	}
-	b.WriteString("Preferred Workflow:\n")
-	b.WriteString("1. 'getProjectDetails': Overview of scope and indexed extensions.\n")
-	b.WriteString("2. 'listFiles': Explore file tree (use recursive=false for bread-first browsing).\n")
-	b.WriteString("3. 'semanticSearchFiles': High-level exploration. Suggests the most relevant FILES for a concept (e.g. 'Where is authentication?'). Returns node IDs and similarity.\n")
-	b.WriteString("4. 'search': SEMANTIC search for CONTEXT. Finds relevant code snippets (chunks) by intent.\n")
-	b.WriteString("5. 'outline': Map the symbols (classes, functions) of a specific file.\n")
-	b.WriteString("6. 'nodeSource': Fetch source code for an ARRAY of node IDs. Supports FUZZY IDs (e.g. 'path|name' or 'path|Lstart-end'), returning multiple results if ambiguous.\n")
-	b.WriteString("\nNote: All responses use RELATIVE paths from the project root. listFiles and grepSearch validate path existence. Tools are read-only.")
+	b.WriteString("\nPreferred Workflow:\n")
+	b.WriteString("1. 'getProjectDetails': CALL THIS FIRST to understand the project scope, main languages, and entry points.\n")
+	b.WriteString("2. 'listFiles': USE THIS for exploration. It returns tabular data (Size, Lines, Symbols) and supports 'depth' and 'extension' filters.\n")
+	b.WriteString("3. 'semanticSearchFiles': CONCEPTUAL EXPLORATION. Use this to find which FILES are relevant to a concept (e.g., 'auth logic') before reading code.\n")
+	b.WriteString("4. 'search': SEMANTIC SNIPPET SEARCH. Finds the most relevant code chunks by intent. Use for specific 'how-to' questions.\n")
+	b.WriteString("5. 'outline': STRUCTURAL ANALYSIS. ALWAYS use this instead of reading full files to map symbols (classes, methods).\n")
+	b.WriteString("6. 'nodeSource': SELECTIVE SOURCE FETCH. Fetch specific code snippets using IDs from search/outline. Supports FUZZY IDs ('path|name' or 'path|Lstart-end') to quickly jump to definitions.\n")
+	b.WriteString("7. STATIC ANALYSIS ('findReferences', 'getCallGraph', etc.): MANDATORY before any refactoring to prevent regressions and ensure code quality.\n")
+	b.WriteString("\nNote: All paths are RELATIVE to the project root. Tools are read-only and enforce project boundaries.")
 	return b.String()
 }
 
@@ -465,55 +466,55 @@ func (m *Manager) initTools() {
 	m.tools = map[string]*toolState{
 		"getProjectDetails": {
 			name:        "getProjectDetails",
-			description: "USE FIRST to get project configuration, root path, and statistics. Prefer this over navigating the filesystem blindly.",
+			description: "MANDATORY INITIAL STEP. Fetch project configuration, root path, statistics, and structural summary. Use this to orient yourself before navigating.",
 		},
 		"listFiles": {
 			name:        "listFiles",
-			description: "USE THIS instead of your native 'ls' or 'find' commands. Explores the project file tree, returning relative paths and sizes.",
+			description: "PRIMARY EXPLORATION TOOL. USE INSTEAD OF 'ls' or 'find'. Returns relative paths, sizes, line counts, and symbol density. Supports extension and depth filtering.",
 		},
 		"search": {
 			name:        "search",
-			description: "USE THIS AS YOUR PRIMARY TOOL for semantic natural language search. Finds relevant code by intent. ALWAYS prefer this over native 'grep' when exploring concepts.",
+			description: "SEMANTIC CODE SEARCH. Find relevant code snippets (chunks) by natural language intent. ALWAYS prefer this over native grep for conceptual queries.",
 		},
 		"semanticSearchFiles": {
 			name:        "semanticSearchFiles",
-			description: "USE THIS to explore project structure by concept. Suggests the most relevant files for a topic to prevent blind file reading.",
+			description: "STRUCTURAL DISCOVERY. Identify which files are most relevant to a concept or feature without blind reading. Returns ranks and key node IDs.",
 		},
 		"outline": {
 			name:        "outline",
-			description: "ALWAYS USE THIS INSTEAD OF reading a full file with 'view_file' to understand its structure. Extracts a clean symbol hierarchy, saving massive context tokens.",
+			description: "SYMBOL MAPPING. ALWAYS USE THIS instead of reading a full file to understand its internal structure, classes, and methods. Extremely token-efficient.",
 		},
 		"nodeSource": {
 			name:        "nodeSource",
-			description: "USE THIS INSTEAD OF 'view_file' to fetch the exact source code snippet of a chunk or function using its node ID.",
+			description: "TARGETED SOURCE FETCH. Retrieval tool for specific chunks/symbols. Supports FUZZY IDs (e.g., 'path|symbolName'). USE INSTEAD OF 'view_file' for surgical reads.",
 		},
 		"getRecentChanges": {
 			name:        "getRecentChanges",
-			description: "USE THIS FIRST for debugging regressions. Shows recently modified files via Git/SVN integration.",
+			description: "REGRESSION TRACKER. View recently modified files in the working copy or indexing history. Essential for debugging latest changes.",
 		},
 		"grepSearch": {
 			name:        "grepSearch",
-			description: "USE THIS INSTEAD OF your native 'grep_search'. This is highly optimized for the codebase, accurate, OS-independent, and enforces project path boundaries.",
+			description: "OS-AGNOSTIC TEXT SEARCH. Use for literal or regex matches. Highly optimized and respects project boundaries. Prefer this over native grep tools.",
 		},
 		"findReferences": {
 			name:        "findReferences",
-			description: "ALWAYS USE THIS before refactoring or modifying a function. Finds all exact locations where a symbol is used inside the whole project.",
+			description: "IMPACT ANALYSIS. MANDATORY before modifications. Finds all exact call-site references of a symbol across the whole project to avoid regressions.",
 		},
 		"findImplementations": {
 			name:        "findImplementations",
-			description: "USE THIS to find all classes or interfaces that implement a specific interface.",
+			description: "OOP EXPLORATION. Finds all classes, interfaces, or traits that implement or extend a specific target. Crucial for understanding polymorphic logic.",
 		},
 		"getCallGraph": {
 			name:        "getCallGraph",
-			description: "USE THIS to trace function execution paths and discover callers/callees instead of doing manual text searches.",
+			description: "ARCHITECTURAL TRACING. Generates a tree of function callers/callees. Fundamental for understanding flow and ensuring quality refactoring.",
 		},
 		"findTodos": {
 			name:        "findTodos",
-			description: "USE THIS to discover TODO, FIXME, HACK, XXX, and NOTE comments across the project. Helps in identifying pending tasks or technical debt.",
+			description: "DEBT DISCOVERY. Locates all TODO, FIXME, HACK, and NOTE comments. Use this to identify pending tasks or known technical limitations.",
 		},
 		"getPackageGraph": {
 			name:        "getPackageGraph",
-			description: "USE THIS to get a high-level overview of package dependencies. Helps in understanding the project architecture and coupling.",
+			description: "DEPENDENCY OVERVIEW. Map high-level coupling between packages and external libraries. Essential for architectural decisions.",
 		},
 	}
 
@@ -649,7 +650,7 @@ func (m *Manager) initTools() {
 }
 
 type getRecentChangesInput struct {
-	Limit int `json:"limit,omitempty" jsonschema_description:"Max files to return for both indexed and working copy results (default 10)"`
+	Limit int `json:"limit,omitempty" jsonschema_description:"Max files to return for both indexed and working copy results (default 10)."`
 }
 
 func (m *Manager) handleGetRecentChanges(boundProjectID string) sdkmcp.ToolHandlerFor[getRecentChangesInput, *models.RecentChangesResponse] {
@@ -697,9 +698,9 @@ func (m *Manager) handleGrepSearch(boundProjectID string) sdkmcp.ToolHandlerFor[
 }
 
 type findReferencesInput struct {
-	NodeID     string `json:"nodeID,omitempty" jsonschema_description:"The unique ID of the node to find references for"`
-	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"The name of the symbol to find references for"`
-	Path       string `json:"path,omitempty" jsonschema_description:"Optional file path to disambiguate symbolName"`
+	NodeID     string `json:"nodeID,omitempty" jsonschema_description:"Unique ID of the node to find references for. Prefer this over SymbolName if available."`
+	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"The exact name of the symbol to find references for."`
+	Path       string `json:"path,omitempty" jsonschema_description:"Optional relative file path to disambiguate SymbolName (e.g., 'pkg/db.go')."`
 }
 
 func (m *Manager) handleFindReferences(boundProjectID string) sdkmcp.ToolHandlerFor[findReferencesInput, *models.SymbolReferencesResponse] {
@@ -719,11 +720,11 @@ func (m *Manager) handleFindReferences(boundProjectID string) sdkmcp.ToolHandler
 }
 
 type getCallGraphInput struct {
-	NodeID     string `json:"nodeID,omitempty" jsonschema_description:"The unique ID of the function/method"`
-	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"The name of the function/method"`
-	Path       string `json:"path,omitempty" jsonschema_description:"Optional file path to disambiguate symbolName"`
-	Direction  string `json:"direction,omitempty" jsonschema_description:"Direction of calls: 'incoming', 'outgoing' (default), or 'both'"`
-	Depth      int    `json:"depth,omitempty" jsonschema_description:"Maximum depth of the call graph (default 1)"`
+	NodeID     string `json:"nodeID,omitempty" jsonschema_description:"Unique ID of the function/method. Use this for maximum precision."`
+	SymbolName string `json:"symbolName,omitempty" jsonschema_description:"Name of the function/method. Use if NodeID is unknown."`
+	Path       string `json:"path,omitempty" jsonschema_description:"Optional relative path to disambiguate SymbolName."`
+	Direction  string `json:"direction,omitempty" jsonschema_description:"Direction of calls: 'incoming', 'outgoing' (default), or 'both'."`
+	Depth      int    `json:"depth,omitempty" jsonschema_description:"Max depth of the call graph (default 1). Higher depth is more expensive."`
 }
 
 func (m *Manager) handleGetCallGraph(boundProjectID string) sdkmcp.ToolHandlerFor[getCallGraphInput, map[string]interface{}] {
@@ -757,7 +758,7 @@ func (m *Manager) handleGetCallGraph(boundProjectID string) sdkmcp.ToolHandlerFo
 }
 
 type findImplementationsInput struct {
-	NodeID string `json:"nodeId" jsonschema_description:"ID of the node to find implementations for."`
+	NodeID string `json:"nodeId" jsonschema_description:"Unique ID of the interface or class to find implementations for."`
 }
 
 func (m *Manager) handleFindImplementations(boundProjectID string) sdkmcp.ToolHandlerFor[findImplementationsInput, models.FindImplementationsResponse] {
@@ -782,7 +783,7 @@ func (m *Manager) handleFindImplementations(boundProjectID string) sdkmcp.ToolHa
 }
 
 type getPackageGraphInput struct {
-	Depth int `json:"depth,omitempty" jsonschema_description:"Maximum depth of the package paths (default 0, unlimited)"`
+	Depth int `json:"depth,omitempty" jsonschema_description:"Max depth of the package tree (default 0, unlimited). Use for high-level overview."`
 }
 
 func (m *Manager) handleGetPackageGraph(boundProjectID string) sdkmcp.ToolHandlerFor[getPackageGraphInput, models.PackageGraphResponse] {
@@ -899,9 +900,9 @@ func (m *Manager) loadDisabledTools() error {
 // --- Tool handlers ---------------------------------------------------------
 
 type listFilesInput struct {
-	Path      string `json:"path,omitempty" jsonschema_description:"Optional sub-path to list files from (relative to project root)"`
-	Extension string `json:"extension,omitempty" jsonschema_description:"Optional file extension to filter by (e.g. .go, .ts)"`
-	Depth     *int   `json:"depth,omitempty" jsonschema_description:"Depth limit for recursive scan (default 1, 0 = unlimited)."`
+	Path      string `json:"path,omitempty" jsonschema_description:"Optional relative sub-path to list files from."`
+	Extension string `json:"extension,omitempty" jsonschema_description:"Filter results by extension (e.g., '.go', '.ts')."`
+	Depth     *int   `json:"depth,omitempty" jsonschema_description:"Max recursion depth (default 1, 0 = unlimited). Clearer for bread-first browsing if set explicitly."`
 }
 
 type listFileOutput struct {
@@ -927,8 +928,8 @@ type projectDetailsOutput struct {
 }
 
 type searchInput struct {
-	Query string `json:"query" jsonschema_description:"Semantic query (e.g. 'how is authentication handled?')"`
-	K     int    `json:"k,omitempty" jsonschema_description:"Max chunks to return (default 8)" jsonschema_extras:"minimum=1,maximum=50"`
+	Query string `json:"query" jsonschema_description:"Semantic natural language query (e.g., 'how is authentication handled?'). Clearer queries yield better results."`
+	K     int    `json:"k,omitempty" jsonschema_description:"Max number of chunks to return (default 8, max 50)."`
 }
 
 type mcpChunk struct {
@@ -952,8 +953,8 @@ type searchOutput struct {
 }
 
 type semanticSearchFilesInput struct {
-	Query string `json:"query" jsonschema_description:"Semantic query (e.g. 'where is authentication handled?')"`
-	K     int    `json:"k,omitempty" jsonschema_description:"Max files to return (default 5)" jsonschema_extras:"minimum=1,maximum=20"`
+	Query string `json:"query" jsonschema_description:"Concept or feature to search for (e.g., 'data persistence layer')."`
+	K     int    `json:"k,omitempty" jsonschema_description:"Max number of files to return (default 5, max 20)."`
 }
 
 type chunkScore struct {
@@ -975,8 +976,8 @@ type semanticSearchFilesOutput struct {
 }
 
 type outlineInput struct {
-	Path  string `json:"path" jsonschema_description:"File path relative to the project root"`
-	Depth int    `json:"depth,omitempty" jsonschema_description:"Depth limit (1=top-level only)"`
+	Path  string `json:"path" jsonschema_description:"Relative file path from the project root."`
+	Depth int    `json:"depth,omitempty" jsonschema_description:"Max recursion depth for symbols (1 = top-level symbols only)."`
 }
 
 type mcpOutlineNode struct {
@@ -993,15 +994,15 @@ type outlineOutput struct {
 }
 
 type nodeSourceInput struct {
-	ID           []string `json:"id" jsonschema_description:"List of chunk/symbol IDs to fetch from search or outline results"`
-	CollapseBody bool     `json:"collapseBody,omitempty" jsonschema_description:"Collapse large bodies for brevity"`
+	ID           []string `json:"id" jsonschema_description:"List of IDs. Supports FUZZY IDs like 'path|symbolName' or 'path|Lrange' (e.g. 'main.go|Init' or 'app.go|L10-20')."`
+	CollapseBody bool     `json:"collapseBody,omitempty" jsonschema_description:"True to hide large function bodies, returning only signatures/headers."`
 }
 
 type grepSearchInput struct {
-	Query   string `json:"query" jsonschema_description:"Literal or regex search pattern"`
-	IsRegex bool   `json:"isRegex,omitempty" jsonschema_description:"If true, treats query as a regular expression (default false)"`
-	Path    string `json:"path,omitempty" jsonschema_description:"Optional sub-path to limit search within (relative to project root)"`
-	Limit   int    `json:"limit,omitempty" jsonschema_description:"Maximum number of total matches to return (default 100)" jsonschema_extras:"minimum=1,maximum=500"`
+	Query   string `json:"query" jsonschema_description:"String or regular expression pattern."`
+	IsRegex bool   `json:"isRegex,omitempty" jsonschema_description:"Interpret query as a regular expression (default false)."`
+	Path    string `json:"path,omitempty" jsonschema_description:"Optional relative sub-path to restrict search."`
+	Limit   int    `json:"limit,omitempty" jsonschema_description:"Max total matches to return (default 100, max 500)."`
 }
 
 type nodeSourceOutput struct {
