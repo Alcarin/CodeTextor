@@ -180,12 +180,6 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// isDevMode returns true if we are running in a development environment.
-// It checks for the existence of go.mod in the project hierarchy.
-func isDevMode() bool {
-	_, err := findProjectRoot()
-	return err == nil
-}
 
 // findProjectRoot attempts to find the project root by looking for go.mod.
 func findProjectRoot() (string, error) {
