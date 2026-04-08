@@ -79,9 +79,13 @@ index; requests are read-only.
 
 - **Input**: `{ id: string[], collapseBody?: boolean }` where `id` is an array of identifiers.
 - **Response**: `{ results: { id, path, source, start, end, language?, symbol? }[] }`
-  - Fetches source snippets for one or more identifiers.
+  - Fetches source snippets for identifiers.
+  - **Fuzzy Matching**: If an exact ID match fails, the tool attempts to parse the ID string as `path|Lstart-end|name`.
+    - Returns all symbols that intersect the line range **or** match the symbol name within the file.
+    - Can return multiple results per single input ID if the query is ambiguous (e.g., an range covering multiple methods).
+    - Safety limit: Returns at most 10 chunks per fuzzy ID.
   - If `collapseBody` is true, long snippets are truncated with a placeholder.
-  - Each result object includes the original `id` to clarify multiple requests.
+  - Each result object includes the **actual** `id` found in the database.
 
 #### `getRecentChanges`
 

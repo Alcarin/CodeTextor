@@ -228,7 +228,7 @@ The indexer (`backend/pkg/indexing/indexer.go`) uses semantic chunking with inte
 - Streamable HTTP transport using `modelcontextprotocol/go-sdk` with a shared server instance plus per-project bound servers resolved from `/mcp/<projectId>` URLs (calls without projectId are rejected)
 - Persisted config (host, port, protocol, autostart, max connections) stored in the config DB; optional auto-start on app launch
 - Status + tools telemetry emitted every 2s (`mcp:status`, `mcp:tools`) so the Vue MCP view can display uptime, active connections, total requests, and enablement
-- Tools: `getProjectDetails` (config & stats), `listFiles` (file tree), `semanticSearchFiles` (relevant files by concept), `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (source code snippets), `getRecentChanges` (recent mods), `grepSearch` (literal/regex search), `findReferences` (usage tracking), `findImplementations` (OOP polymorphism discovery), `getCallGraph` (call hierarchy), `findTodos` (marker discovery), and `getPackageGraph` (architectural dependency map).
+- Tools: `getProjectDetails` (config & stats), `listFiles` (file tree), `semanticSearchFiles` (relevant files by concept), `search` (semantic chunk retrieval), `outline` (symbol tree), `nodeSource` (robust source snippets with fuzzy matching), `getRecentChanges` (recent mods), `grepSearch` (literal/regex search), `findReferences` (usage tracking), `findImplementations` (OOP polymorphism discovery), `getCallGraph` (call hierarchy), `findTodos` (marker discovery), and `getPackageGraph` (architectural dependency map).
 
 ---
 
@@ -261,6 +261,7 @@ sequenceDiagram
 - **Asynchronous Decoupling**: CPU tasks (parsing) and GPU tasks (embedding) run in separate worker pools.
 - **Priority Queue**: User-initiated searches pre-empt background indexing tasks.
 - **Semantic Symbol IDs**: Instead of random hashes, symbols use deterministic IDs (`path|Lstart-end|name`). This allows external agents to reference code locations consistently without recalculating hashes.
+- **Fuzzy Resolution Fallback**: To improve resilience against imprecise AI queries, `nodeSource` includes a fuzzy resolver that parses ID components and searches for symbol/line intersections when an exact lookup fails.
 - **Normalization**: All database keys are strictly normalized to prevent duplicate discovery during indexing.
 
 ### Retrieval Flow

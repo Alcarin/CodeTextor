@@ -32,6 +32,7 @@ type QueryParser struct {
 	excludeImportRegex   *regexp.Regexp
 	symbolPatternRegexes []*regexp.Regexp
 	includedRanges       []sitter.Range
+	recursionDepth       int
 	mu                   sync.Mutex
 }
 
@@ -154,6 +155,13 @@ func NewQueryParser(config *LanguageConfig) (*QueryParser, error) {
 
 // Parse implements the LanguageParser interface.
 func (qp *QueryParser) Parse(source []byte) (ParseResult, error) {
+	// Recursion protection
+	const MaxRecursionDepth = 3
+	if qp.recursionDepth > MaxRecursionDepth {
+		// Stop deep recursion, just return basic result or empty to avoid infinite loop
+		return ParseResult{Language: qp.config.Language.Name, FilePath: ""}, nil
+	}
+
 	parser := sitter.NewParser()
 	defer parser.Close()
 	parser.SetLanguage(qp.language)
@@ -208,6 +216,11 @@ func (qp *QueryParser) SetSubLanguageManager(manager *SubLanguageManager) {
 // SetIncludedRanges implements the SubLanguageAware interface.
 func (qp *QueryParser) SetIncludedRanges(ranges []sitter.Range) {
 	qp.includedRanges = ranges
+}
+
+// SetRecursionDepth implements the SubLanguageAware interface.
+func (qp *QueryParser) SetRecursionDepth(depth int) {
+	qp.recursionDepth = depth
 }
 
 // Lock implements the SubLanguageAware interface.
@@ -886,7 +899,7 @@ func (qp *QueryParser) processSubLanguages(tree *sitter.Tree, source []byte, sym
 			continue
 		}
 
-		subSyms, subImports, subUsages := qp.subLangManager.BatchExtractAll(lang, source, batch.ranges, batch.parentNames, symbols)
+		subSyms, subImports, subUsages := qp.subLangManager.BatchExtractAll(lang, source, batch.ranges, batch.parentNames, symbols, qp.recursionDepth+1)
 		allSymbols = append(allSymbols, subSyms...)
 		allImports = append(allImports, subImports...)
 		allUsages = append(allUsages, subUsages...)

@@ -83,6 +83,7 @@ type ProjectServiceAPI interface {
 	GetFileOutline(projectID, path string) ([]*models.OutlineNode, error)
 	GetFileChunks(projectID, path string) ([]*models.Chunk, error)
 	GetChunkByID(projectID, chunkID string) (*models.Chunk, error)
+	GetChunksByIDFuzzy(projectID, chunkID string) ([]*models.Chunk, error)
 	GetOutlineTimestamps(projectID string) (map[string]int64, error)
 	ReadFileContent(projectID, relativePath string) (string, error)
 	StartIndexing(projectID string) error
@@ -1015,10 +1016,11 @@ func (s *ProjectService) getEmbeddingClient(project *models.Project) (embedding.
 		s.embeddingClients[meta.ID] = newClient
 		s.clientsMu.Unlock()
 
+		log.Printf("GPU Cache: Successfully initialized %s, triggering rebalance", meta.ID)
 		s.rebalanceBatchSizes()
 		return newClient, nil
 	case "onnx":
-		log.Printf("DEBUG: getEmbeddingClient: Backend is ONNX. enableONNXRuntime=%v", s.enableONNXRuntime)
+		log.Printf("GPU Cache: Requesting ONNX client for %s", meta.ID)
 		if !s.enableONNXRuntime {
 			loggedONNXWarning.Do(func() {
 				log.Printf("ONNX Runtime not detected: install the onnxruntime library, configure its path in Settings → Projects, and restart CodeTextor to enable FastEmbed/ONNX models.")
@@ -2237,6 +2239,20 @@ func (s *ProjectService) GetFileChunks(projectID, path string) ([]*models.Chunk,
 
 // GetChunkByID retrieves a single chunk using its identifier.
 func (s *ProjectService) GetChunkByID(projectID, chunkID string) (*models.Chunk, error) {
+	chunks, err := s.GetChunksByIDFuzzy(projectID, chunkID)
+	if err != nil {
+		return nil, err
+	}
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("chunk not found: %s", chunkID)
+	}
+	// Return the first one for existing single-chunk API compatibility
+	return chunks[0], nil
+}
+
+// GetChunksByIDFuzzy retrieves one or more chunks using an exact ID match or a fuzzy fallback
+// based on the components of a "talking" ID (path|lines|name).
+func (s *ProjectService) GetChunksByIDFuzzy(projectID, chunkID string) ([]*models.Chunk, error) {
 	if strings.TrimSpace(chunkID) == "" {
 		return nil, fmt.Errorf("chunk id cannot be empty")
 	}
@@ -2251,14 +2267,70 @@ func (s *ProjectService) GetChunkByID(projectID, chunkID string) (*models.Chunk,
 		return nil, err
 	}
 
+	// 1. Try exact match first
 	chunk, err := vectorStore.GetChunkByID(chunkID)
+	if err == nil {
+		chunk.ProjectID = project.ID
+		chunk.Embedding = []float32{}
+		return []*models.Chunk{chunk}, nil
+	}
+
+	// 2. Fallback to fuzzy parsing
+	filePath, startLine, endLine, symbolName := parseTalkingID(chunkID)
+	if filePath == "" {
+		return nil, fmt.Errorf("chunk not found and ID format is not parsable: %s", chunkID)
+	}
+
+	fuzzyResults, err := vectorStore.FindChunksFuzzy(filePath, startLine, endLine, symbolName)
 	if err != nil {
 		return nil, err
 	}
-	chunk.ProjectID = project.ID
-	// Avoid returning the embedding payload; keep it an empty slice for JSON schema compliance.
-	chunk.Embedding = []float32{}
-	return chunk, nil
+
+	// If still nothing found, but we have a file path, maybe the file doesn't exist or is not indexed
+	if len(fuzzyResults) == 0 {
+		return nil, fmt.Errorf("no chunks found for ID '%s' (fuzzy: path=%s, lines=%d-%d, name=%s)", 
+			chunkID, filePath, startLine, endLine, symbolName)
+	}
+
+	for _, c := range fuzzyResults {
+		c.ProjectID = project.ID
+		c.Embedding = []float32{}
+	}
+
+	return fuzzyResults, nil
+}
+
+// parseTalkingID attempts to extract components from a "talking" ID.
+// Format: path|Lstart-Lend|name or path|Lstart|name or path|name
+func parseTalkingID(id string) (path string, start, end int, name string) {
+	parts := strings.Split(id, "|")
+	if len(parts) < 2 {
+		return "", 0, 0, ""
+	}
+
+	path = parts[0]
+	
+	// Check if the second part is a line range (starts with 'L')
+	idx := 1
+	if strings.HasPrefix(parts[idx], "L") {
+		linePart := parts[idx][1:] // Remove 'L'
+		if strings.Contains(linePart, "-") {
+			rangeParts := strings.Split(linePart, "-")
+			fmt.Sscanf(rangeParts[0], "%d", &start)
+			fmt.Sscanf(rangeParts[1], "%d", &end)
+		} else {
+			fmt.Sscanf(linePart, "%d", &start)
+			end = start
+		}
+		idx++
+	}
+
+	// The remaining part (if any) is the symbol name
+	if idx < len(parts) {
+		name = parts[idx]
+	}
+
+	return path, start, end, name
 }
 
 // GetOutlineTimestamps retrieves all outline update timestamps for a project.
@@ -2776,6 +2848,14 @@ func (s *ProjectService) refreshVRAMBudget() int {
 
 // rebalanceBatchSizes redistributes the global VRAM budget among all active clients.
 func (s *ProjectService) rebalanceBatchSizes() {
+	// 1. Gather all necessary data OUTSIDE the client lock to avoid deadlocks with other locks (like m.mu or s.mu)
+	projects, _ := s.ListProjects()
+	
+	indexerStatuses := make(map[string]bool)
+	for _, p := range projects {
+		indexerStatuses[p.ID] = s.indexerManager.IsProjectIndexing(p.ID)
+	}
+
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
@@ -2787,10 +2867,7 @@ func (s *ProjectService) rebalanceBatchSizes() {
 	budget := s.refreshVRAMBudget()
 	now := time.Now()
 
-	// 1. Identifica modelli prioritari e modelli "attivi" con lavoro pendente
-	// heavyTasks usa projectID come chiave, dobbiamo mappare ai ModelID.
-	// Mappiamo anche se un modello ha un indicizzatore che sta producendo file.
-	projects, _ := s.ListProjects()
+	// 2. Identify priority models and active models based on pre-gathered data
 	modelIsHeavy := make(map[string]bool)
 	modelHasIndexerWork := make(map[string]bool)
 	modelProjectCount := make(map[string]int)
@@ -2804,7 +2881,7 @@ func (s *ProjectService) rebalanceBatchSizes() {
 		if s.heavyTasks[p.ID] {
 			modelIsHeavy[mID] = true
 		}
-		if s.indexerManager.IsProjectIndexing(p.ID) {
+		if indexerStatuses[p.ID] {
 			modelHasIndexerWork[mID] = true
 		}
 	}

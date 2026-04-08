@@ -430,7 +430,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | `semanticSearchFiles` | Suggests the most relevant files for a conceptual topic |
 | `search` | Semantic natural language search for relevant code chunks |
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
-| `nodeSource` | Precise source snippets for identified symbols (uses IDs) |
+| `nodeSource` | Robust source snippets for identified symbols (supports fuzzy matching) |
 | `getRecentChanges` | Show recently modified files (VCS) and indexed files (DB) |
 | `grepSearch` | Literal or regex search across files (OS-independent) |
 | `findReferences` | Find all locations where a symbol is referenced or used |

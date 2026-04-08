@@ -135,8 +135,16 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 
 		go func(file *models.FilePreview, wid int32) {
 			defer cpuWg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[%s] CRITICAL PANIC during CPU stage for %s: %v", i.project.Name, file.RelativePath, r)
+					initialScanWg.Done()
+					atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+				}
+			}()
 			
 			// 1. CPU Stage: Parser & Tokenizer
+			log.Printf("[%s] Starting CPU stage: %s", i.project.Name, file.RelativePath)
 			task := i.submitFileToIndices(file, wid)
 			
 			// 2. Release CPU semaphore early!
@@ -147,6 +155,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 				go i.processTask(task, &initialScanWg)
 			} else {
 				initialScanWg.Done()
+				atomic.AddInt32(&i.progress.ProcessedFiles, 1) // Increment for skipped files too
 			}
 		}(file, workerID)
 	}
@@ -154,13 +163,14 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 	initialScanWg.Wait()
 	i.isInitialScan = false
 
-	log.Printf("Initial indexing completed for project %s", i.project.Name)
+	log.Printf("[%s] Initial scan complete. Processed: %d, Errors: %v", i.project.Name, i.progress.ProcessedFiles, i.progress.Error)
 	
 	if i.OnInitialScanComplete != nil {
 		i.OnInitialScanComplete()
 	}
 
 	if i.project.Config.ContinuousIndexing {
+		log.Printf("[%s] Starting file watcher for continuous indexing...", i.project.Name)
 		i.startWatcher()
 	} else {
 		i.progress.Status = models.IndexingStatusCompleted
@@ -224,16 +234,25 @@ func (i *Indexer) processTask(task *embeddingTask, wg *sync.WaitGroup) {
 	if wg != nil {
 		defer wg.Done()
 	}
+	
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[%s] CRITICAL PANIC during GPU/DB stage for %s: %v", i.project.Name, task.filePath, r)
+			atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+		}
+	}()
 
 	if i.ctx.Err() != nil {
+		atomic.AddInt32(&i.progress.ProcessedFiles, 1) // Count it as processed (cancelled) to allow 100%
 		return
 	}
 
 	// 1. GPU Stage: Generate Embeddings
-	// This now includes centralized tokenization which is faster and doesn't block CPU scanning
+	log.Printf("[%s] Starting GPU stage: %s", i.project.Name, task.filePath)
 	embeddings, err := i.embeddingClient.GenerateEmbeddings(task.rawChunks)
 	if err != nil {
-		log.Printf("Failed to generate embeddings for %s: %v", task.filePath, err)
+		log.Printf("[%s] Failed to generate embeddings for %s: %v", i.project.Name, task.filePath, err)
+		atomic.AddInt32(&i.progress.ProcessedFiles, 1)
 		return
 	}
 
@@ -253,16 +272,24 @@ func (i *Indexer) processTask(task *embeddingTask, wg *sync.WaitGroup) {
 	)
 
 	if err != nil {
-		log.Printf("Failed to persist file %s: %v", task.filePath, err)
+		log.Printf("[%s] Failed to persist file %s: %v", i.project.Name, task.filePath, err)
+		atomic.AddInt32(&i.progress.ProcessedFiles, 1)
 		return
 	}
 
-	atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+	processed := atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+	total := atomic.LoadInt32(&i.progress.TotalFiles)
+	
 	if i.OnFileIndexed != nil && !i.isInitialScan {
 		i.OnFileIndexed(task.filePath)
 	}
 	i.emitFileUpdate(task.filePath)
-	log.Printf("[%s] Indexed: %s", i.project.Name, task.filePath)
+	
+	percent := 0.0
+	if total > 0 {
+		percent = float64(processed) / float64(total) * 100
+	}
+	log.Printf("[%s] Indexed (%d/%d, %.1f%%): %s", i.project.Name, processed, total, percent, task.filePath)
 }
 
 func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) *embeddingTask {
@@ -274,7 +301,6 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) 
 	sourceRaw, err := os.ReadFile(file.AbsolutePath)
 	if err != nil {
 		log.Printf("[%s] Error reading %s: %v", i.project.Name, file.AbsolutePath, err)
-		atomic.AddInt32(&i.progress.ProcessedFiles, 1)
 		return nil
 	}
 	
@@ -284,8 +310,7 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) 
 	existingFile, err := i.vectorStore.GetFile(file.RelativePath)
 	if err == nil && existingFile != nil {
 		if existingFile.Hash == fileHash && existingFile.LastModified == file.LastModified {
-			atomic.AddInt32(&i.progress.ProcessedFiles, 1)
-			return nil
+			return nil // Don't increment here, let Run handle it
 		}
 	}
 
@@ -298,7 +323,7 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) 
 		semanticChunks, parseResult, err := i.semanticChunker.ChunkFileWithResult(file.RelativePath, source)
 		if err != nil {
 			log.Printf("[%s] Error chunking %s: %v", i.project.Name, file.RelativePath, err)
-			return nil
+			return nil // Incremented by Run
 		}
 
 		dbChunks = make([]*models.Chunk, len(semanticChunks))

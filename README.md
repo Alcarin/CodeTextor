@@ -139,7 +139,7 @@ http://127.0.0.1:3030/mcp/<projectId>
 | `search` | Semantic natural language search (results grouped by file) |
 | `semanticSearchFiles` | Suggests the most relevant files (returns node IDs and similarity) |
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
-| `nodeSource` | Precise source snippets for an ARRAY of IDs |
+| `nodeSource` | Robust source snippets for an ARRAY of IDs (supports fuzzy matching) |
 | `getRecentChanges` | Recently modified (VCS) and indexed (DB) files |
 | `grepSearch` | Literal or regex search (OS-independent). Validates path existence. |
 | `findReferences` | Find all locations where a symbol is referenced or used |

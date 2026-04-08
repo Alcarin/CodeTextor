@@ -134,6 +134,7 @@ type LanguageParser interface {
 type SubLanguageAware interface {
 	SetSubLanguageManager(manager *SubLanguageManager)
 	SetIncludedRanges(ranges []sitter.Range)
+	SetRecursionDepth(depth int)
 	Lock()
 	Unlock()
 }

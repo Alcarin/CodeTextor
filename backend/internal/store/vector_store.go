@@ -1174,6 +1174,100 @@ func (s *VectorStore) GetChunkByID(chunkID string) (*models.Chunk, error) {
 	return chunk, nil
 }
 
+// FindChunksFuzzy searches for chunks in a file that match a symbol name or intersect a line range.
+// It limits results to the top 10 matches to avoid context bloat.
+func (s *VectorStore) FindChunksFuzzy(filePath string, startLine, endLine int, symbolName string) ([]*models.Chunk, error) {
+	normalizedPath, err := normalizeOutlinePath(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	fileID, _, err := s.resolveFileID(normalizedPath, false)
+	if err != nil {
+		// If file doesn't exist, we can't find chunks for it fuzzy or not.
+		if strings.Contains(err.Error(), "file not found") {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Priority order:
+	// 1. Exact symbol name match
+	// 2. Line range intersection (if lines provided)
+	// We use coalesce-like logic in ORDER BY to ensure best matches come first.
+	query := `
+		SELECT
+			c.id, f.path, c.content, c.embedding_model_id,
+			c.line_start, c.line_end, c.char_start, c.char_end,
+			c.language, c.symbol_name, c.symbol_kind, c.parent, c.signature, c.visibility,
+			c.package_name, c.doc_string, c.token_count, c.is_collapsed, c.source_code,
+			c.created_at, c.updated_at
+		FROM chunks c
+		JOIN files f ON f.pk = c.file_id
+		WHERE c.file_id = ? 
+		  AND (
+			  (? != '' AND c.symbol_name = ?) 
+			  OR 
+			  (? > 0 AND ? > 0 AND c.line_start <= ? AND c.line_end >= ?)
+		  )
+		ORDER BY 
+			CASE WHEN ? != '' AND c.symbol_name = ? THEN 0 ELSE 1 END,
+			c.line_start ASC
+		LIMIT 10
+	`
+
+	rows, err := s.db.Query(query, 
+		fileID, 
+		symbolName, symbolName, 
+		startLine, endLine, endLine, startLine,
+		symbolName, symbolName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fuzzy query chunks for file %s: %w", normalizedPath, err)
+	}
+	defer rows.Close()
+
+	var chunks []*models.Chunk
+	for rows.Next() {
+		chunk := &models.Chunk{}
+		var language, sName, symbolKind, parent, signature, visibility sql.NullString
+		var packageName, docString, sourceCode sql.NullString
+		var tokenCount sql.NullInt64
+		var isCollapsed sql.NullBool
+
+		err := rows.Scan(
+			&chunk.ID, &chunk.FilePath, &chunk.Content, &chunk.EmbeddingModelID,
+			&chunk.LineStart, &chunk.LineEnd, &chunk.CharStart, &chunk.CharEnd,
+			&language, &sName, &symbolKind, &parent, &signature, &visibility,
+			&packageName, &docString, &tokenCount, &isCollapsed, &sourceCode,
+			&chunk.CreatedAt, &chunk.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan fuzzy chunk: %w", err)
+		}
+
+		if language.Valid { chunk.Language = language.String }
+		if sName.Valid { chunk.SymbolName = sName.String }
+		if symbolKind.Valid { chunk.SymbolKind = symbolKind.String }
+		if parent.Valid { chunk.Parent = parent.String }
+		if signature.Valid { chunk.Signature = signature.String }
+		if visibility.Valid { chunk.Visibility = visibility.String }
+		if packageName.Valid { chunk.PackageName = packageName.String }
+		if docString.Valid { chunk.DocString = docString.String }
+		if tokenCount.Valid { chunk.TokenCount = int(tokenCount.Int64) }
+		if isCollapsed.Valid { chunk.IsCollapsed = isCollapsed.Bool }
+		if sourceCode.Valid { chunk.SourceCode = sourceCode.String }
+
+		chunk.Embedding = nil
+		chunks = append(chunks, chunk)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating fuzzy chunks: %w", err)
+	}
+
+	return chunks, nil
+}
+
 // DeleteFileChunks removes all chunks, symbols, and outline nodes associated with a file.
 func (s *VectorStore) DeleteFileChunks(filePath string) error {
 	fileID, normalizedPath, err := s.resolveFileID(filePath, true)

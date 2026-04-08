@@ -146,7 +146,7 @@ func (m *SubLanguageManager) ProcessEmbeddedCode(
 	}
 
 	// 3. Delegate to the known language extractor if we have a parser for it
-	return m.ExtractKnownLanguage(lang, fullSource, startByte, endByte, startPoint, endPoint, parentName)
+	return m.ExtractKnownLanguage(lang, fullSource, startByte, endByte, startPoint, endPoint, parentName, 0)
 }
 
 // ExtractKnownLanguage skips statistical detection and forcefully applies a specific language parser.
@@ -157,6 +157,7 @@ func (m *SubLanguageManager) ExtractKnownLanguage(
 	startByte, endByte uint32,
 	startPoint, endPoint sitter.Point,
 	parentName string,
+	depth int,
 ) []Symbol {
 	rng := sitter.Range{
 		StartByte:  uint(startByte),
@@ -164,7 +165,7 @@ func (m *SubLanguageManager) ExtractKnownLanguage(
 		StartPoint: sitter.Point{Row: uint(startPoint.Row), Column: uint(startPoint.Column)},
 		EndPoint:   sitter.Point{Row: uint(endPoint.Row), Column: uint(endPoint.Column)},
 	}
-	symbols, _, _ := m.BatchExtractAll(langName, fullSource, []sitter.Range{rng}, []string{parentName}, nil)
+	symbols, _, _ := m.BatchExtractAll(langName, fullSource, []sitter.Range{rng}, []string{parentName}, nil, depth)
 	return symbols
 }
 
@@ -177,6 +178,7 @@ func (m *SubLanguageManager) BatchExtractAll(
 	ranges []sitter.Range,
 	parentNames []string,
 	mainSymbols []Symbol,
+	depth int,
 ) ([]Symbol, []string, []ParserSymbolUsage) {
 	if m == nil || len(ranges) == 0 {
 		return nil, nil, nil
@@ -184,7 +186,7 @@ func (m *SubLanguageManager) BatchExtractAll(
 
 	// Handle "detect" by grouping ranges by their identified language
 	if strings.ToLower(langName) == "detect" {
-		return m.batchExtractWithDetection(fullSource, ranges, parentNames, mainSymbols)
+		return m.batchExtractWithDetection(fullSource, ranges, parentNames, mainSymbols, depth)
 	}
 
 	targetLang := ""
@@ -202,11 +204,14 @@ func (m *SubLanguageManager) BatchExtractAll(
 
 	parser := m.parsers[targetLang]
 
-	// 0. Set included ranges if supported (using lock to ensure atomicity of state + parse)
+	// 0. Set included ranges and depth if supported (using lock to ensure atomicity of state + parse)
 	if aware, ok := parser.(SubLanguageAware); ok {
 		aware.Lock()
 		defer aware.Unlock()
 		aware.SetIncludedRanges(ranges)
+		aware.SetRecursionDepth(depth)
+		// Reset depth after parse to avoid state leak for unrelated calls
+		defer aware.SetRecursionDepth(0)
 	}
 
 	// 1. Perform full parse (this enables recursion if it's a QueryParser)
@@ -241,6 +246,7 @@ func (m *SubLanguageManager) batchExtractWithDetection(
 	ranges []sitter.Range,
 	parentNames []string,
 	mainSymbols []Symbol,
+	depth int,
 ) ([]Symbol, []string, []ParserSymbolUsage) {
 	// Group ranges by identified language
 	type group struct {
@@ -315,7 +321,7 @@ func (m *SubLanguageManager) batchExtractWithDetection(
 	var allUsages []ParserSymbolUsage
 
 	for lang, g := range groups {
-		syms, imps, usgs := m.BatchExtractAll(lang, fullSource, g.ranges, g.parentNames, mainSymbols)
+		syms, imps, usgs := m.BatchExtractAll(lang, fullSource, g.ranges, g.parentNames, mainSymbols, depth)
 		allSymbols = append(allSymbols, syms...)
 		allImports = append(allImports, imps...)
 		allUsages = append(allUsages, usgs...)
@@ -332,7 +338,7 @@ func (m *SubLanguageManager) BatchExtractKnownLanguage(
 	ranges []sitter.Range,
 	parentNames []string,
 ) []Symbol {
-	symbols, _, _ := m.BatchExtractAll(langName, fullSource, ranges, parentNames, nil)
+	symbols, _, _ := m.BatchExtractAll(langName, fullSource, ranges, parentNames, nil, 0)
 	return symbols
 }
 

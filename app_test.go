@@ -29,6 +29,7 @@ type MockProjectServiceAPI struct {
 	GetFileOutlineFunc           func(projectID, path string) ([]*models.OutlineNode, error)
 	GetFileChunksFunc            func(projectID, path string) ([]*models.Chunk, error)
 	GetChunkByIDFunc             func(projectID, chunkID string) (*models.Chunk, error)
+	GetChunksByIDFuzzyFunc       func(projectID, chunkID string) ([]*models.Chunk, error)
 	GetOutlineTimestampsFunc     func(projectID string) (map[string]int64, error)
 	ReadFileContentFunc          func(projectID, relativePath string) (string, error)
 	StartIndexingFunc            func(projectID string) error
@@ -152,6 +153,12 @@ func (m *MockProjectServiceAPI) GetFileChunks(projectID, path string) ([]*models
 func (m *MockProjectServiceAPI) GetChunkByID(projectID, chunkID string) (*models.Chunk, error) {
 	if m.GetChunkByIDFunc != nil {
 		return m.GetChunkByIDFunc(projectID, chunkID)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetChunksByIDFuzzy(projectID, chunkID string) ([]*models.Chunk, error) {
+	if m.GetChunksByIDFuzzyFunc != nil {
+		return m.GetChunksByIDFuzzyFunc(projectID, chunkID)
 	}
 	return nil, nil
 }

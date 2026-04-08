@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Enhanced `nodeSource` Tool (Fuzzy Matching)**: Implemented a robust resolution system for node IDs. When an exact match fails, the server now attempts to interpret user intent by parsing "talking" IDs (`path|name`, `path|L-range`), searching for relevant symbols or line intersections, and returning multiple candidates if the query is ambiguous.
 - **Enhanced `listFiles` Tool**: Rewritten for tabular output (`Lang`, `Size`, `Lines`, `Sym`) and added support for `extension` and `depth` filters.
 - **Recursive Sub-Language Parsing**: Improved support for nested code (e.g., PHP -> HTML -> JS) using the `"detect"` keyword in TOML configurations and automated `go-enry` detection.
 - **Symbol Language Tracking**: Added `language` column to the `symbols` table for precise multi-language symbol identification.

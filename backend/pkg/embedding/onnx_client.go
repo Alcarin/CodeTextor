@@ -394,9 +394,19 @@ func (c *ONNXEmbeddingClient) GenerateEmbeddings(texts []string) ([][]float32, e
 				return
 			}
 			
-			tkChunk := <-tkResChan
-			if tkChunk == nil {
-				errs[idx] = fmt.Errorf("tokenization failed")
+			// Wait for tokenization with safety select
+			var tkChunk *TokenizedChunk
+			select {
+			case tkChunk = <-tkResChan:
+				if tkChunk == nil {
+					errs[idx] = fmt.Errorf("tokenization failed: result was nil")
+					return
+				}
+			case <-time.After(30 * time.Second):
+				errs[idx] = fmt.Errorf("tokenization timeout")
+				return
+			case <-c.stopChan:
+				errs[idx] = fmt.Errorf("client closed during tokenization")
 				return
 			}
 			
@@ -415,11 +425,20 @@ func (c *ONNXEmbeddingClient) GenerateEmbeddings(texts []string) ([][]float32, e
 				return
 			}
 			
-			res := <-embResChan
-			if res.err != nil {
-				errs[idx] = res.err
-			} else {
-				results[idx] = res.embedding
+			// Wait for embedding result with safety select
+			select {
+			case res := <-embResChan:
+				if res.err != nil {
+					errs[idx] = res.err
+				} else {
+					results[idx] = res.embedding
+				}
+			case <-time.After(60 * time.Second):
+				errs[idx] = fmt.Errorf("embedding timeout (GPU might be hung)")
+				return
+			case <-c.stopChan:
+				errs[idx] = fmt.Errorf("client closed during embedding")
+				return
 			}
 		}(i, t)
 	}

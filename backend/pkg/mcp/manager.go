@@ -436,7 +436,7 @@ func (m *Manager) buildServerInstructions(boundProjectID string) string {
 	b.WriteString("3. 'semanticSearchFiles': High-level exploration. Suggests the most relevant FILES for a concept (e.g. 'Where is authentication?'). Returns node IDs and similarity.\n")
 	b.WriteString("4. 'search': SEMANTIC search for CONTEXT. Finds relevant code snippets (chunks) by intent.\n")
 	b.WriteString("5. 'outline': Map the symbols (classes, functions) of a specific file.\n")
-	b.WriteString("6. 'nodeSource': Fetch source code for an ARRAY of node IDs.\n")
+	b.WriteString("6. 'nodeSource': Fetch source code for an ARRAY of node IDs. Supports FUZZY IDs (e.g. 'path|name' or 'path|Lstart-end'), returning multiple results if ambiguous.\n")
 	b.WriteString("\nNote: All responses use RELATIVE paths from the project root. listFiles and grepSearch validate path existence. Tools are read-only.")
 	return b.String()
 }
@@ -1313,31 +1313,33 @@ func (m *Manager) handleNodeSource(boundProjectID string) sdkmcp.ToolHandlerFor[
 			if strings.TrimSpace(id) == "" {
 				continue
 			}
-			chunk, err := m.projectService.GetChunkByID(projectID, id)
+			chunks, err := m.projectService.GetChunksByIDFuzzy(projectID, id)
 			if err != nil {
 				return nil, nodeSourceOutput{}, fmt.Errorf("error fetching id %s: %w", id, err)
 			}
 	
-			source := strings.TrimSpace(chunk.SourceCode)
-			if source == "" {
-				source = chunk.Content
-			}
-	
-			if input.CollapseBody {
-				if collapsed, ok := collapseSourceBody(source, 120, 60, 40); ok {
-					source = collapsed
+			for _, chunk := range chunks {
+				source := strings.TrimSpace(chunk.SourceCode)
+				if source == "" {
+					source = chunk.Content
 				}
+		
+				if input.CollapseBody {
+					if collapsed, ok := collapseSourceBody(source, 120, 60, 40); ok {
+						source = collapsed
+					}
+				}
+		
+				results = append(results, nodeSourceResult{
+					ID:        chunk.ID, // Include the real chunk ID
+					FilePath:  chunk.FilePath,
+					Source:    source,
+					StartLine: chunk.LineStart,
+					EndLine:   chunk.LineEnd,
+					Language:  chunk.Language,
+					Symbol:    chunk.SymbolName,
+				})
 			}
-	
-			results = append(results, nodeSourceResult{
-				ID:        id,
-				FilePath:  chunk.FilePath,
-				Source:    source,
-				StartLine: chunk.LineStart,
-				EndLine:   chunk.LineEnd,
-				Language:  chunk.Language,
-				Symbol:    chunk.SymbolName,
-			})
 		}
 		
 		output := nodeSourceOutput{
