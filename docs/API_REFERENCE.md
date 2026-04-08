@@ -108,10 +108,10 @@ index; requests are read-only.
 #### `findReferences`
 
 - **Input**: `{ nodeID?: string, symbolName?: string, path?: string }`
-- **Response**: `{ files: { path, references: { line, content }[] }[] }`
+- **Response**: `{ targets: { targetId, targetPath, targetLine, results: [][]any }[] }`
   - Highly efficient exact reference tracking without fuzzy similarity.
-  - Grouped by file. Includes exact line number and code snippet where the symbol is referenced.
-  - Provide `path` alongside `symbolName` if multiple symbols share the same name across files.
+  - `results` is a compact tabular format `[File, Line, Caller, Kind, Content]` containing exact code snippets and caller metadata (resolved via DB join).
+  - Handles ambiguous symbols gracefully: if `symbolName` matches multiple targets and context is insufficient to disambiguate, the tool will return a dedicated target block for each possible match instead of failing.
 
 #### `getCallGraph`
 

@@ -1836,7 +1836,7 @@ func (s *VectorStore) InsertSymbolUsage(usage *models.SymbolUsage) error {
 func (s *VectorStore) GetSymbolUsages(targetNodeID string) ([]*models.SymbolUsage, error) {
 	rows, err := s.db.Query(`
 		SELECT 
-			u.id, f.path, u.caller_node_id, u.target_node_id, 
+			u.id, f.path, u.caller_node_id, n.name, n.kind, u.target_node_id, 
 			u.line, u.column
 		FROM symbol_usages u
 		JOIN outline_nodes n ON n.id = u.caller_node_id
@@ -1854,7 +1854,7 @@ func (s *VectorStore) GetSymbolUsages(targetNodeID string) ([]*models.SymbolUsag
 		usage := &models.SymbolUsage{}
 		var targetID sql.NullString
 		err := rows.Scan(
-			&usage.ID, &usage.FilePath, &usage.CallerNodeID, &targetID,
+			&usage.ID, &usage.FilePath, &usage.CallerNodeID, &usage.CallerName, &usage.CallerKind, &targetID,
 			&usage.Line, &usage.Column,
 		)
 		if err != nil {
@@ -2031,9 +2031,10 @@ func (s *VectorStore) UpdateSymbolUsageTargets(updates map[int64]string) error {
 // FindSymbolNodesByName searches for all outline nodes matching a given name across the project.
 func (s *VectorStore) FindSymbolNodesByName(name string) ([]*models.OutlineNode, error) {
 	rows, err := s.db.Query(`
-		SELECT id, file_id, parent_id, name, kind, start_line, end_line, position
-		FROM outline_nodes
-		WHERE name = ?
+		SELECT n.id, n.file_id, n.parent_id, n.name, n.kind, n.start_line, n.end_line, n.position, f.path
+		FROM outline_nodes n
+		JOIN files f ON f.pk = n.file_id
+		WHERE n.name = ?
 	`, name)
 	if err != nil {
 		return nil, err
@@ -2046,7 +2047,7 @@ func (s *VectorStore) FindSymbolNodesByName(name string) ([]*models.OutlineNode,
 		var parentID sql.NullString
 		var fileID int64
 		var position int
-		if err := rows.Scan(&n.ID, &fileID, &parentID, &n.Name, &n.Kind, &n.StartLine, &n.EndLine, &position); err != nil {
+		if err := rows.Scan(&n.ID, &fileID, &parentID, &n.Name, &n.Kind, &n.StartLine, &n.EndLine, &position, &n.FilePath); err != nil {
 			return nil, err
 		}
 		nodes = append(nodes, n)

@@ -73,17 +73,26 @@ func TestProjectService_StaticAnalysis(t *testing.T) {
 	t.Run("FindReferences_ByID", func(t *testing.T) {
 		refs, err := service.FindReferences(project.ID, "node-target", "", "")
 		assert.NoError(err)
-		assert.Len(refs.Files, 1)
-		assert.Equal("test.go", refs.Files[0].Path)
-		assert.Len(refs.Files[0].References, 1)
-		assert.Equal(3, refs.Files[0].References[0].Line)
+		
+		assert.Len(refs.Targets, 1)
+		target := refs.Targets[0]
+		
+		// Header + 1 data row
+		assert.Len(target.Results, 2)
+		assert.Equal("File", target.Results[0][0])
+		
+		row := target.Results[1]
+		assert.Equal("test.go", row[0])   // File
+		assert.Equal(3, row[1])           // Line
+		assert.Equal("main", row[2])       // Caller
+		assert.Equal("function", row[3])  // Kind
 	})
 
 	t.Run("FindReferences_ByName", func(t *testing.T) {
 		refs, err := service.FindReferences(project.ID, "", "Calculate", "")
 		assert.NoError(err)
-		assert.Len(refs.Files, 1)
-		assert.Len(refs.Files[0].References, 1)
+		assert.Len(refs.Targets, 1)
+		assert.Len(refs.Targets[0].Results, 2)
 	})
 
 	// 3. Test GetCallGraph

@@ -498,7 +498,7 @@ func (m *Manager) initTools() {
 		},
 		"findReferences": {
 			name:        "findReferences",
-			description: "IMPACT ANALYSIS. MANDATORY before modifications. Finds all exact call-site references of a symbol across the whole project to avoid regressions.",
+			description: "IMPACT ANALYSIS. MANDATORY before modifications. Finds all exact call-site references of a symbol across the whole project. Returns results in a compact tabular format [File, Line, Caller, Kind, Content].",
 		},
 		"findImplementations": {
 			name:        "findImplementations",

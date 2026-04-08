@@ -311,11 +311,13 @@ type Symbol struct {
 // The 'Raw' fields are internal and used by the Linker to resolve TargetNodeID.
 type SymbolUsage struct {
 	ID               int64  `json:"id"`
-	FilePath         string `json:"filePath"`              // Resolved file path where usage occurs
-	CallerNodeID     string `json:"callerNodeId"`         // Node containing the usage
-	TargetNodeID     string `json:"targetNodeId,omitempty"` // Resolved target symbol node ID
-	RawTargetName    string `json:"-"`                    // Raw name as it appears in code
-	RawTargetContext string `json:"-"`                    // Extra context for resolution (e.g. receiver)
+	FilePath         string `json:"filePath"`
+	CallerNodeID     string `json:"callerNodeId"`
+	CallerName       string `json:"callerName,omitempty"`
+	CallerKind       string `json:"callerKind,omitempty"`
+	TargetNodeID     string `json:"targetNodeId,omitempty"`
+	RawTargetName    string `json:"-"`
+	RawTargetContext string `json:"-"`
 	Line             int    `json:"line"`
 	Column           int    `json:"column"`
 }
@@ -400,9 +402,17 @@ type FileSymbolReferences struct {
 	References []SymbolReference `json:"references"`
 }
 
-// SymbolReferencesResponse wraps grouped symbol references.
+// TargetUsages groups references for a single resolved symbol target in tabular format [File, Line, Caller, Kind, Content].
+type TargetUsages struct {
+	TargetID   string  `json:"targetId"`
+	TargetPath string  `json:"targetPath,omitempty"`
+	TargetLine int     `json:"targetLine,omitempty"`
+	Results    [][]any `json:"results"`
+}
+
+// SymbolReferencesResponse wraps one or more target usages.
 type SymbolReferencesResponse struct {
-	Files []FileSymbolReferences `json:"files"`
+	Targets []TargetUsages `json:"targets"`
 }
 
 // CallDetails represents a single call in the graph with context.

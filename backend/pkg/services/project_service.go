@@ -1881,9 +1881,19 @@ func (s *ProjectService) FindReferences(projectID, nodeID, symbolName, path stri
 		return nil, err
 	}
 
-	targetID := nodeID
-	if targetID == "" && symbolName != "" {
-		candidates, err := vs.FindSymbolNodesByName(symbolName)
+	var candidates []*models.OutlineNode
+
+	if nodeID != "" {
+		nodes, err := vs.GetOutlineNodes([]string{nodeID})
+		if err != nil {
+			return nil, err
+		}
+		if len(nodes) == 0 {
+			return nil, fmt.Errorf("node with ID '%s' not found", nodeID)
+		}
+		candidates = nodes
+	} else if symbolName != "" {
+		candidates, err = vs.FindSymbolNodesByName(symbolName)
 		if err != nil {
 			return nil, err
 		}
@@ -1892,89 +1902,80 @@ func (s *ProjectService) FindReferences(projectID, nodeID, symbolName, path stri
 			return nil, fmt.Errorf("symbol '%s' not found", symbolName)
 		}
 		
-		// If path is provided, filter candidates
+		// If path is provided, filter candidates strictly
 		if path != "" {
+			var filtered []*models.OutlineNode
 			for _, c := range candidates {
 				if strings.Contains(c.FilePath, path) {
-					targetID = c.ID
-					break
+					filtered = append(filtered, c)
 				}
 			}
-		}
-		
-		if targetID == "" {
-			if len(candidates) > 1 {
-				return nil, fmt.Errorf("symbol '%s' is ambiguous (found %d candidates), please provide a path", symbolName, len(candidates))
+			if len(filtered) > 0 {
+				candidates = filtered
 			}
-			targetID = candidates[0].ID
 		}
-	}
-
-	if targetID == "" {
+	} else {
 		return nil, fmt.Errorf("either nodeID or symbolName must be provided")
 	}
 
-	usages, err := vs.GetSymbolUsages(targetID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Group by file path
-	fileGroups := make(map[string][]int)
-	for _, u := range usages {
-		fileGroups[u.FilePath] = append(fileGroups[u.FilePath], u.Line)
-	}
-
 	response := &models.SymbolReferencesResponse{
-		Files: make([]models.FileSymbolReferences, 0, len(fileGroups)),
+		Targets: make([]models.TargetUsages, 0, len(candidates)),
 	}
 
-	for filePath, lines := range fileGroups {
-		// Unique lines to avoid duplicates if multiple calls on same line
-		sort.Ints(lines)
-		uniqueLines := make([]int, 0, len(lines))
-		seen := make(map[int]bool)
-		for _, l := range lines {
-			if !seen[l] {
-				uniqueLines = append(uniqueLines, l)
-				seen[l] = true
-			}
+	// Cache for file lines to avoid re-reading for multiple references in same file
+	fileLinesCache := make(map[string][]string)
+
+	for _, candidate := range candidates {
+		usages, err := vs.GetSymbolUsages(candidate.ID)
+		if err != nil {
+			continue // Skip on error, though it shouldn't happen often
 		}
 
-		fileRef := models.FileSymbolReferences{
-			Path:       filePath,
-			References: make([]models.SymbolReference, 0, len(uniqueLines)),
+		// Tabular format for this target: [File, Line, Caller, Kind, Content]
+		results := [][]any{
+			{"File", "Line", "Caller", "Kind", "Content"},
 		}
 
-		// Read file content for snippets
-		content, err := s.ReadFileContent(projectID, filePath)
-		if err == nil {
-			sourceLines := strings.Split(content, "\n")
-			for _, l := range uniqueLines {
-				// Lines in DB are 1-based
-				if l > 0 && l <= len(sourceLines) {
-					fileRef.References = append(fileRef.References, models.SymbolReference{
-						Line:    l,
-						Content: strings.TrimSpace(sourceLines[l-1]),
-					})
+		for _, u := range usages {
+			lines, ok := fileLinesCache[u.FilePath]
+			if !ok {
+				content, err := s.ReadFileContent(projectID, u.FilePath)
+				if err == nil {
+					lines = strings.Split(content, "\n")
+					fileLinesCache[u.FilePath] = lines
+				} else {
+					fileLinesCache[u.FilePath] = nil // Mark as failed
 				}
 			}
-		} else {
-			// Fallback if file read fails: at least provide line numbers
-			for _, l := range uniqueLines {
-				fileRef.References = append(fileRef.References, models.SymbolReference{
-					Line: l,
-				})
+
+			contentSnippet := ""
+			if lines != nil && u.Line > 0 && u.Line <= len(lines) {
+				contentSnippet = strings.TrimSpace(lines[u.Line-1])
 			}
+
+			caller := u.CallerName
+			kind := u.CallerKind
+			if caller == "" {
+				caller = "root"
+				kind = "file"
+			}
+
+			results = append(results, []any{
+				u.FilePath,
+				u.Line,
+				caller,
+				kind,
+				contentSnippet,
+			})
 		}
 
-		response.Files = append(response.Files, fileRef)
+		response.Targets = append(response.Targets, models.TargetUsages{
+			TargetID:   candidate.ID,
+			TargetPath: candidate.FilePath,
+			TargetLine: int(candidate.StartLine),
+			Results:    results,
+		})
 	}
-
-	// Sort files by path for deterministic output
-	sort.Slice(response.Files, func(i, j int) bool {
-		return response.Files[i].Path < response.Files[j].Path
-	})
 
 	return response, nil
 }
