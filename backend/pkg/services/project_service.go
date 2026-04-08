@@ -2675,7 +2675,7 @@ func (s *ProjectService) GrepSearch(projectID string, query string, isRegex bool
 	}
 
 	res := &models.GrepSearchResponse{
-		Results: []models.GrepFileMatch{},
+		Results: [][]any{{"File", "Line", "Content"}},
 	}
 	startTime := time.Now()
 
@@ -2707,14 +2707,14 @@ func (s *ProjectService) GrepSearch(projectID string, query string, isRegex bool
 		}
 
 		// Perform search in file
-		fileMatches, count, searchErr := s.searchInFile(path, root, query, isRegex, re)
+		fileMatches, searchErr := s.searchInFile(path, root, query, isRegex, re)
 		if searchErr != nil {
 			return nil
 		}
 
-		if count > 0 {
-			res.Results = append(res.Results, *fileMatches)
-			totalMatches += count
+		if len(fileMatches) > 0 {
+			res.Results = append(res.Results, fileMatches...)
+			totalMatches += len(fileMatches)
 		}
 
 		if totalMatches >= limit {
@@ -2734,18 +2734,15 @@ func (s *ProjectService) GrepSearch(projectID string, query string, isRegex bool
 	return res, nil
 }
 
-func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re *regexp.Regexp) (*models.GrepFileMatch, int, error) {
+func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re *regexp.Regexp) ([][]any, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer f.Close()
 
 	relPath, _ := utils.RelativePathWithinRoot(root, path)
-	fileMatch := &models.GrepFileMatch{
-		Path:    relPath,
-		Matches: []models.GrepLine{},
-	}
+	matches := [][]any{}
 
 	scanner := bufio.NewScanner(f)
 	// Limit line length to prevent issues with huge files/binary
@@ -2772,9 +2769,10 @@ func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re
 			if len(content) > 500 {
 				content = content[:497] + "..."
 			}
-			fileMatch.Matches = append(fileMatch.Matches, models.GrepLine{
-				Line:    lineNum,
-				Content: content,
+			matches = append(matches, []any{
+				relPath,
+				lineNum,
+				content,
 			})
 		}
 
@@ -2783,7 +2781,7 @@ func (s *ProjectService) searchInFile(path, root, query string, isRegex bool, re
 		}
 	}
 
-	return fileMatch, count, scanner.Err()
+	return matches, scanner.Err()
 }
 
 // startEcoModeCleaner periodically checks for idle embedding clients and unloads them

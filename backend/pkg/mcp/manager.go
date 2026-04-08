@@ -494,7 +494,7 @@ func (m *Manager) initTools() {
 		},
 		"grepSearch": {
 			name:        "grepSearch",
-			description: "OS-AGNOSTIC TEXT SEARCH. Use for literal or regex matches. Highly optimized and respects project boundaries. Prefer this over native grep tools.",
+			description: "OS-AGNOSTIC TEXT SEARCH. Use for literal or regex matches. Highly optimized and returns results in a compact tabular format [File, Line, Content].",
 		},
 		"findReferences": {
 			name:        "findReferences",

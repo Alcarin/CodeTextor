@@ -1,20 +1,9 @@
 package models
 
-// GrepLine rappresenta una singola riga corrispondente in un file.
-type GrepLine struct {
-	Line    int    `json:"line"`
-	Content string `json:"content"`
-}
-
-// GrepFileMatch raggruppa le corrispondenze trovate all'interno di un singolo file.
-type GrepFileMatch struct {
-	Path    string     `json:"path"`
-	Matches []GrepLine `json:"matches"`
-}
-
 // GrepSearchResponse rappresenta la risposta strutturata per una ricerca testuale.
+// Utilizza un formato tabulare [File, Line, Content] per ottimizzare l'output JSON.
 type GrepSearchResponse struct {
-	Results      []GrepFileMatch `json:"results"`
-	TotalMatches int             `json:"total"`
-	QueryTimeMs  int64           `json:"timeMs"`
+	Results      [][]any `json:"results"` // Tabella di risultati: [Path, Line, Content]
+	TotalMatches int     `json:"total"`
+	QueryTimeMs  int64   `json:"timeMs"`
 }

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - **`findTodos` Tool Optimization (Breaking Change)**: Refactored the tool to return a structured map categorized by marker type (TODO, FIXME, HACK, etc.) instead of a flat list. This change significantly reduces token overhead by using semantic Symbol IDs and includes a new `category` input filter for surgical discovery.
+- **`grepSearch` Tool Optimization (Breaking Change)**: Refactored the tool output from a nested JSON structure to a compact tabular format (`[File, Line, Content]`). This significantly reduces token consumption for AI agents while maintaining visibility of matching code lines.
 
 - **Enhanced `nodeSource` Tool (Fuzzy Matching)**: Implemented a robust resolution system for node IDs. When an exact match fails, the server now attempts to interpret user intent by parsing "talking" IDs (`path|name`, `path|L-range`), searching for relevant symbols or line intersections, and returning multiple candidates if the query is ambiguous.
 - **Enhanced `listFiles` Tool**: Rewritten for tabular output (`Lang`, `Size`, `Lines`, `Sym`) and added support for `extension` and `depth` filters.

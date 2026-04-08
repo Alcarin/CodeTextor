@@ -98,12 +98,12 @@ index; requests are read-only.
 #### `grepSearch`
 
 - **Input**: `{ query: string, isRegex?: boolean, path?: string (relative), limit?: number (default 100) }`
-- **Response**: `{ results: { path, matches: { line, content }[] }[], total: number, timeMs: number }`
+- **Response**: `{ results: [][]any, total: number, timeMs: number }`
   - High-precision search for exact terms or regex patterns.
+  - Returns results in a compact tabular format: `["File", "Line", "Content"]`.
   - Validates that `path` exists; returns an error with the project root if it does not.
-  - Results are grouped by file to minimize path redundancy.
   - `content` is automatically truncated to 500 characters to reduce token consumption.
-  - Maximum of 50 matches per file.
+  - Maximum of 50 matches per file to avoid huge payloads.
 
 #### `findReferences`
 

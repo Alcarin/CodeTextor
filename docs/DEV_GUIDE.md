@@ -432,7 +432,7 @@ Expose lightweight, composable tools over the **streamable HTTP** transport (mod
 | `outline` | Hierarchical symbol tree (classes, functions) for a file |
 | `nodeSource` | Robust source snippets for identified symbols (supports fuzzy matching) |
 | `getRecentChanges` | Show recently modified files (VCS) and indexed files (DB) |
-| `grepSearch` | Literal or regex search across files (OS-independent) |
+| `grepSearch` | Literal or regex search across files (OS-independent) [File, Line, Content] |
 | `findReferences` | Find all locations where a symbol is referenced or used |
 | `findImplementations` | Find all classes or interfaces that implement an interface |
 | `getCallGraph` | Trace function execution paths (callers/callees) |
