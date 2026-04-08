@@ -137,6 +137,9 @@ type SubLanguageAware interface {
 	SetRecursionDepth(depth int)
 	Lock()
 	Unlock()
+	// ParseWithContext performs a stateless parse with specific ranges and recursion depth, 
+	// bypassing the shared state in the parser instance and avoiding lock contention.
+	ParseWithContext(source []byte, ranges []sitter.Range, depth int) (ParseResult, error)
 }
 
 // ChunkConfig defines configuration for chunking behavior.

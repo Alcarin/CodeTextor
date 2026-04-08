@@ -155,9 +155,21 @@ func NewQueryParser(config *LanguageConfig) (*QueryParser, error) {
 
 // Parse implements the LanguageParser interface.
 func (qp *QueryParser) Parse(source []byte) (ParseResult, error) {
+	// For legacy support when Lock/SetIncludedRanges/SetRecursionDepth are used externally
+	qp.mu.Lock()
+	ranges := qp.includedRanges
+	depth := qp.recursionDepth
+	qp.includedRanges = nil // Reset state
+	qp.mu.Unlock()
+
+	return qp.ParseWithContext(source, ranges, depth)
+}
+
+// ParseWithContext implements the SubLanguageAware interface.
+func (qp *QueryParser) ParseWithContext(source []byte, ranges []sitter.Range, depth int) (ParseResult, error) {
 	// Recursion protection
 	const MaxRecursionDepth = 3
-	if qp.recursionDepth > MaxRecursionDepth {
+	if depth > MaxRecursionDepth {
 		// Stop deep recursion, just return basic result or empty to avoid infinite loop
 		return ParseResult{Language: qp.config.Language.Name, FilePath: ""}, nil
 	}
@@ -166,11 +178,8 @@ func (qp *QueryParser) Parse(source []byte) (ParseResult, error) {
 	defer parser.Close()
 	parser.SetLanguage(qp.language)
 	
-	// Use local copy of ranges to avoid state leaks, then reset
-	ranges := qp.includedRanges
 	if len(ranges) > 0 {
 		parser.SetIncludedRanges(ranges)
-		qp.includedRanges = nil // Auto-reset after use
 	}
 
 	tree := parser.Parse(source, nil)
@@ -193,7 +202,7 @@ func (qp *QueryParser) Parse(source []byte) (ParseResult, error) {
 	usages := qp.ExtractUsages(tree, source, symbols)
 
 	// Process Sub-languages (SQL, HTML, JS in template/strings)
-	subSyms, subImports, subUsages := qp.processSubLanguages(tree, source, symbols)
+	subSyms, subImports, subUsages := qp.processSubLanguages(tree, source, symbols, depth)
 	symbols = append(symbols, subSyms...)
 	imports = append(imports, subImports...)
 	usages = append(usages, subUsages...)
@@ -799,7 +808,7 @@ func (qp *QueryParser) extractTodos(node *sitter.Node, source []byte) []Symbol {
 
 // processSubLanguages performs a single highly optimized pass to discover and parse
 // all embedded code fragments using the pre-compiled subLanguagesQuery.
-func (qp *QueryParser) processSubLanguages(tree *sitter.Tree, source []byte, symbols []Symbol) ([]Symbol, []string, []ParserSymbolUsage) {
+func (qp *QueryParser) processSubLanguages(tree *sitter.Tree, source []byte, symbols []Symbol, depth int) ([]Symbol, []string, []ParserSymbolUsage) {
 	if qp.subLanguagesQuery == nil || qp.subLangManager == nil {
 		return nil, nil, nil
 	}
@@ -899,7 +908,7 @@ func (qp *QueryParser) processSubLanguages(tree *sitter.Tree, source []byte, sym
 			continue
 		}
 
-		subSyms, subImports, subUsages := qp.subLangManager.BatchExtractAll(lang, source, batch.ranges, batch.parentNames, symbols, qp.recursionDepth+1)
+		subSyms, subImports, subUsages := qp.subLangManager.BatchExtractAll(lang, source, batch.ranges, batch.parentNames, symbols, depth+1)
 		allSymbols = append(allSymbols, subSyms...)
 		allImports = append(allImports, subImports...)
 		allUsages = append(allUsages, subUsages...)

@@ -204,15 +204,16 @@ func (m *SubLanguageManager) BatchExtractAll(
 
 	parser := m.parsers[targetLang]
 
-	// 0. Set included ranges and depth if supported (using lock to ensure atomicity of state + parse)
+	// 0. Use stateless parsing if supported (avoiding locks and potential deadlocks)
 	if aware, ok := parser.(SubLanguageAware); ok {
-		aware.Lock()
-		defer aware.Unlock()
-		aware.SetIncludedRanges(ranges)
-		aware.SetRecursionDepth(depth)
-		// Reset depth after parse to avoid state leak for unrelated calls
-		defer aware.SetRecursionDepth(0)
+		res, err := aware.ParseWithContext(fullSource, ranges, depth)
+		if err != nil {
+			return nil, nil, nil
+		}
+		return m.processParseResult(res, ranges, parentNames)
 	}
+
+	// 1. Fallback for legacy parsers (using lock to ensure atomicity of state + parse)
 
 	// 1. Perform full parse (this enables recursion if it's a QueryParser)
 	res, err := parser.Parse(fullSource)
@@ -220,7 +221,11 @@ func (m *SubLanguageManager) BatchExtractAll(
 		return nil, nil, nil
 	}
 
-	// 2. Process results (Symbols)
+	// 2. Process results
+	return m.processParseResult(res, ranges, parentNames)
+}
+
+func (m *SubLanguageManager) processParseResult(res ParseResult, ranges []sitter.Range, parentNames []string) ([]Symbol, []string, []ParserSymbolUsage) {
 	symbols := res.Symbols
 	// Attach parent relationships correctly for each fragment in the batch
 	for i := range symbols {
