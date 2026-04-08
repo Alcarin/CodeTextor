@@ -1,6 +1,6 @@
 # React TS (TSX) Language Configuration
 [language]
-name = "React TS"
+name = "tsx"
 grammar = "tree-sitter-tsx"
 extensions = [".tsx"]
 

@@ -103,7 +103,7 @@ type ParseError struct {
 }
 
 // LanguageParser is the interface that all language-specific parsers must implement.
-// Each language parser (Go, Python, TypeScript, etc.) provides its own implementation.
+// Each language parser (Go, Python, Java, TypeScript, etc.) provides its own implementation.
 type LanguageParser interface {
 	// GetLanguage returns the tree-sitter Language for this parser.
 	GetLanguage() *sitter.Language

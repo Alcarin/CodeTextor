@@ -32,7 +32,7 @@ type Parser struct {
 }
 
 // NewParser creates a new Parser instance with all supported language parsers.
-// It initializes parsers for Go, Python, TypeScript, JavaScript, and other supported languages.
+// It initializes parsers for Go, Python, Java, TypeScript, JavaScript, and other supported languages.
 func NewParser(config ChunkConfig) *Parser {
 	p := &Parser{
 		parsers: make(map[string]LanguageParser),

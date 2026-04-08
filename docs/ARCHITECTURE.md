@@ -136,7 +136,7 @@ Configuration & Storage Root:
 **Purpose:** Transform raw code into semantically meaningful retrieval units.
 
 **Design Principles:**
-- **Tree-sitter Parsing**: Language-agnostic AST extraction with 10+ language support
+- **Tree-sitter Parsing**: Language-agnostic AST extraction with 11+ language support
 - **Semantic Boundaries**: Chunks align with code structure (functions, classes, modules)
 - **Context Enrichment**: Attach file/package info, merge comments, include metadata headers
 - **Adaptive Sizing**: Split large chunks toward ~400 tokens (hard max 800), merge small ones (<100 tokens)
@@ -153,7 +153,7 @@ The semantic chunking system consists of three main components:
 1. **Parsers** (`backend/internal/chunker/query_parser.go`, `parsers/default/*.toml`)
    - **QueryParser Engine**: A dynamic, configuration-driven motor that uses Tree-sitter queries defined in TOML files to extract symbols, imports, and metadata.
    - **Zero-Code Extensions**: Support for new languages is added by dropping a TOML file into the registry, requiring no backend recompilation.
-   - **Supported languages**: Go, Python, TypeScript/JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, PHP (all driven by the dynamic engine except specialized structural parsers).
+   - **Supported languages**: Go, Python, Java, TypeScript/JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, PHP (all driven by the dynamic engine except specialized structural parsers).
    - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager` and dynamic delegation.
 
 2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
@@ -372,7 +372,7 @@ User Opens File → OutlineView.vue
 **Backend:**
 - `backend/internal/chunker/query_parser.go`: Dynamic engine using TOML-defined Tree-sitter queries.
   - Extracts symbols with parent-child relationships and rich metadata.
-  - Languages: Go, Python, TypeScript, JavaScript, HTML, CSS, Markdown, PHP.
+  - Languages: Go, Python, Java, TypeScript, JavaScript, HTML, CSS, Markdown, PHP.
 - `backend/pkg/outline/builder.go`: Convert flat symbols to hierarchical tree
   - Matches parents by name + line range containment
   - Handles duplicate names (e.g., multiple `div` elements)

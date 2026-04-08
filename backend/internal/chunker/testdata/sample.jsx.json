@@ -4,8 +4,9 @@
   "language": "jsx",
   "minSymbols": 2,
   "expectSymbols": [
-    { "name": "MyJsComponent", "kind": "component" },
-    { "name": "render", "kind": "method", "parent": "MyJsComponent" }
+    { "name": "Counter", "kind": "component" },
+    { "name": "LegacyWelcome", "kind": "component" },
+    { "name": "render", "kind": "method", "parent": "LegacyWelcome" }
   ],
   "expectImports": ["react"],
   "expectUsages": [

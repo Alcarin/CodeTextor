@@ -12,6 +12,7 @@ import (
 	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
     // Note: markdown and sql might have different binding paths or versions
     tree_sitter_markdown "github.com/tree-sitter-grammars/tree-sitter-markdown/bindings/go"
     tree_sitter_sql "github.com/DerekStride/tree-sitter-sql/bindings/go"
@@ -37,6 +38,7 @@ var grammarRegistry = map[string]func() *sitter.Language{
 	"tree-sitter-markdown":   func() *sitter.Language { return sitter.NewLanguage(tree_sitter_markdown.Language()) },
 	"tree-sitter-sql":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_sql.Language()) },
 	"tree-sitter-tsx":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_typescript.LanguageTSX()) },
+	"tree-sitter-java":       func() *sitter.Language { return sitter.NewLanguage(tree_sitter_java.Language()) },
 }
 
 // GetGrammar returns the tree-sitter Language for the given grammar name.

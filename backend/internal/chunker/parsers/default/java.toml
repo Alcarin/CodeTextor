@@ -1,0 +1,66 @@
+[language]
+name = "java"
+extensions = [".java"]
+grammar = "tree-sitter-java"
+
+[queries]
+symbols = """
+; Classes, Interfaces, Enums, Annotations
+(class_declaration
+  name: (identifier) @name) @symbol.class
+
+(interface_declaration
+  name: (identifier) @name) @symbol.interface
+
+(enum_declaration
+  name: (identifier) @name) @symbol.enum
+
+(annotation_type_declaration
+  name: (identifier) @name) @symbol.annotation
+
+; Methods and Constructors
+(method_declaration
+  name: (identifier) @name) @symbol.method
+
+(constructor_declaration
+  name: (identifier) @name) @symbol.constructor
+
+; Fields
+(field_declaration
+  declarator: (variable_declarator
+    name: (identifier) @name)) @symbol.variable
+"""
+
+imports = """
+(import_declaration
+  (scoped_identifier) @import)
+"""
+
+metadata = """
+(package_declaration
+  (scoped_identifier) @meta.package)
+"""
+
+usages = """
+; Method calls
+(method_invocation
+  name: (identifier) @call.name) @call
+
+; Constructor calls
+(object_creation_expression
+  type: (type_identifier) @call.name) @call
+
+; Static field access
+(field_access
+  field: (identifier) @call.name) @call
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.visibility]
+type = "keyword"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["line_comment", "block_comment", "comment"]

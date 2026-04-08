@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-
+- **Java Support**: Added full support for parsing and chunking Java files (.java). 
 - **React Support (JSX/TSX)**: Added full support for parsing and chunking React files.
 - **Indexing Management Overhaul**: Significant updates to the Indexing tab to improve management and verification of the index scope.
   - **Automated Filtering**: Removed manual extension selection; indexing scope is now automatically managed via parser TOML configurations.

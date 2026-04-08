@@ -1,0 +1,21 @@
+{
+  "name": "Java",
+  "file": "sample.java",
+  "language": "java",
+  "minSymbols": 9,
+  "expectSymbols": [
+    { "name": "CalculatorService", "kind": "class" },
+    { "name": "DEFAULT_VALUE", "kind": "variable", "parent": "CalculatorService" },
+    { "name": "history", "kind": "variable", "parent": "CalculatorService" },
+    { "name": "add", "kind": "method", "parent": "CalculatorService" },
+    { "name": "OperationType", "kind": "enum", "parent": "CalculatorService" },
+    { "name": "IService", "kind": "interface", "parent": "CalculatorService" }
+  ],
+  "expectImports": ["java.util.List", "java.util.ArrayList", "java.util.Map", "java.util"],
+  "expectTodos": [
+    { "contains": "TODO: Add support for double" },
+    { "contains": "FIXME: Refactor this method" },
+    { "contains": "HACK: Temporary workaround" }
+  ],
+  "expectMetadata": { "package": "com.example.codetextor" }
+}

@@ -1,6 +1,6 @@
 # React JS (JSX) Language Configuration
 [language]
-name = "React JS"
+name = "jsx"
 grammar = "tree-sitter-javascript"
 extensions = [".jsx"]
 
