@@ -57,13 +57,13 @@ type MCPTool struct {
 
 // RecentChangesResponse contains both indexed and working copy changes.
 type RecentChangesResponse struct {
-	Indexed     []IndexedFile `json:"indexed"`
-	WorkingCopy []VCSFile     `json:"workingCopy"`
-	VCSType     string        `json:"vcs,omitempty"`
+	Indexed     []RecentIndexedFile `json:"indexed"`
+	WorkingCopy []VCSFile           `json:"workingCopy"`
+	VCSType     string              `json:"vcs,omitempty"`
 }
 
-// IndexedFile represents a file that was recently indexed.
-type IndexedFile struct {
+// RecentIndexedFile represents a file that was recently indexed.
+type RecentIndexedFile struct {
 	Path string `json:"p"`
 	Time string `json:"t"` // RFC3339 formatted time
 }

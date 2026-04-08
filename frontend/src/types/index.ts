@@ -18,6 +18,7 @@ export type ProjectStats = models.ProjectStats
 export type IndexingProgress = models.IndexingProgress
 export type EmbeddingModelInfo = models.EmbeddingModelInfo
 export type EmbeddingCapabilities = models.EmbeddingCapabilities
+export type IndexedFile = models.IndexedFile
 export interface ONNXRuntimeSettings {
   sharedLibraryPath: string
   activePath?: string

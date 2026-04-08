@@ -166,6 +166,28 @@ export namespace models {
 	        this.itemCount = source["itemCount"];
 	    }
 	}
+	export class IndexedFile {
+	    path: string;
+	    symbols: number;
+	    languages: string[];
+	    lines: number;
+	    lastModified: number;
+	    size: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IndexedFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.symbols = source["symbols"];
+	        this.languages = source["languages"];
+	        this.lines = source["lines"];
+	        this.lastModified = source["lastModified"];
+	        this.size = source["size"];
+	    }
+	}
 	export class IndexingProgress {
 	    totalFiles: number;
 	    processedFiles: number;

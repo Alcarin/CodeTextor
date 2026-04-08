@@ -459,6 +459,7 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) 
 			Path:         file.RelativePath,
 			Hash:         fileHash,
 			LastModified: file.LastModified,
+			SizeBytes:    int64(len(source)),
 			ChunkCount:   len(dbChunks),
 		},
 		storeOutline: true,

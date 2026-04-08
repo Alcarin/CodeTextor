@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Indexing Management Overhaul**: Significant updates to the Indexing tab to improve management and verification of the index scope.
+  - **Automated Filtering**: Removed manual extension selection; indexing scope is now automatically managed via parser TOML configurations.
+  - **Integrated File Explorer**: Added an interactive list to verify indexed content, featuring path search, language filtering, and unified grid-based UI controls for perfect alignment.
+  - **Enhanced Metadata Accuracy**: Improved persistence and retrieval of file statistics (size, lines, modification dates) with reliable filesystem fallbacks.
 - **Robust Indexing Concurrency**: Serialized database writes using a Mutex to eliminate `database is locked` errors during intensive build cycles.
 - **Atomic Progress Counters**: Refactored the Indexer to synchronize UI counters directly with atomic database operation results, ensuring constant accuracy and preventing 100%+ progress bugs.
 - **Improved Deletion Flow**: Optimized file removal to reduce lock contention and fixed `Scan` type mismatches for the `is_virtual` database flag.

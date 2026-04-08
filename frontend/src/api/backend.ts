@@ -188,6 +188,20 @@ export const backend = {
   },
 
   /**
+   * Retrieves a list of all file extensions supported by the system's parsers.
+   */
+  async getSupportedExtensions(): Promise<string[]> {
+    return App.GetSupportedExtensions()
+  },
+
+  /**
+   * Retrieves detailed metadata for all indexed files in a project.
+   */
+  async getIndexedFiles(projectId: string): Promise<models.IndexedFile[]> {
+    return App.GetIndexedFiles(projectId)
+  },
+
+  /**
    * Retrieves the outline tree for a specific file.
    */
   async getFileOutline(

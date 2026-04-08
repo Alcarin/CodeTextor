@@ -24,6 +24,8 @@ export function GetFilePreviews(arg1:string,arg2:models.ProjectConfig):Promise<A
 
 export function GetGitignorePatterns(arg1:string):Promise<Array<string>>;
 
+export function GetIndexedFiles(arg1:string):Promise<Array<models.IndexedFile>>;
+
 export function GetIndexingProgress(arg1:string):Promise<models.IndexingProgress>;
 
 export function GetMCPConfig():Promise<models.MCPServerConfig>;
@@ -41,6 +43,8 @@ export function GetProject(arg1:string):Promise<models.Project>;
 export function GetProjectStats(arg1:string):Promise<models.ProjectStats>;
 
 export function GetSelectedProject():Promise<models.Project>;
+
+export function GetSupportedExtensions():Promise<Array<string>>;
 
 export function Greet(arg1:string):Promise<string>;
 

@@ -230,6 +230,16 @@ func (a *App) GetFilePreviews(projectID string, config models.ProjectConfig) ([]
 	return a.projectService.GetFilePreviews(projectID, config)
 }
 
+// GetSupportedExtensions returns a list of all file extensions supported by the system's parsers.
+func (a *App) GetSupportedExtensions() []string {
+	return a.projectService.GetSupportedExtensions()
+}
+
+// GetIndexedFiles returns detailed metadata for all files indexed in a project.
+func (a *App) GetIndexedFiles(projectID string) ([]*models.IndexedFile, error) {
+	return a.projectService.GetIndexedFiles(projectID)
+}
+
 // GetFileOutline fetches the persisted outline tree for a file.
 func (a *App) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
 	return a.projectService.GetFileOutline(projectID, path)

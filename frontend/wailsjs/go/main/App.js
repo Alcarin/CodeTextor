@@ -46,6 +46,10 @@ export function GetGitignorePatterns(arg1) {
   return window['go']['main']['App']['GetGitignorePatterns'](arg1);
 }
 
+export function GetIndexedFiles(arg1) {
+  return window['go']['main']['App']['GetIndexedFiles'](arg1);
+}
+
 export function GetIndexingProgress(arg1) {
   return window['go']['main']['App']['GetIndexingProgress'](arg1);
 }
@@ -80,6 +84,10 @@ export function GetProjectStats(arg1) {
 
 export function GetSelectedProject() {
   return window['go']['main']['App']['GetSelectedProject']();
+}
+
+export function GetSupportedExtensions() {
+  return window['go']['main']['App']['GetSupportedExtensions']();
 }
 
 export function Greet(arg1) {

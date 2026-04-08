@@ -217,12 +217,12 @@ func (s *VectorStore) createPlaceholderFileTx(tx *sql.Tx, path string, isVirtual
 	now := time.Now().Unix()
 	
 	_, err := tx.Exec(`
-		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, size_bytes, chunk_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET
 			is_virtual = CASE WHEN is_virtual = 1 THEN 1 ELSE excluded.is_virtual END,
 			updated_at = ?
-	`, uuid.New().String(), path, "unknown", isVirtual, 0, 0, now, now, now)
+	`, uuid.New().String(), path, "unknown", isVirtual, 0, 0, 0, now, now, now)
 	
 	if err != nil {
 		return 0, fmt.Errorf("failed to upsert placeholder for %s (virtual=%v): %w", path, isVirtual, err)
@@ -332,13 +332,14 @@ func (s *VectorStore) InsertFile(file *models.File) error {
 	file.Path = normalizedPath
 
 	stmt, err := s.db.Prepare(`
-		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, size_bytes, chunk_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET
 			id = excluded.id,
 			hash = excluded.hash,
 			is_virtual = excluded.is_virtual,
 			last_modified = excluded.last_modified,
+			size_bytes = excluded.size_bytes,
 			chunk_count = excluded.chunk_count,
 			updated_at = excluded.updated_at
 	`)
@@ -353,6 +354,7 @@ func (s *VectorStore) InsertFile(file *models.File) error {
 		file.Hash,
 		file.IsVirtual,
 		file.LastModified,
+		file.SizeBytes,
 		file.ChunkCount,
 		file.CreatedAt,
 		file.UpdatedAt,
@@ -377,7 +379,7 @@ func (s *VectorStore) GetFile(path string) (*models.File, error) {
 	}
 
 	row := s.db.QueryRow(`
-		SELECT id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at
+		SELECT id, path, hash, is_virtual, last_modified, size_bytes, chunk_count, created_at, updated_at
 		FROM files
 		WHERE path = ?
 	`, normalizedPath)
@@ -389,6 +391,7 @@ func (s *VectorStore) GetFile(path string) (*models.File, error) {
 		&file.Hash,
 		&file.IsVirtual,
 		&file.LastModified,
+		&file.SizeBytes,
 		&file.ChunkCount,
 		&file.CreatedAt,
 		&file.UpdatedAt,
@@ -590,16 +593,17 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 	// We use ON CONFLICT(path) as the primary way to identify existing files.
 	// Since id is also unique, we update it in the SET clause.
 	_, err = tx.Exec(`
-		INSERT INTO files (id, path, hash, is_virtual, last_modified, chunk_count, created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (id, path, hash, is_virtual, last_modified, size_bytes, chunk_count, created_at, updated_at) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET 
 			id = excluded.id,
 			hash = excluded.hash,
 			is_virtual = excluded.is_virtual,
 			last_modified = excluded.last_modified,
+			size_bytes = excluded.size_bytes,
 			chunk_count = excluded.chunk_count,
 			updated_at = excluded.updated_at
-	`, file.ID, file.Path, file.Hash, file.IsVirtual, file.LastModified, file.ChunkCount, file.CreatedAt, file.UpdatedAt)
+	`, file.ID, file.Path, file.Hash, file.IsVirtual, file.LastModified, file.SizeBytes, file.ChunkCount, file.CreatedAt, file.UpdatedAt)
 	if err != nil {
 		return false, fmt.Errorf("failed to upsert file %s: %w", file.Path, err)
 	}
@@ -2289,7 +2293,7 @@ func (s *VectorStore) GetFileSemanticStats(paths []string) (map[string]FileSeman
 
 	// 1. Get lines from chunks table
 	queryChunks := `
-		SELECT f.path, MAX(c.line_end)
+		SELECT f.path, MAX(CASE WHEN c.line_end < 0 THEN 0 ELSE c.line_end END)
 		FROM chunks c
 		JOIN files f ON f.pk = c.file_id
 		WHERE f.path IN (` + placeholders + `)

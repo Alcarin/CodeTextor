@@ -83,6 +83,7 @@ Configuration & Storage Root:
   - **Migration 000006**: Normalized schema with integer file IDs, foreign keys, and restructured outline storage.
   - **Migration 000010**: Added `symbol_implementations` table to track OOP relationships.
   - **Migration 000012**: Added `language` column to `symbols` table for precise multi-language tracking.
+  - **Migration 000013**: Added `size_bytes` column to `files` table for persistent file size tracking.
 - **Transactional Consistency**: All file-related data (chunks, symbols, outlines) is saved within a single SQLite transaction via `InsertFileTasksInTransaction` to prevent partial indexing or "dirty" states.
 - **WAL Mode**: Project databases use Write-Ahead Logging to support concurrent read/write operations during heavy indexing.
 
@@ -96,7 +97,7 @@ Configuration & Storage Root:
 ### Embedding Model Management
 
 - **Global catalog**: The config database owns the list of embedding models (preloaded or user-defined). Each row stores the model id, label, vector dimension, size on disk, RAM/latency estimates, multilingual + code-quality capabilities, download/conversion source, download status, and final local path under `<AppDataDir>/models/<modelId>/` (same OS-specific root as above).
-- **Indexing view**: Before the "Indexing Scope" card the UI surfaces the catalog with all metadata badges plus an "Add custom model" action that opens a modal for entering a new model definition.
+- **Indexing Management View**: A comprehensive control module for the project lifecycle. It integrates real-time progress monitoring (status, counters), index scope configuration (Include/Exclude relative paths), control settings (Continuous Indexing toggle), and an interactive file explorer to verify indexed content with search and filtering.
 - **Per-project snapshot**: When a project selects a model, the entire metadata record (including download status and local path) is serialized inside `project_meta.config_json`. Moving the `.db` to another machine guarantees the new installation can recreate the catalog entry and (re)download the required files automatically.
 - **Download orchestration**: The backend download helper streams the configured source URI (HTTP(S) or local path) into `<AppDataDir>/models/<id>/model.onnx` (or custom filenames), updating the catalog status (`pending`, `downloading`, `ready`, `missing`, `error`). Download progress events are emitted to the frontend so the UI can show a determinate modal; FastEmbed models fall back to Hugging Face mirrors when the public CDN fails. When a repository does not publish ONNX assets (e.g., `nomic-ai/nomic-embed-code`), the user can still add custom entries with manual SourceURI/Tokenizer paths.
 - **Dual backend (FastEmbed + ONNX)**: Both FastEmbed and pure ONNX entries rely on the same ONNX Runtime shared library. Every model—FastEmbed included—is downloaded explicitly via the Indexing view before it becomes available. When the runtime is missing, both sets of models are disabled in the UI and the backend falls back to the mock embedding client.

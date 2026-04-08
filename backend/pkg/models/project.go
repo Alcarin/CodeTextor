@@ -278,6 +278,16 @@ type Chunk struct {
 	SourceCode  string `json:"sourceCode,omitempty"`  // Raw source code without enrichment
 }
 
+// IndexedFile represents a file that has been indexed with its current semantic stats.
+type IndexedFile struct {
+	Path         string   `json:"path"`
+	Symbols      int      `json:"symbols"`
+	Languages    []string `json:"languages"`
+	Lines        int      `json:"lines"`
+	LastModified int64    `json:"lastModified"`
+	Size         string   `json:"size"`
+}
+
 // File represents a file that has been indexed.
 type File struct {
 	ID           string `json:"id"`
@@ -286,6 +296,7 @@ type File struct {
 	Hash         string `json:"hash"`
 	IsVirtual    bool   `json:"isVirtual"`
 	LastModified int64  `json:"lastModified"`
+	SizeBytes    int64  `json:"sizeBytes"`
 	ChunkCount   int    `json:"chunkCount"`
 	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`

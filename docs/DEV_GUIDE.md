@@ -159,16 +159,12 @@ CodeTextor is designed as a **multi-project application** with complete isolatio
 1. **Creation**: User provides project name, project ID, optional description
    * **Note**: Projects do NOT have a single root path. Instead, users configure flexible indexing scope.
 2. **Initialization**: Create `indexes/<projectId>.db` and project config entry
-3. **Indexing Configuration**:
-   * User selects a root folder that anchors the project; include paths are stored relative to that root
-   * User adds relative include folders (root is always included by default)
-   * User defines exclude patterns (e.g., `node_modules`, `.git`, `.cache`)
-   * User optionally filters by file extensions
-   * Auto-exclude hidden directories option
+3. **Indexing Management**:
+    * **Configuration**: User anchors the project to a root folder and defines flexible **Include/Exclude paths**.
+    * **Automation**: File filtering is automatically managed via parser TOML configurations.
+    * **Control & Verification**: Toggle **Continuous Indexing**, monitor progress, and explore indexed content via the **Indexed Files Explorer**.
 
-   All of those settings are persisted inside the project's own vector database (`indexes/project-<id>.db`), so moving a project to a new machine is as simple as copying that single file while include paths stay relative to the configured root.
-
-   The Indexing view now exposes a **"File Type Filter"** card: it lists the files that match the include/exclude configuration and lets you pin which extensions should end up in the index. Selection is saved immediately into the project configuration (`fileExtensions`) and is reloaded every time the view opens, so the filter stays persistent. In the future the panel can evolve to exclude single files in addition to extensions.
+    All of those settings are persisted inside the project's own vector database (`indexes/project-<id>.db`), so moving a project to a new machine is as simple as copying that single file while include paths stay relative to the configured root.
 
 4. **Indexing**: Tree-sitter parsing → chunking → embedding → store in project's DB
 5. **Querying**: All MCP tools receive `projectId` and query the correct DB

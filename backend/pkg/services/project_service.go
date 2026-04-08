@@ -111,6 +111,8 @@ type ProjectServiceAPI interface {
 	FindImplementations(projectID, nodeID string) (*models.FindImplementationsResponse, error)
 	FindTodos(projectID string) (*models.FindTodosResponse, error)
 	GetPackageGraph(projectID string, depth int) (models.PackageGraphResponse, error)
+	GetSupportedExtensions() []string
+	GetIndexedFiles(projectID string) ([]*models.IndexedFile, error)
 	Close() error
 }
 
@@ -1351,7 +1353,7 @@ func (s *ProjectService) GetRecentChanges(projectID string, limit int) (*models.
 	}
 
 	res := &models.RecentChangesResponse{
-		Indexed:     make([]models.IndexedFile, 0),
+		Indexed:     make([]models.RecentIndexedFile, 0),
 		WorkingCopy: make([]models.VCSFile, 0),
 	}
 
@@ -1361,7 +1363,7 @@ func (s *ProjectService) GetRecentChanges(projectID string, limit int) (*models.
 		dbFiles, err := vs.GetRecentFiles(limit)
 		if err == nil {
 			for _, f := range dbFiles {
-				res.Indexed = append(res.Indexed, models.IndexedFile{
+				res.Indexed = append(res.Indexed, models.RecentIndexedFile{
 					Path: f.Path,
 					Time: time.Unix(f.UpdatedAt, 0).Format(time.RFC3339),
 				})
@@ -1606,7 +1608,13 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 	var previews []*models.FilePreview
 	seenFiles := make(map[string]bool)
 	extensionSet := make(map[string]struct{})
-	for _, ext := range finalConfig.FileExtensions {
+	
+	exts := finalConfig.FileExtensions
+	if len(exts) == 0 {
+		exts = s.GetSupportedExtensions()
+	}
+	
+	for _, ext := range exts {
 		extensionSet[ext] = struct{}{}
 	}
 
@@ -2586,6 +2594,115 @@ func (s *ProjectService) GetAllProjectsStats() (*models.ProjectStats, error) {
 	}
 
 	return cumulativeStats, nil
+}
+
+// GetSupportedExtensions returns a list of all file extensions supported by the system's parsers.
+func (s *ProjectService) GetSupportedExtensions() []string {
+	// We can create a temporary parser to get extensions, they are static and embedded.
+	p := chunker.NewParser(chunker.ChunkConfig{})
+	return p.GetSupportedExtensions()
+}
+
+// GetIndexedFiles returns detailed metadata for all files indexed in a project.
+func (s *ProjectService) GetIndexedFiles(projectID string) ([]*models.IndexedFile, error) {
+	project, err := s.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	vs, err := s.GetVectorStore(projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := vs.ListPhysicalFilePaths()
+	if err != nil {
+		return nil, err
+	}
+
+	stats, err := vs.GetFileSemanticStats(paths)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load recent files metadata (size, mod time)
+	recentFiles, err := vs.GetRecentFiles(len(paths))
+	if err != nil {
+		return nil, err
+	}
+	recentMap := make(map[string]*models.File)
+	for _, f := range recentFiles {
+		recentMap[f.Path] = f
+	}
+
+	results := make([]*models.IndexedFile, 0, len(paths))
+	for _, p := range paths {
+		fStats := stats[p]
+		fileMeta := recentMap[p]
+		linesCount := fStats.Lines
+		sizeStr := "—"
+		var modTime int64
+		
+		absPath := p
+		if !filepath.IsAbs(p) {
+			absPath = filepath.Join(project.Config.RootPath, p)
+		}
+
+		// If metadata is missing or clearly wrong, try to fill it from disk
+		if fileMeta != nil {
+			modTime = fileMeta.LastModified
+			
+			if modTime == 0 || fileMeta.SizeBytes == 0 || linesCount <= 0 {
+				if info, err := os.Stat(absPath); err == nil {
+					if modTime == 0 {
+						modTime = info.ModTime().Unix()
+					}
+					if fileMeta.SizeBytes == 0 {
+						sizeStr = utils.FormatBytes(info.Size())
+					}
+					if linesCount <= 0 {
+						// Fallback: count lines from file
+						if content, err := os.ReadFile(absPath); err == nil {
+							linesCount = strings.Count(string(content), "\n") + 1
+						}
+					}
+				} else {
+					log.Printf("[DEBUG] Dashboard Stat failed for %s (Root: %s): %v", p, project.Config.RootPath, err)
+				}
+			}
+
+			// If we still don't have a size string, use the stored SizeBytes or fallback to ChunkCount
+			if sizeStr == "—" {
+				if fileMeta.SizeBytes > 0 {
+					sizeStr = utils.FormatBytes(fileMeta.SizeBytes)
+				} else if fileMeta.ChunkCount > 0 {
+					sizeStr = utils.FormatBytes(int64(fileMeta.ChunkCount * 500))
+				} else {
+					sizeStr = "0 B"
+				}
+			}
+		} else {
+			// No record in DB yet, but let's at least show disk info if we can
+			if info, err := os.Stat(absPath); err == nil {
+				modTime = info.ModTime().Unix()
+				sizeStr = utils.FormatBytes(info.Size())
+				if content, err := os.ReadFile(absPath); err == nil {
+					linesCount = strings.Count(string(content), "\n") + 1
+				}
+			}
+		}
+
+		results = append(results, &models.IndexedFile{
+			Path:         p,
+			Symbols:      fStats.Symbols,
+			Languages:    fStats.Languages,
+			Lines:        linesCount,
+			LastModified: modTime,
+			Size:         sizeStr,
+		})
+	}
+
+	return results, nil
 }
 
 // FindTodos retrieves all TODO comments from the project's index.

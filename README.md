@@ -27,7 +27,8 @@ It extracts structural code chunks (functions, classes, comments, modules), gene
 - ⚡ **Asynchronous Indexing Pipeline**: Decoupled CPU workers (parsing) and GPU/DB workers (embedding/persistence) with prioritized semaphore control.
 - 💾 **Integrated Vector Store**: Uses `sqlite-vec` for embedded vector search without external database servers.
 - 🗂️ **Multi-Project Isolation**: Complete separation between codebases; switch between projects seamlessly with no data cross-contamination.
-- 📊 **Real-time Statistics**: Per-project and cumulative metrics (files, chunks, symbols) with live progress tracking.
+- 📊 **Indexing Management**: Comprehensive control center to monitor real-time progress, configure include/exclude paths, and explore the indexed file tree with advanced search and filtering.
+- 📂 **Automated Extension Filtering**: Intelligent indexing scope managed by parser TOML configurations, eliminating manual file-type selection.
 - 🌲 **Symbol Outline & Chunks**: Explore code structure through a hierarchical symbol tree or inspect semantic chunks with full metadata.
 - 🧠 **Multi-Model Support**: Support for dual FastEmbed/ONNX backends with automatic runtime detection and downloadable model catalog.
 - 🔒 **Privacy-First**: 100% local and private; your code and embeddings never leave your machine.

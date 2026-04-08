@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } 
 import { useCurrentProject } from '../composables/useCurrentProject';
 import { useNavigation } from '../composables/useNavigation';
 import { backend } from '../api/backend';
-import type { IndexingProgress, FilePreview, Project, EmbeddingModelInfo, EmbeddingCapabilities, ProjectStats } from '../types';
+import type { IndexingProgress, FilePreview, Project, EmbeddingModelInfo, EmbeddingCapabilities, ProjectStats, IndexedFile } from '../types';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { EMBEDDING_DOWNLOAD_PROGRESS_EVENT } from '../constants/events';
 
@@ -41,6 +41,13 @@ const embeddingCapabilities = ref<EmbeddingCapabilities | null>(null);
 const projectStats = ref<ProjectStats | null>(null);
 const statsError = ref('');
 const isLoadingStats = ref(false);
+const indexedFiles = ref<IndexedFile[]>([]);
+const isLoadingFiles = ref(false);
+const searchText = ref('');
+const languageFilter = ref('');
+const supportedExtensions = ref<string[]>([]);
+const sortKey = ref('path');
+const sortOrder = ref(1);
 const hasPersistedEmbeddings = computed(() => {
   const stats = projectStats.value;
   if (!stats) {
@@ -674,40 +681,76 @@ const projectRoot = computed(() => {
   return projectRootPath.value || '/';
 });
 
-const availableExtensions = computed(() => {
-  const extensions = new Set<string>();
-  files.value.forEach((file: FilePreview) => {
-    if (file.extension) {
-      extensions.add(file.extension);
-    }
-  });
-  return Array.from(extensions).sort();
-});
-
-const selectedExtensions = ref<string[]>([]);
-
-const allExtensionsSelected = computed(() => {
-  const extensions = availableExtensions.value;
-  if (extensions.length === 0) {
-    return false;
-  }
-  if (selectedExtensions.value.length !== extensions.length) {
-    return false;
-  }
-  const selectedSet = new Set(selectedExtensions.value);
-  return extensions.every(ext => selectedSet.has(ext));
-});
-
-const isExtensionSelected = (extension: string) => {
-  return selectedExtensions.value.includes(extension);
-};
+// Deleted isExtensionSelected
 
 const displayedFiles = computed(() => {
-  if (selectedExtensions.value.length === 0) {
-    return files.value;
+  let filtered = [...indexedFiles.value];
+
+  if (searchText.value) {
+    const q = searchText.value.toLowerCase();
+    filtered = filtered.filter(f => f.path.toLowerCase().includes(q));
   }
-  return files.value.filter((file: FilePreview) => selectedExtensions.value.includes(file.extension));
+
+  if (languageFilter.value) {
+    filtered = filtered.filter(f => f.languages?.includes(languageFilter.value));
+  }
+
+  filtered.sort((a: any, b: any) => {
+    const valA = a[sortKey.value];
+    const valB = b[sortKey.value];
+    
+    if (typeof valA === 'string' && typeof valB === 'string') {
+      return valA.localeCompare(valB) * sortOrder.value;
+    }
+    
+    return ((valA || 0) - (valB || 0)) * sortOrder.value;
+  });
+
+  return filtered;
 });
+
+const toggleSort = (key: string) => {
+  if (sortKey.value === key) {
+    sortOrder.value *= -1;
+  } else {
+    sortKey.value = key;
+    sortOrder.value = 1;
+  }
+};
+
+const availableLanguages = computed(() => {
+  const dataset = new Set<string>();
+  indexedFiles.value.forEach(f => {
+    f.languages?.forEach(l => dataset.add(l));
+  });
+  return Array.from(dataset).sort();
+});
+
+const fetchIndexedFiles = async () => {
+    if (!currentProject.value) return;
+    isLoadingFiles.value = true;
+    try {
+        const result = await backend.getIndexedFiles(currentProject.value.id);
+        indexedFiles.value = result || [];
+    } catch (error) {
+        console.error('Failed to fetch indexed files:', error);
+    } finally {
+        isLoadingFiles.value = false;
+    }
+};
+
+const loadSupportedExtensions = async () => {
+    try {
+        supportedExtensions.value = await backend.getSupportedExtensions();
+    } catch (error) {
+        console.error('Failed to load supported extensions:', error);
+    }
+};
+
+const formatDate = (timestamp: number) => {
+    if (!timestamp) return '—';
+    return new Date(timestamp * 1000).toLocaleString();
+};
 
 /**
  * Adds a new include path to the indexing configuration.
@@ -997,7 +1040,6 @@ const applyProjectConfigValues = async (project: Project) => {
 	} else {
 		excludePaths.value = getDefaultExcludePatterns();
 	}
-	selectedExtensions.value = project.config?.fileExtensions ?? [];
 	autoExcludeHidden.value = project.config?.autoExcludeHidden ?? true;
 	useGitIgnore.value = project.config?.useGitIgnore ?? true;
 	syncEmbeddingSelectionFromProject(project, { skipSave: true });
@@ -1009,33 +1051,7 @@ const getFileName = (relativePath: string) => {
 	return parts[parts.length - 1] || normalized;
 };
 
-/** 
- * Toggles selection state for a given file extension.
- */
-const toggleExtension = (extension: string) => {
-  if (selectedExtensions.value.includes(extension)) {
-    selectedExtensions.value = selectedExtensions.value.filter(ext => ext !== extension);
-  } else {
-    selectedExtensions.value = [...selectedExtensions.value, extension];
-  }
-};
-
-/**
- * Selects or clears all extensions at once.
- */
-const toggleAllExtensions = () => {
-  if (availableExtensions.value.length === 0) {
-    selectedExtensions.value = [];
-    return;
-  }
-
-  if (allExtensionsSelected.value) {
-    selectedExtensions.value = [];
-    return;
-  }
-
-  selectedExtensions.value = [...availableExtensions.value];
-};
+// Deleted toggleExtension and toggleAllExtensions
 
 onMounted(async () => {
   if (typeof window !== 'undefined') {
@@ -1079,6 +1095,8 @@ onMounted(async () => {
 
     await fetchFilePreviews();
     await loadProjectStats();
+    await fetchIndexedFiles();
+    await loadSupportedExtensions();
   } finally {
     isInitializing.value = false; // Re-enable watchers
   }
@@ -1138,7 +1156,6 @@ watch(currentProject, async (project, previous) => {
   } else {
     includePaths.value = [];
     excludePaths.value = getDefaultExcludePatterns();
-    selectedExtensions.value = [];
     autoExcludeHidden.value = true;
     projectRootPath.value = '/';
     gitignorePatterns.value = [];
@@ -1171,7 +1188,7 @@ const buildProjectConfigPayload = () => {
     includePaths: includePaths.value,
     excludePatterns: excludePaths.value,
     rootPath: projectRootPath.value,
-    fileExtensions: selectedExtensions.value,
+    fileExtensions: [], // Extensions are now filtered automatically by parser
     autoExcludeHidden: autoExcludeHidden.value,
     useGitIgnore: useGitIgnore.value,
     continuousIndexing: currentProject.value.config.continuousIndexing,
@@ -1242,12 +1259,14 @@ async function saveProjectConfig(options?: { immediate?: boolean }) {
     fetchFilePreviews();
   }, { deep: true });
 
-watch(selectedExtensions, () => {
-  if (isInitializing.value) {
-    return;
-  }
-  saveProjectConfig();
-}, { deep: true });
+  watch(() => progress.value.status, (status) => {
+    if (status === 'completed') {
+      fetchIndexedFiles();
+      loadProjectStats();
+    }
+  });
+
+// Deleted watch(selectedExtensions)
 
 watch(selectedEmbeddingModelId, async modelId => {
   if (isInitializing.value || suppressEmbeddingWatcher.value) {
@@ -1266,17 +1285,7 @@ watch(selectedEmbeddingModelId, async modelId => {
   }
 });
 
-watch(availableExtensions, extensions => {
-  if (extensions.length === 0) {
-    selectedExtensions.value = [];
-    return;
-  }
-
-  const cleaned = selectedExtensions.value.filter(ext => extensions.includes(ext));
-  if (cleaned.length !== selectedExtensions.value.length) {
-    selectedExtensions.value = cleaned;
-  }
-}, { immediate: true });
+// Deleted watch(availableExtensions)
 </script>
 
 <template>
@@ -1537,62 +1546,84 @@ watch(availableExtensions, extensions => {
         </div>
       </div>
 
-      <div class="section preview-section">
+      <div class="section dashboard-section">
         <div class="section-header">
-          <h3>File Type Filter</h3>
-          <p>Configure which file extensions should be included in the index scope; in the future we may add single-file exclusion controls.</p>
+          <h3>Indexed Files Dashboard</h3>
+          <p>Monitor and explore all code files currently in the semantic index. Filtering is automatically managed by parser support ({{ supportedExtensions.join(', ') }}).</p>
         </div>
 
-        <div class="extensions">
-          <div class="extensions-header">
-            <h4>File types</h4>
-            <button type="button" class="chip chip-action" @click="toggleAllExtensions">
-              {{ allExtensionsSelected ? 'Unselect all' : 'Select all' }}
-            </button>
+        <div class="dashboard-controls">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input 
+              v-model="searchText" 
+              type="text" 
+              placeholder="Search files by path..." 
+              class="search-input"
+            />
           </div>
-          <div class="extension-chips">
-            <button
-              v-for="extension in availableExtensions"
-              :key="extension"
-              type="button"
-              class="chip"
-              :class="{ active: isExtensionSelected(extension) }"
-              @click="toggleExtension(extension)"
-            >
-              {{ extension }}
-            </button>
-            <span v-if="availableExtensions.length === 0" class="helper-text">
-              No files match the current configuration yet.
-            </span>
+          <div class="filter-box">
+            <select v-model="languageFilter" class="language-select">
+              <option value="">All Languages</option>
+              <option v-for="lang in availableLanguages" :key="lang" :value="lang">
+                {{ lang.charAt(0).toUpperCase() + lang.slice(1) }}
+              </option>
+            </select>
           </div>
         </div>
 
-        <div class="file-preview">
-          <table v-if="displayedFiles.length > 0" class="file-table">
+        <div class="file-dashboard">
+          <div v-if="isLoadingFiles" class="loading-overlay">
+            <div class="spinner"></div>
+            <span>Loading file metadata...</span>
+          </div>
+
+          <table v-if="displayedFiles.length > 0" class="dashboard-table">
             <thead>
               <tr>
-                <th>File</th>
-                <th>Extension</th>
+                <th @click="toggleSort('path')" class="sortable">
+                  File Path <span v-if="sortKey === 'path'">{{ sortOrder === 1 ? '↑' : '↓' }}</span>
+                </th>
+                <th>Languages</th>
+                <th @click="toggleSort('symbols')" class="num-col sortable">
+                  Symbols <span v-if="sortKey === 'symbols'">{{ sortOrder === 1 ? '↑' : '↓' }}</span>
+                </th>
+                <th @click="toggleSort('lines')" class="num-col sortable">
+                  Lines <span v-if="sortKey === 'lines'">{{ sortOrder === 1 ? '↑' : '↓' }}</span>
+                </th>
                 <th>Size</th>
+                <th @click="toggleSort('lastModified')" class="sortable">
+                  Last Modified <span v-if="sortKey === 'lastModified'">{{ sortOrder === 1 ? '↑' : '↓' }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="file in displayedFiles" :key="file.absolutePath">
+              <tr v-for="file in displayedFiles" :key="file.path">
                 <td>
-                  <div class="file-name">{{ getFileName(file.relativePath) }}</div>
-                  <div class="file-path">{{ file.relativePath }}</div>
+                  <div class="file-name">{{ getFileName(file.path) }}</div>
+                  <div class="file-path">{{ file.path }}</div>
                 </td>
-                <td>{{ file.extension || '—' }}</td>
+                <td>
+                  <div class="lang-tags">
+                    <span v-for="lang in file.languages" :key="lang" class="lang-tag" :class="lang">
+                      {{ lang }}
+                    </span>
+                    <span v-if="!file.languages || file.languages.length === 0" class="muted">text</span>
+                  </div>
+                </td>
+                <td class="num-col">{{ file.symbols }}</td>
+                <td class="num-col">{{ file.lines }}</td>
                 <td>{{ file.size }}</td>
+                <td class="date-col">{{ formatDate(file.lastModified) }}</td>
               </tr>
             </tbody>
           </table>
 
-          <div v-else class="empty-state">
+          <div v-else-if="!isLoadingFiles" class="empty-state">
             <div class="empty-icon">🗂️</div>
-            <p>No files are currently selected for indexing.</p>
+            <p v-if="searchText || languageFilter">No files match your filters.</p>
+            <p v-else>No files have been indexed yet. Start indexing to see results here.</p>
           </div>
-
         </div>
       </div>
     </div>
@@ -2649,5 +2680,184 @@ watch(availableExtensions, extensions => {
   100% {
     margin-left: 100%;
   }
+}
+.dashboard-controls {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-card-alt);
+  padding: 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  align-items: center;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.6rem 1rem 0.6rem 2.5rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-main);
+}
+
+.filter-box {
+  display: flex;
+  min-width: 0;
+}
+
+.language-select {
+  width: 100%;
+  padding: 0.6rem 2rem 0.6rem 1rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: var(--accent-light);
+  box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #858585;
+  font-size: 0.9rem;
+}
+
+.search-input {
+  width: 100%;
+  background: #1b1b1b;
+  border: 1px solid #3e3e42;
+  color: #d4d4d4;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  font-size: 0.9rem;
+}
+
+.language-select {
+  background: #1b1b1b;
+  border: 1px solid #3e3e42;
+  color: #d4d4d4;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  min-width: 150px;
+}
+
+.dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.dashboard-table th {
+  text-align: left;
+  padding: 0.75rem;
+  color: #858585;
+  font-weight: 500;
+  border-bottom: 1px solid #3e3e42;
+  background: #202023;
+}
+
+.dashboard-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.dashboard-table th.sortable:hover {
+  background: #2d2f34;
+  color: #7c6bff;
+}
+
+.dashboard-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #2d2d30;
+  vertical-align: middle;
+}
+
+.dashboard-table tr:hover td {
+  background: #2a2d2e;
+}
+
+.num-col {
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  width: 80px;
+}
+
+.date-col {
+  color: #858585;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.lang-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.lang-tag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: #3e3e42;
+  color: #d4d4d4;
+}
+
+.lang-tag.go { background: #00add8; color: #fff; }
+.lang-tag.typescript, .lang-tag.ts { background: #3178c6; color: #fff; }
+.lang-tag.javascript, .lang-tag.js { background: #f7df1e; color: #000; }
+.lang-tag.python, .lang-tag.py { background: #3776ab; color: #fff; }
+.lang-tag.rust { background: #dea584; color: #000; }
+
+.loading-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem;
+  color: #858585;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(124, 107, 255, 0.2);
+  border-top-color: #7c6bff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.muted {
+  color: #555;
+  font-style: italic;
 }
 </style>
