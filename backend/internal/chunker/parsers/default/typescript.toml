@@ -2,7 +2,7 @@
 [language]
 name = "typescript"
 grammar = "tree-sitter-typescript"
-extensions = [".ts", ".tsx"]
+extensions = [".ts"]
 
 [queries]
 symbols = """

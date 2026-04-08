@@ -953,8 +953,10 @@ func (qp *QueryParser) applyFormatting(suffix, value string) []string {
 
 func shouldReplace(oldKind, newKind SymbolKind) bool {
 	priority := map[SymbolKind]int{
+		SymbolComponent:  15,
 		SymbolClass:      10,
 		SymbolInterface:  10,
+		SymbolHook:       9,
 		SymbolMethod:     9,
 		SymbolFunction:   8,
 		SymbolVariable:   5,

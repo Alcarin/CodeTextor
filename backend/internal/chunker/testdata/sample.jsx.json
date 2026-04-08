@@ -1,0 +1,14 @@
+{
+  "name": "React JSX Support",
+  "file": "sample.jsx",
+  "language": "jsx",
+  "minSymbols": 2,
+  "expectSymbols": [
+    { "name": "MyJsComponent", "kind": "component" },
+    { "name": "render", "kind": "method", "parent": "MyJsComponent" }
+  ],
+  "expectImports": ["react"],
+  "expectUsages": [
+    { "name": "div" }
+  ]
+}

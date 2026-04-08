@@ -26,10 +26,14 @@ func NewSubLanguageManager(extParsers map[string]LanguageParser) *SubLanguageMan
 	for ext, parser := range extParsers {
 		target := ""
 		switch strings.ToLower(ext) {
-		case ".js", ".jsx":
+		case ".js":
 			target = "JavaScript"
-		case ".ts", ".tsx":
+		case ".jsx":
+			target = "JSX"
+		case ".ts":
 			target = "TypeScript"
+		case ".tsx":
+			target = "TSX"
 		case ".html", ".htm":
 			target = "HTML"
 		case ".css":
@@ -78,10 +82,14 @@ func NewSubLanguageManager(extParsers map[string]LanguageParser) *SubLanguageMan
 // Returns nil if no parser is registered for that extension.
 func (m *SubLanguageManager) GetParser(ext string) LanguageParser {
 	switch strings.ToLower(ext) {
-	case ".js", ".jsx":
+	case ".js":
 		return m.parsers["JavaScript"]
-	case ".ts", ".tsx":
+	case ".jsx":
+		return m.parsers["JSX"]
+	case ".ts":
 		return m.parsers["TypeScript"]
+	case ".tsx":
+		return m.parsers["TSX"]
 	case ".html", ".htm":
 		return m.parsers["HTML"]
 	case ".css":

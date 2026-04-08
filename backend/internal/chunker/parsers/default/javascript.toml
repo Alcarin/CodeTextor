@@ -2,7 +2,7 @@
 [language]
 name = "javascript"
 grammar = "tree-sitter-javascript"
-extensions = [".js", ".jsx", ".mjs", ".cjs"]
+extensions = [".js", ".mjs", ".cjs"]
 
 [queries]
 symbols = """

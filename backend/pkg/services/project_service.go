@@ -137,6 +137,8 @@ type ProjectService struct {
 	heavyTasks        map[string]bool // ProjectID -> is running a heavy task (reindex)
 	initialSystemVRAM int             // VRAM baseline (system + non-app) in MB
 	linkerService     *LinkerService
+	extensionsCache   []string
+	extensionsMu      sync.Mutex
 }
 
 // CreateProjectRequest contains data required to create a new project.
@@ -1609,10 +1611,9 @@ func (s *ProjectService) GetFilePreviews(projectID string, config models.Project
 	seenFiles := make(map[string]bool)
 	extensionSet := make(map[string]struct{})
 	
-	exts := finalConfig.FileExtensions
-	if len(exts) == 0 {
-		exts = s.GetSupportedExtensions()
-	}
+	// We ignore the saved FileExtensions from the database to ensure we always 
+	// use the latest supported extensions from the TOML configurations.
+	exts := s.GetSupportedExtensions()
 	
 	for _, ext := range exts {
 		extensionSet[ext] = struct{}{}
@@ -2598,9 +2599,18 @@ func (s *ProjectService) GetAllProjectsStats() (*models.ProjectStats, error) {
 
 // GetSupportedExtensions returns a list of all file extensions supported by the system's parsers.
 func (s *ProjectService) GetSupportedExtensions() []string {
+	s.extensionsMu.Lock()
+	defer s.extensionsMu.Unlock()
+
+	// Return cached version if available to avoid re-initializing the parser (and spamming logs)
+	if len(s.extensionsCache) > 0 {
+		return s.extensionsCache
+	}
+
 	// We can create a temporary parser to get extensions, they are static and embedded.
 	p := chunker.NewParser(chunker.ChunkConfig{})
-	return p.GetSupportedExtensions()
+	s.extensionsCache = p.GetSupportedExtensions()
+	return s.extensionsCache
 }
 
 // GetIndexedFiles returns detailed metadata for all files indexed in a project.

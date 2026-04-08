@@ -1,0 +1,92 @@
+# React JS (JSX) Language Configuration
+[language]
+name = "React JS"
+grammar = "tree-sitter-javascript"
+extensions = [".jsx"]
+
+[queries]
+symbols = """
+; React Function Components (Named functions starting with UpperCase)
+(function_declaration
+  name: (identifier) @name (#match? @name "^[A-Z]")) @symbol.component
+
+; React Arrow Function Components (assigned to Uppercase variable)
+(variable_declarator
+  name: (identifier) @name (#match? @name "^[A-Z]")
+  value: [(arrow_function) (function_expression)]) @symbol.component
+
+; React Class Components
+(class_declaration
+  name: (identifier) @name
+  (class_heritage 
+    [(identifier) @_react_base 
+     (member_expression property: (property_identifier) @_react_base)]
+    (#match? @_react_base "Component|PureComponent"))) @symbol.component
+
+; React Hooks (functions starting with 'use')
+(function_declaration
+  name: (identifier) @name (#match? @name "^use[A-Z]")) @symbol.hook
+
+(variable_declarator
+  name: (identifier) @name (#match? @name "^use[A-Z]")
+  value: [(arrow_function) (function_expression)]) @symbol.hook
+
+; JSX Components (Custom elements starting with UpperCase)
+(jsx_opening_element
+  name: (identifier) @name (#match? @name "^[A-Z]")) @symbol.component
+
+(jsx_self_closing_element
+  name: (identifier) @name (#match? @name "^[A-Z]")) @symbol.component
+
+; Standard HTML Tags (starting with lowercase)
+(jsx_opening_element
+  name: (identifier) @name (#match? @name "^[a-z]")) @symbol.element
+
+(jsx_self_closing_element
+  name: (identifier) @name (#match? @name "^[a-z]")) @symbol.element
+
+; Standard JS fallbacks (if not a component/hook)
+(class_declaration
+  name: (identifier) @name) @symbol.class
+
+(function_declaration
+  name: (identifier) @name) @symbol.function
+
+(method_definition
+  name: (property_identifier) @name) @symbol.method
+
+(variable_declarator
+  name: (identifier) @name) @symbol.variable
+"""
+
+imports = """
+(import_statement
+  source: (string) @import) @_import_stmt
+"""
+
+usages = """
+(call_expression
+  function: (identifier) @call.name) @call
+
+(call_expression
+  function: (member_expression
+    object: (_) @call.receiver
+    property: (property_identifier) @call.name)) @call
+
+(new_expression
+  constructor: (identifier) @call.name) @call
+
+; JSX tags can also be considered usages/references
+(jsx_opening_element
+  name: [(identifier) (member_expression (property_identifier))] @call.name) @call
+(jsx_self_closing_element
+  name: [(identifier) (member_expression (property_identifier))] @call.name) @call
+"""
+
+[rules.visibility]
+type = "prefix"
+private_prefix = "_"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

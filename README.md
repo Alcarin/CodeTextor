@@ -22,7 +22,7 @@ It extracts structural code chunks (functions, classes, comments, modules), gene
 ## 🔍 Key Features
 
 - 🚀 **Dynamic Tree-sitter Parsing**: Advanced AST-aware chunking engine driven by TOML configurations. Add or customize language support without backend recompilation.
-- 🧬 **Nested Code Parsing**: Deeply analyzes multi-language files (e.g., JS/CSS in Vue, SQL in Go) with a recursive engine that automatically identifies and indexes embedded code with absolute offset precision.
+- 🧬 **Nested Code Parsing**: Deeply analyzes multi-language files (e.g., JS/CSS in Vue, JSX/TSX, SQL in Go) with a recursive engine that automatically identifies and indexes embedded code with absolute offset precision.
 - 🛠️ **Technical Debt Extraction**: Surfaces `TODO`, `FIXME`, and `HACK` comments across all formats for a unified project status overview.
 - ⚡ **Asynchronous Indexing Pipeline**: Decoupled CPU workers (parsing) and GPU/DB workers (embedding/persistence) with prioritized semaphore control.
 - 💾 **Integrated Vector Store**: Uses `sqlite-vec` for embedded vector search without external database servers.

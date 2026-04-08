@@ -32,6 +32,10 @@ const (
 	SymbolEnum      SymbolKind = "enum"
 	SymbolTypeAlias SymbolKind = "type_alias"
 
+	// React symbols
+	SymbolComponent SymbolKind = "component"
+	SymbolHook      SymbolKind = "hook"
+
 	// HTML/XML symbols
 	SymbolElement SymbolKind = "element"
 	SymbolScript  SymbolKind = "script"

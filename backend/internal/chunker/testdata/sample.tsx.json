@@ -1,0 +1,20 @@
+{
+  "name": "React TSX Support",
+  "file": "sample.tsx",
+  "language": "tsx",
+  "minSymbols": 6,
+  "expectSymbols": [
+    { "name": "Props", "kind": "interface" },
+    { "name": "MyComponent", "kind": "component" },
+    { "name": "increment", "kind": "variable", "parent": "MyComponent" },
+    { "name": "useMyHook", "kind": "hook" },
+    { "name": "OldComponent", "kind": "component" },
+    { "name": "render", "kind": "method", "parent": "OldComponent" }
+  ],
+  "expectImports": ["react"],
+  "expectUsages": [
+    { "name": "useState" },
+    { "name": "h1" },
+    { "name": "div" }
+  ]
+}

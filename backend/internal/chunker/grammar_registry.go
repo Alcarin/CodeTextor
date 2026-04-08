@@ -36,6 +36,7 @@ var grammarRegistry = map[string]func() *sitter.Language{
 	"tree-sitter-json":       func() *sitter.Language { return sitter.NewLanguage(tree_sitter_json.Language()) },
 	"tree-sitter-markdown":   func() *sitter.Language { return sitter.NewLanguage(tree_sitter_markdown.Language()) },
 	"tree-sitter-sql":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_sql.Language()) },
+	"tree-sitter-tsx":        func() *sitter.Language { return sitter.NewLanguage(tree_sitter_typescript.LanguageTSX()) },
 }
 
 // GetGrammar returns the tree-sitter Language for the given grammar name.

@@ -56,9 +56,8 @@ type ProjectConfig struct {
 	// Examples: "node_modules", ".git", "*.min.js"
 	ExcludePatterns []string `json:"excludePatterns"`
 
-	// FileExtensions filters indexing to specific file types.
-	// If empty, all supported file types are indexed.
-	// Examples: [".go", ".ts", ".js", ".py"]
+	// FileExtensions is managed automatically by the system based on available TOML parsers.
+	// Manual overrides in the database are currently ignored to ensure 100% dynamic support.
 	FileExtensions []string `json:"fileExtensions"`
 
 	// RootPath is the absolute path that serves as the base for the project.

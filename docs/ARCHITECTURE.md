@@ -153,7 +153,7 @@ The semantic chunking system consists of three main components:
 1. **Parsers** (`backend/internal/chunker/query_parser.go`, `parsers/default/*.toml`)
    - **QueryParser Engine**: A dynamic, configuration-driven motor that uses Tree-sitter queries defined in TOML files to extract symbols, imports, and metadata.
    - **Zero-Code Extensions**: Support for new languages is added by dropping a TOML file into the registry, requiring no backend recompilation.
-   - **Supported languages**: Go, Python, TypeScript/JavaScript, HTML, CSS, Vue, Markdown, SQL, JSON, PHP (all driven by the dynamic engine except specialized structural parsers).
+   - **Supported languages**: Go, Python, TypeScript/JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, PHP (all driven by the dynamic engine except specialized structural parsers).
    - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager` and dynamic delegation.
 
 2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
@@ -405,6 +405,10 @@ User Opens File → OutlineView.vue
 - **Automatic Sub-Language Hook**: Uses the dynamic `QueryParser` registry to resolve the correct engine for each block based on the `lang` attribute or default heuristics.
 - **Line Offset**: Leverages Tree-sitter's `SetIncludedRanges` API to maintain absolute line numbers from the original `.vue` file.
 - **Hierarchy Preservation**: Root sections act as parents; nested elements maintain the internal hierarchy of their respective languages.
+
+#### JSX/TSX Parsers
+- **React Support**: Extracts components and structural elements from JSX and TSX files.
+- **Hierarchical Outline**: Preserves the nesting of JSX elements for accurate navigation.
 
 #### HTML/CSS Parsers
 - **All Tags**: Extracts all HTML elements (not just semantic tags)

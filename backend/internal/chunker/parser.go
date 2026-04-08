@@ -179,6 +179,7 @@ func (p *Parser) loadQueryParsers() {
 
 		// Register as primary parser for its extensions
 		p.registerParser(qp)
+		log.Printf("[Parser] Registered language: %s (extensions: %v)", config.Language.Name, config.Language.Extensions)
 	}
 }
 
@@ -227,31 +228,14 @@ func (p *Parser) extractParseErrors(node *sitter.Node, source []byte, lang *sitt
 
 // detectLanguage maps file extension to language name.
 func (p *Parser) detectLanguage(ext string) string {
-	languageMap := map[string]string{
-		".go":       "go",
-		".py":       "python",
-		".ts":       "typescript",
-		".tsx":      "typescript",
-		".js":       "javascript",
-		".jsx":      "javascript",
-		".html":     "html",
-		".htm":      "html",
-		".css":      "css",
-		".scss":     "scss",
-		".sass":     "sass",
-		".vue":      "vue",
-		".md":       "markdown",
-		".markdown": "markdown",
-		".json":     "json",
-		".sql":      "sql",
-		".php":      "php",
-		".rs":       "rust",
-		".java":     "java",
+	// Dynamically look up the extension in registered parsers
+	if parser, ok := p.parsers[ext]; ok {
+		// Each LanguageParser knows its own name from the TOML config
+		if qp, ok := parser.(*QueryParser); ok {
+			return qp.config.Language.Name
+		}
 	}
 
-	if lang, ok := languageMap[ext]; ok {
-		return lang
-	}
 	return "unknown"
 }
 

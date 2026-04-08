@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **React Support (JSX/TSX)**: Added full support for parsing and chunking React files.
 - **Indexing Management Overhaul**: Significant updates to the Indexing tab to improve management and verification of the index scope.
   - **Automated Filtering**: Removed manual extension selection; indexing scope is now automatically managed via parser TOML configurations.
   - **Integrated File Explorer**: Added an interactive list to verify indexed content, featuring path search, language filtering, and unified grid-based UI controls for perfect alignment.
