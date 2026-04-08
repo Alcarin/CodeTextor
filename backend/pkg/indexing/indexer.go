@@ -44,6 +44,8 @@ type Indexer struct {
 	// Callbacks for external components
 	OnInitialScanComplete func()
 	OnFileIndexed         func(filePath string)
+
+	dbWriteMu sync.Mutex // Serializes writes to the single-writer SQLite DB
 }
 
 // embeddingTask holds pre-processed file data ready for GPU embedding.
@@ -57,6 +59,7 @@ type embeddingTask struct {
 	rawChunks    []string
 	fileRecord   *models.File
 	storeOutline bool
+	isNewFile    bool
 	wg           *sync.WaitGroup
 }
 
@@ -263,21 +266,25 @@ func (i *Indexer) processTask(task *embeddingTask, wg *sync.WaitGroup) {
 	}
 
 	// 2. DB Stage: Atomic Transaction
-	err = i.vectorStore.InsertFileTasksInTransaction(
+	i.dbWriteMu.Lock()
+	isNewActual, err := i.vectorStore.InsertFileTasksInTransaction(
 		task.fileRecord,
 		task.dbChunks,
 		task.dbSymbols,
 		task.outlineNodes,
 		task.dbUsages,
 	)
+	i.dbWriteMu.Unlock()
 
 	if err != nil {
 		log.Printf("[%s] Failed to persist file %s: %v", i.project.Name, task.filePath, err)
-		atomic.AddInt32(&i.progress.ProcessedFiles, 1)
 		return
 	}
 
-	processed := atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+	processed := atomic.LoadInt32(&i.progress.ProcessedFiles)
+	if isNewActual || i.isInitialScan {
+		processed = atomic.AddInt32(&i.progress.ProcessedFiles, 1)
+	}
 	total := atomic.LoadInt32(&i.progress.TotalFiles)
 	
 	if i.OnFileIndexed != nil && !i.isInitialScan {
@@ -455,6 +462,7 @@ func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) 
 			ChunkCount:   len(dbChunks),
 		},
 		storeOutline: true,
+		isNewFile:    existingFile == nil,
 	}
 }
 
@@ -480,18 +488,43 @@ func (i *Indexer) debounceFileUpdate(filePath string) {
 }
 
 func (i *Indexer) updateFileIndex(filePath string) {
-	absPath, _ := filepath.Abs(filePath)
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		log.Printf("[%s] Indexer: invalid path %s: %v", i.project.Name, filePath, err)
+		return
+	}
 	relPath := filePath
-	if rel, ok := utils.RelativePathWithinRoot(i.project.Config.RootPath, absPath); ok { relPath = rel }
+	if rel, ok := utils.RelativePathWithinRoot(i.project.Config.RootPath, absPath); ok {
+		relPath = rel
+	}
 	
-	info, _ := os.Stat(absPath)
+	info, err := os.Stat(absPath)
+	if err != nil {
+		// File vanished or inaccessible - stop indexing it
+		if os.IsNotExist(err) {
+			log.Printf("[%s] Indexer: file %s vanished during debounce, skipping", i.project.Name, relPath)
+		} else {
+			log.Printf("[%s] Indexer: error statting file %s: %v", i.project.Name, relPath, err)
+		}
+		return
+	}
+
+	// Just in case it's a directory
+	if info.IsDir() {
+		return
+	}
+
 	preview := &models.FilePreview{
 		AbsolutePath: absPath,
 		RelativePath: relPath,
 		LastModified: info.ModTime().Unix(),
 	}
+	
 	task := i.submitFileToIndices(preview, 0)
 	if task != nil {
+		if task.isNewFile {
+			atomic.AddInt32(&i.progress.TotalFiles, 1)
+		}
 		go i.processTask(task, nil)
 	}
 }
@@ -502,7 +535,7 @@ func (i *Indexer) cleanupRemovedFiles(currentFiles []*models.FilePreview) {
 	for _, f := range currentFiles { current[f.RelativePath] = true }
 	for _, p := range tracked {
 		if !current[p] {
-			_ = i.vectorStore.RemoveFileAndArtifacts(p)
+			_, _ = i.vectorStore.RemoveFileAndArtifacts(p)
 		}
 	}
 }
@@ -519,8 +552,34 @@ func (i *Indexer) emitFileUpdate(filePath string) {
 func (i *Indexer) handleDeletion(absPath string) {
 	relPath := absPath
 	if rel, ok := utils.RelativePathWithinRoot(i.project.Config.RootPath, absPath); ok { relPath = rel }
-	_ = i.vectorStore.RemoveFileAndArtifacts(relPath)
-	_ = i.vectorStore.RemoveDirectoryAndArtifacts(relPath)
+	
+	// Serializzare le eliminazioni per evitare 'database is locked'
+	i.dbWriteMu.Lock()
+	defer i.dbWriteMu.Unlock()
+
+	// Atomically remove from DB and get the count of physical files actually removed.
+	removedFiles, err := i.vectorStore.RemoveFileAndArtifacts(relPath)
+	if err != nil {
+		log.Printf("[%s] Indexer: failed to remove file %s: %v", i.project.Name, relPath, err)
+	}
+
+	// Only attempt directory removal if no single file was removed or if we want to be exhaustive.
+	// Actually, a path could be both a file name in one project and a directory prefix in another,
+	// but here we just check if it's likely a directory or if RemoveFile found nothing.
+	var removedFromDir int64
+	if removedFiles == 0 {
+		removedFromDir, err = i.vectorStore.RemoveDirectoryAndArtifacts(relPath)
+		if err != nil {
+			log.Printf("[%s] Indexer: failed to remove directory %s: %v", i.project.Name, relPath, err)
+		}
+	}
+
+	totalRemoved := removedFiles + removedFromDir
+	if totalRemoved > 0 {
+		atomic.AddInt32(&i.progress.TotalFiles, -int32(totalRemoved))
+		atomic.AddInt32(&i.progress.ProcessedFiles, -int32(totalRemoved))
+	}
+
 	i.emitFileUpdate(relPath)
 }
 

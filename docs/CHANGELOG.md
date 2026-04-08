@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Robust Indexing Concurrency**: Serialized database writes using a Mutex to eliminate `database is locked` errors during intensive build cycles.
+- **Atomic Progress Counters**: Refactored the Indexer to synchronize UI counters directly with atomic database operation results, ensuring constant accuracy and preventing 100%+ progress bugs.
+- **Improved Deletion Flow**: Optimized file removal to reduce lock contention and fixed `Scan` type mismatches for the `is_virtual` database flag.
+- **Fixes**: Resolved a `nil pointer dereference` panic during rapid file modifications.
 - **`getProjectDetails` & `getRecentChanges` Tool Optimization (Breaking Change)**: Refactored date outputs from Unix timestamps (integers) to human-readable RFC3339 string format (e.g., `2026-04-08T16:04:29Z`). This makes project metadata and change history significantly more understandable for AI agents.
 - **`findTodos` Tool Optimization (Breaking Change)**: Refactored the tool to return a structured map categorized by marker type (TODO, FIXME, HACK, etc.) instead of a flat list. This change significantly reduces token overhead by using semantic Symbol IDs and includes a new `category` input filter for surgical discovery.
 - **`grepSearch` Tool Optimization (Breaking Change)**: Refactored the tool output from a nested JSON structure to a compact tabular format (`[File, Line, Content]`). This significantly reduces token consumption for AI agents while maintaining visibility of matching code lines.

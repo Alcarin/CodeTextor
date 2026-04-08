@@ -558,22 +558,29 @@ func (s *VectorStore) insertOutlineNodes(tx *sql.Tx, fileID int64, nodes []*mode
 
 // InsertFileTasksInTransaction performs a high-speed atomic update for a single file and all its artifacts.
 // It combines file metadata, semantic chunks, symbols, and structural outline in a single transaction.
+// InsertFileTasksInTransaction persists all artifacts for a file in a single transaction.
+// Returns true if a new file record was created, false if an existing one was updated.
 func (s *VectorStore) InsertFileTasksInTransaction(
 	file *models.File,
 	chunks []*models.Chunk,
 	symbols []*models.Symbol,
 	outline []*models.OutlineNode,
 	usages []*models.SymbolUsage,
-) error {
+) (bool, error) {
 	if file == nil {
-		return fmt.Errorf("file record cannot be nil")
+		return false, fmt.Errorf("file record cannot be nil")
 	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin atomic file transaction for %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to begin atomic file transaction for %s: %w", file.Path, err)
 	}
 	defer tx.Rollback()
+
+	// Check if file already exists to determine if it's a new entry
+	var existingPK int64
+	err = tx.QueryRow(`SELECT pk FROM files WHERE path = ?`, file.Path).Scan(&existingPK)
+	isNew := err == sql.ErrNoRows
 
 	now := time.Now().Unix()
 	file.CreatedAt = now
@@ -594,12 +601,12 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 			updated_at = excluded.updated_at
 	`, file.ID, file.Path, file.Hash, file.IsVirtual, file.LastModified, file.ChunkCount, file.CreatedAt, file.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("failed to upsert file %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to upsert file %s: %w", file.Path, err)
 	}
 
 	var fileID int64
 	if err := tx.QueryRow(`SELECT pk FROM files WHERE path = ?`, file.Path).Scan(&fileID); err != nil {
-		return fmt.Errorf("failed to retrieve pk for %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to retrieve pk for %s: %w", file.Path, err)
 	}
 	s.cacheFileID(file.Path, fileID)
 
@@ -608,15 +615,15 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 	// we just need to ensure the foreign keys are working. 
 	// However, to avoid any issues with existing data, we explicitly delete associated records for this file.
 	if _, err := tx.Exec(`DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to clear old chunks for %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to clear old chunks for %s: %w", file.Path, err)
 	}
 	// Note: symbols, implementations, and outline_nodes are cleared by CASCADE or explicit DELETE if needed.
 	// We delete symbols explicitly just to be 100% sure the transaction sees it immediately.
 	if _, err := tx.Exec(`DELETE FROM symbols WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to clear old symbols for %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to clear old symbols for %s: %w", file.Path, err)
 	}
 	if _, err := tx.Exec(`DELETE FROM outline_nodes WHERE file_id = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to clear old outline nodes for %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to clear old outline nodes for %s: %w", file.Path, err)
 	}
 
 	// 3. Parallel-style insert for chunks
@@ -632,7 +639,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare chunk statement for %s: %w", file.Path, err)
+			return false, fmt.Errorf("failed to prepare chunk statement for %s: %w", file.Path, err)
 		}
 		defer chunkStmt.Close()
 
@@ -649,7 +656,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 				chunk.TokenCount, chunk.IsCollapsed, chunk.SourceCode, now, now,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to insert chunk for %s: %w", file.Path, err)
+				return false, fmt.Errorf("failed to insert chunk for %s: %w", file.Path, err)
 			}
 		}
 	}
@@ -661,7 +668,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare symbol statement for %s: %w", file.Path, err)
+			return false, fmt.Errorf("failed to prepare symbol statement for %s: %w", file.Path, err)
 		}
 		defer symStmt.Close()
 
@@ -669,7 +676,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 			_, err = symStmt.Exec(sym.ID, fileID, sym.Name, sym.Kind, sym.Line, sym.Character,
 				sql.NullString{String: sym.Parent, Valid: sym.Parent != ""}, sym.Language, now, now)
 			if err != nil {
-				return fmt.Errorf("failed to insert symbol for %s: %w", file.Path, err)
+				return false, fmt.Errorf("failed to insert symbol for %s: %w", file.Path, err)
 			}
 		}
 	}
@@ -677,7 +684,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 	// 5. Recursive outline insertion
 	if len(outline) > 0 {
 		if err := s.insertOutlineNodes(tx, fileID, outline, sql.NullString{}); err != nil {
-			return fmt.Errorf("failed to insert outline for %s: %w", file.Path, err)
+			return false, fmt.Errorf("failed to insert outline for %s: %w", file.Path, err)
 		}
 	}
 
@@ -689,7 +696,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 			) VALUES (?, ?, ?, ?, ?, ?)
 		`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare usage statement for %s: %w", file.Path, err)
+			return false, fmt.Errorf("failed to prepare usage statement for %s: %w", file.Path, err)
 		}
 		defer usageStmt.Close()
 
@@ -697,7 +704,7 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 			_, err = usageStmt.Exec(u.CallerNodeID, sql.NullString{String: u.TargetNodeID, Valid: u.TargetNodeID != ""},
 				u.RawTargetName, sql.NullString{String: u.RawTargetContext, Valid: u.RawTargetContext != ""}, u.Line, u.Column)
 			if err != nil {
-				return fmt.Errorf("failed to insert usage for %s: %w", file.Path, err)
+				return false, fmt.Errorf("failed to insert usage for %s: %w", file.Path, err)
 			}
 		}
 	}
@@ -708,10 +715,14 @@ func (s *VectorStore) InsertFileTasksInTransaction(
 		VALUES (?, ?)
 		ON CONFLICT(file_id) DO UPDATE SET updated_at = excluded.updated_at
 	`, fileID, now); err != nil {
-		return fmt.Errorf("failed to update metadata for %s: %w", file.Path, err)
+		return false, fmt.Errorf("failed to update metadata for %s: %w", file.Path, err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return isNew && !file.IsVirtual, nil
 }
 
 // GetFileOutline retrieves a stored outline tree.
@@ -865,23 +876,29 @@ func (s *VectorStore) ListPhysicalFilePaths() ([]string, error) {
 
 // RemoveFileAndArtifacts deletes all stored data for the given file path.
 // If the file is not tracked, it succeeds silently.
-func (s *VectorStore) RemoveFileAndArtifacts(filePath string) error {
+// RemoveFileAndArtifacts removes a file and its associated data. Returns the number of physical files removed.
+func (s *VectorStore) RemoveFileAndArtifacts(filePath string) (int64, error) {
 	normalized, err := normalizeOutlinePath(filePath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	fileID, _, err := s.resolveFileID(normalized, false)
 	if err != nil {
 		if strings.Contains(err.Error(), "file not found") {
-			return nil
+			return 0, nil
 		}
-		return err
+		return 0, err
+	}
+
+	var isVirtual bool
+	if err := s.db.QueryRow(`SELECT is_virtual FROM files WHERE pk = ?`, fileID).Scan(&isVirtual); err != nil {
+		return 0, err
 	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin removal for %s: %w", normalized, err)
+		return 0, fmt.Errorf("failed to begin removal for %s: %w", normalized, err)
 	}
 	defer tx.Rollback()
 
@@ -889,14 +906,21 @@ func (s *VectorStore) RemoveFileAndArtifacts(filePath string) error {
 	// simply deleting the file from the 'files' table will remove chunks, symbols, 
 	// outlines, and chunk-symbol mappings automatically.
 	if _, err := tx.Exec(`DELETE FROM files WHERE pk = ?`, fileID); err != nil {
-		return fmt.Errorf("failed to delete file record for %s: %w", normalized, err)
+		return 0, fmt.Errorf("failed to delete file record for %s: %w", normalized, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 
 	s.fileIDMu.Lock()
 	delete(s.fileIDs, normalized)
 	s.fileIDMu.Unlock()
 
-	return tx.Commit()
+	if !isVirtual {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 // PurgeOrphanedVirtualFiles removes virtual file entries that are no longer referenced by any symbol usage.
@@ -920,10 +944,11 @@ func (s *VectorStore) PurgeOrphanedVirtualFiles() (int64, error) {
 
 // RemoveDirectoryAndArtifacts deletes all stored data for files within the given directory path.
 // dirPath should be the absolute path to the directory.
-func (s *VectorStore) RemoveDirectoryAndArtifacts(dirPath string) error {
+// RemoveDirectoryAndArtifacts removes all files under a directory and their associated data. Returns the number of physical files removed.
+func (s *VectorStore) RemoveDirectoryAndArtifacts(dirPath string) (int64, error) {
 	normalized, err := normalizeOutlinePath(dirPath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Ensure prefix matching for directory paths (e.g., path/to/dir/file.txt)
@@ -931,9 +956,19 @@ func (s *VectorStore) RemoveDirectoryAndArtifacts(dirPath string) error {
 		normalized += "/"
 	}
 
+	// Check if there are any files to remove before starting a transaction.
+	// This reduces lock contention in high-concurrency scenarios (e.g. wails build).
+	var hasFiles bool
+	err = s.db.QueryRow(`SELECT 1 FROM files WHERE path LIKE ? LIMIT 1`, normalized+"%").Scan(&hasFiles)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin directory removal for %s: %w", normalized, err)
+		return 0, fmt.Errorf("failed to begin directory removal for %s: %w", normalized, err)
 	}
 	defer tx.Rollback()
 
@@ -946,13 +981,24 @@ func (s *VectorStore) RemoveDirectoryAndArtifacts(dirPath string) error {
 	}
 	s.fileIDMu.Unlock()
 
-	// 2. Delete the directory entries and all Cascading children (chunks, symbols, etc.)
-	// We use LIKE to matches everything starting with the directory path.
-	if _, err := tx.Exec(`DELETE FROM files WHERE path LIKE ?`, normalized+"%"); err != nil {
-		return fmt.Errorf("failed to remove files for directory %s: %w", normalized, err)
+	// 2. Count non-virtual files that will be removed
+	var removedCount int64
+	err = tx.QueryRow(`SELECT COUNT(*) FROM files WHERE path LIKE ? AND is_virtual = 0`, normalized+"%").Scan(&removedCount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count files for directory %s: %w", normalized, err)
 	}
 
-	return tx.Commit()
+	// 3. Delete the directory entries and all Cascading children (chunks, symbols, etc.)
+	// We use LIKE to matches everything starting with the directory path.
+	if _, err := tx.Exec(`DELETE FROM files WHERE path LIKE ?`, normalized+"%"); err != nil {
+		return 0, fmt.Errorf("failed to remove files for directory %s: %w", normalized, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return removedCount, nil
 }
 
 // GetFileOutlineTimestamp retrieves the last update timestamp for a file's outline.
