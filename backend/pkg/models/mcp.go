@@ -65,7 +65,7 @@ type RecentChangesResponse struct {
 // IndexedFile represents a file that was recently indexed.
 type IndexedFile struct {
 	Path string `json:"p"`
-	Time int64  `json:"t"` // Unix timestamp
+	Time string `json:"t"` // RFC3339 formatted time
 }
 
 // VCSFile represents a modified file in the working tree.

@@ -1363,7 +1363,7 @@ func (s *ProjectService) GetRecentChanges(projectID string, limit int) (*models.
 			for _, f := range dbFiles {
 				res.Indexed = append(res.Indexed, models.IndexedFile{
 					Path: f.Path,
-					Time: f.UpdatedAt,
+					Time: time.Unix(f.UpdatedAt, 0).Format(time.RFC3339),
 				})
 			}
 		}

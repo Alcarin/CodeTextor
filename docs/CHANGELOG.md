@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **`getProjectDetails` & `getRecentChanges` Tool Optimization (Breaking Change)**: Refactored date outputs from Unix timestamps (integers) to human-readable RFC3339 string format (e.g., `2026-04-08T16:04:29Z`). This makes project metadata and change history significantly more understandable for AI agents.
 - **`findTodos` Tool Optimization (Breaking Change)**: Refactored the tool to return a structured map categorized by marker type (TODO, FIXME, HACK, etc.) instead of a flat list. This change significantly reduces token overhead by using semantic Symbol IDs and includes a new `category` input filter for surgical discovery.
 - **`grepSearch` Tool Optimization (Breaking Change)**: Refactored the tool output from a nested JSON structure to a compact tabular format (`[File, Line, Content]`). This significantly reduces token consumption for AI agents while maintaining visibility of matching code lines.
 - **`findReferences` Tool Optimization (Breaking Change)**: Refactored the tool output to a multi-target tabular format (`[File, Line, Caller, Kind, Content]`). It handles ambiguous symbols gracefully by returning multiple result sets and provides caller contextual metadata via database joins, heavily reducing overhead.

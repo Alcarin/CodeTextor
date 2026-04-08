@@ -911,10 +911,10 @@ type listFileOutput struct {
 }
 
 type leanProjectStats struct {
-	TotalFiles        int   `json:"totalFiles"`
-	TotalChunks       int   `json:"totalChunks"`
-	TotalSymbols      int   `json:"totalSymbols"`
-	LastIndexedAtUnix int64 `json:"lastIndexedAtUnix,omitempty"`
+	TotalFiles    int    `json:"totalFiles"`
+	TotalChunks   int    `json:"totalChunks"`
+	TotalSymbols  int    `json:"totalSymbols"`
+	LastIndexedAt string `json:"lastIndexedAt,omitempty"`
 }
 
 type projectDetailsOutput struct {
@@ -1108,11 +1108,16 @@ func (m *Manager) handleProjectDetails(boundProjectID string) sdkmcp.ToolHandler
 		var leanStats *leanProjectStats
 		var summary *models.ProjectSummary
 		if stats != nil {
+			var lastIndexedAt string
+			if stats.LastIndexedAtUnix > 0 {
+				lastIndexedAt = time.Unix(stats.LastIndexedAtUnix, 0).Format(time.RFC3339)
+			}
+
 			leanStats = &leanProjectStats{
-				TotalFiles:        stats.TotalFiles,
-				TotalChunks:       stats.TotalChunks,
-				TotalSymbols:      stats.TotalSymbols,
-				LastIndexedAtUnix: stats.LastIndexedAtUnix,
+				TotalFiles:    stats.TotalFiles,
+				TotalChunks:   stats.TotalChunks,
+				TotalSymbols:  stats.TotalSymbols,
+				LastIndexedAt: lastIndexedAt,
 			}
 			summary = stats.Summary
 		}

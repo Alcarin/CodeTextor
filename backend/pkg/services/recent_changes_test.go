@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"CodeTextor/backend/pkg/utils"
+	"time"
 )
 
 func TestGetRecentChanges_Git(t *testing.T) {
@@ -92,7 +93,15 @@ func TestGetRecentChanges_DB(t *testing.T) {
 
 	if len(res.Indexed) == 0 {
 		t.Error("Expected at least one indexed file")
-	} else if res.Indexed[0].Path != "indexed.go" {
-		t.Errorf("Expected indexed.go, got %s", res.Indexed[0].Path)
+	} else {
+		idx := res.Indexed[0]
+		if idx.Path != "indexed.go" {
+			t.Errorf("Expected indexed.go, got %s", idx.Path)
+		}
+		// Verify time format
+		_, err := time.Parse(time.RFC3339, idx.Time)
+		if err != nil {
+			t.Errorf("Expected RFC3339 time format, got %s (error: %v)", idx.Time, err)
+		}
 	}
 }

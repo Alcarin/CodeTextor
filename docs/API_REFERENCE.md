@@ -44,7 +44,7 @@ index; requests are read-only.
 - **Input**: `{}` (empty object)
 - **Response**: `{ id, name, description, rootPath, fileExtensions, summary, stats }`
   - `summary` provides a high-level overview (main languages, entry points, packages).
-  - `stats` provides concise numeric metrics.
+  - `stats` provides concise numeric metrics (e.g., file counts, `lastIndexedAt` as RFC3339 string).
 
 #### `listFiles`
 
@@ -91,7 +91,7 @@ index; requests are read-only.
 
 - **Input**: `{ limit?: number (default 10) }`
 - **Response**: `{ indexed: { p, t }[], workingCopy: { p, s }[], vcs?: string }`
-  - `indexed`: Files recently updated in the CodeTextor index (`p`: relative path, `t`: unix timestamp).
+  - `indexed`: Files recently updated in the CodeTextor index (`p`: relative path, `t`: RFC3339 formatted time).
   - `workingCopy`: Real-time modifications from Git or SVN (`p`: relative path, `s`: status code like "M", "A").
   - `vcs`: The active Version Control System detected (e.g., "git", "svn").
 
