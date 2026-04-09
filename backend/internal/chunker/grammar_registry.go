@@ -25,6 +25,7 @@ import (
     "CodeTextor/backend/internal/chunker/vendor_grammar/markdown_inline"
     "CodeTextor/backend/internal/chunker/vendor_grammar/php"
     "CodeTextor/backend/internal/chunker/vendor_grammar/php_only"
+    "CodeTextor/backend/internal/chunker/vendor_grammar/bash"
 
 	"sync"
 )
@@ -58,6 +59,7 @@ var grammarRegistry = map[string]func() *sitter.Language{
 	"tree-sitter-kotlin":     func() *sitter.Language { return sitter.NewLanguage(kotlin.Language()) },
 	"tree-sitter-dart":       func() *sitter.Language { return sitter.NewLanguage(dart.Language()) },
 	"tree-sitter-swift":      func() *sitter.Language { return sitter.NewLanguage(swift.Language()) },
+	"tree-sitter-bash":       func() *sitter.Language { return sitter.NewLanguage(bash.Language()) },
 }
 
 // GetGrammar returns the tree-sitter Language for the given grammar name.

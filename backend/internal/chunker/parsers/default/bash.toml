@@ -1,0 +1,44 @@
+[language]
+name = "bash"
+grammar = "tree-sitter-bash"
+extensions = [".sh", ".bash", ".zsh", ".ebuild"]
+
+[queries]
+symbols = """
+; Functions
+((function_definition
+  name: (word) @name) @symbol.function)
+
+; Variables (assignments)
+((variable_assignment
+  name: (variable_name) @name
+  value: (_) @signature) @symbol.variable)
+
+; Aliases (stile name=value)
+(command
+  (command_name (word) @_cmd (#eq? @_cmd "alias"))
+  (concatenation 
+    (word) @name.alias 
+    (_) @signature) @symbol.alias)
+
+; Aliases semplici
+(command
+  (command_name (word) @_cmd (#eq? @_cmd "alias"))
+  (word) @name.alias @symbol.alias)
+"""
+
+imports = """
+(command
+  (command_name (word) @_cmd (#match? @_cmd "^(source|\\.)$"))
+  (word) @import)
+"""
+
+[rules]
+comment_prefixes = ["#"]
+
+[rules.formatting.alias]
+split = "="
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK):?\s*(.*)'
+node_types = ["comment"]

@@ -116,18 +116,21 @@ if (Test-Path $normFile) {
 # 4. INTERNAL VENDOR SYNC (Source-First & Flat Structure)
 Write-Host "[4/4] Syncing internal grammars (vendor_grammar) - Flat & Lean..." -ForegroundColor Yellow
 
-$internalGrammars = @(
-    @{ name = "kotlin";          repo = "https://github.com/fwcd/tree-sitter-kotlin.git";            tag = "main"; subdirs = @(".") }
-    @{ name = "dart";            repo = "https://github.com/nielsenko/tree-sitter-dart.git";          tag = "main";   subdirs = @(".") }
-    @{ name = "swift";           repo = "https://github.com/alex-pinkus/tree-sitter-swift.git";       tag = "main";   subdirs = @(".") }
-    @{ name = "sql";             repo = "https://github.com/DerekStride/tree-sitter-sql.git";         tag = "main";   subdirs = @(".") }
-    @{ name = "typescript";      repo = "https://github.com/tree-sitter/tree-sitter-typescript.git";  tag = "v0.23.2"; subdirs = @("typescript") }
-    @{ name = "tsx";             repo = "https://github.com/tree-sitter/tree-sitter-typescript.git";  tag = "v0.23.2"; subdirs = @("tsx") }
-    @{ name = "markdown";        repo = "https://github.com/tree-sitter-grammars/tree-sitter-markdown.git"; tag = "v0.5.1"; subdirs = @("tree-sitter-markdown") }
-    @{ name = "markdown_inline"; repo = "https://github.com/tree-sitter-grammars/tree-sitter-markdown.git"; tag = "v0.5.1"; subdirs = @("tree-sitter-markdown-inline") }
-    @{ name = "php";             repo = "https://github.com/tree-sitter/tree-sitter-php.git";         tag = "master"; subdirs = @("php") }
-    @{ name = "php_only";        repo = "https://github.com/tree-sitter/tree-sitter-php.git";         tag = "master"; subdirs = @("php_only") }
-)
+$grammarsFile = Join-Path $PSScriptRoot "grammars.txt"
+if (!(Test-Path $grammarsFile)) {
+    Write-Host "Error: grammars.txt not found at $grammarsFile" -ForegroundColor Red
+    exit 1
+}
+
+$internalGrammars = Get-Content $grammarsFile | Where-Object { $_ -match '\|' } | ForEach-Object {
+    $parts = $_ -split '\|'
+    @{ 
+        name    = $parts[0].Trim()
+        repo    = $parts[1].Trim()
+        tag     = $parts[2].Trim()
+        subdirs = if ($parts.Count -gt 3) { $parts[3].Trim() -split ' ' } else { @(".") }
+    }
+}
 
 $vendorGrammarRoot = Join-Path $PSScriptRoot "..\backend\internal\chunker\vendor_grammar"
 

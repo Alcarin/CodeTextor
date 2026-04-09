@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Bash Support**: Added full support for parsing and chunking Bash scripts (.sh, .bash, .zsh, .ebuild).
+- **Decentralized Grammar Management**: Centralized the list of Tree-sitter repositories into a dedicated `grammars.txt` file, ensuring cross-platform configuration parity between PowerShell and Bash sync scripts.
 - **Fix Indexing Progress**: Updated UI label to "Last indexed" and corrected the progress system to reflect real-time file processing (GPU stage).
 - **Final Tree-Sitter Architecture Migration**: Completed the transition to a "Flat & Lean" architecture for all 10 internal grammars. Renamed maintenance scripts to `sync_vendors.ps1/sh`, automated common header extraction, and optimized CGO bindings to prevent symbol collisions and build errors.
 - **Expansion of "Source-First" Standard (Kotlin & Dart)**: Migrated Kotlin and Dart to the local-first management strategy, unifying internal grammar management and improving build stability across all core languages.

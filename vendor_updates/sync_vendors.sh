@@ -77,19 +77,15 @@ fi
 # 4. INTERNAL VENDOR SYNC (Source-First & Flat Structure)
 echo -e "\033[0;33m[4/4] Syncing internal grammars (vendor_grammar) - Flat & Lean...\033[0m"
 
-# Grammar list: name, repo, tag, subdirs
-GRAMMARS=(
-    "kotlin|https://github.com/fwcd/tree-sitter-kotlin.git|main|."
-    "dart|https://github.com/nielsenko/tree-sitter-dart.git|main|."
-    "swift|https://github.com/alex-pinkus/tree-sitter-swift.git|main|."
-    "sql|https://github.com/DerekStride/tree-sitter-sql.git|main|."
-    "typescript|https://github.com/tree-sitter/tree-sitter-typescript.git|v0.23.2|typescript"
-    "tsx|https://github.com/tree-sitter/tree-sitter-typescript.git|v0.23.2|tsx"
-    "markdown|https://github.com/tree-sitter-grammars/tree-sitter-markdown.git|v0.5.1|tree-sitter-markdown"
-    "markdown_inline|https://github.com/tree-sitter-grammars/tree-sitter-markdown.git|v0.5.1|tree-sitter-markdown-inline"
-    "php|https://github.com/tree-sitter/tree-sitter-php.git|master|php"
-    "php_only|https://github.com/tree-sitter/tree-sitter-php.git|master|php_only"
-)
+GRAMMARS_FILE="$SCRIPT_DIR/grammars.txt"
+if [ ! -f "$GRAMMARS_FILE" ]; then
+    echo -e "\033[0;31mError: $GRAMMARS_FILE not found\033[0m"
+    exit 1
+fi
+
+# Read non-empty lines that contain a pipe
+MAPFILE_CMD="mapfile -t GRAMMARS < <(grep '|' \"$GRAMMARS_FILE\")"
+eval "$MAPFILE_CMD"
 
 update_binding_go() {
     local langDir=$1

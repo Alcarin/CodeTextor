@@ -1,0 +1,16 @@
+{
+  "name": "Bash Support",
+  "file": "sample.sh",
+  "language": "bash",
+  "minSymbols": 6,
+  "expectSymbols": [
+    { "name": "say_hello", "kind": "function" },
+    { "name": "name", "kind": "variable" },
+    { "name": "VERSION", "kind": "variable" },
+    { "name": "PATH_TO_DB", "kind": "variable" },
+    { "name": "MAX_RETRIES", "kind": "variable" },
+    { "name": "get_version", "kind": "function" },
+    { "name": "ll", "kind": "alias" }
+  ],
+  "expectImports": ["./config.sh", "./utils.sh"]
+}

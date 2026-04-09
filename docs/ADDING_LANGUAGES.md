@@ -32,8 +32,9 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
 
 For new languages, or those that present instability when managed via `go mod vendor` (e.g., Kotlin, Dart), CodeTextor adopts a **Source-First** approach. The grammar sources are stored directly in the repository, ensuring full reproducibility and avoiding network dependencies during build.
 
-### 1. Project Structure
-Create a dedicated directory in `backend/internal/chunker/vendor_grammar/<lang>/`.
+### 1. Project Structure & Configuration
+- Add the new grammar repository to **[vendor_updates/grammars.txt](../../vendor_updates/grammars.txt)**. Use the format: `name|repo|tag|subdirs`.
+- Create a dedicated directory in `backend/internal/chunker/vendor_grammar/<lang>/` (this will be populated by the sync script).
 The `sync_vendors.ps1` script will automatically organize the files into a **Flat & Lean** structure (just `.c`, `.h`, `.cc` and Go bindings) by extracting them from the grammar repositories.
 
 ### 2. Generating the Parser
