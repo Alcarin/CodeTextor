@@ -1,8 +1,8 @@
 package kotlin
 
 // #cgo CFLAGS: -std=c11 -fPIC
-// #include "src/parser.c"
-// #include "src/scanner.c"
+// #include "sources/src/parser.c"
+// #include "sources/src/scanner.c"
 // // NOTE: if your language has an external scanner, add it here.
 import "C"
 

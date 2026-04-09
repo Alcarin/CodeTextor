@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+- **Expansion of "Source-First" Standard (Kotlin & Dart)**: Migrated Kotlin and Dart to the local-first management strategy, unifying internal grammar management and improving build stability across all core languages.
+- **Universal `fix_vendor.ps1` Refactoring**: Generalized the vendor maintenance script to support automated local generation for all internal grammars, including automatic npm fallback and language-specific CGO patches.
 - **Swift Support**: Added full support for parsing and chunking Swift 5.x/6.0 files (.swift), including classes, structs, enums, protocols, actors, extensions, and more.
 - **"Source-First" Grammar Standard**: Transitioned to a local-first management strategy for Tree-sitter grammars. Sources are now stored directly in the repository under `vendor_grammar/<lang>/sources/`, eliminating build-time network dependencies and ensuring total reproducibility.
 - **Enhanced `fix_vendor.ps1` (Global CLI Support)**: Significant improvements to the vendor maintenance script. It now prefers the global `tree-sitter` CLI for generation, features zero-config automatic `node_modules` cleanup, and handles intelligent patching of internal Go bindings.

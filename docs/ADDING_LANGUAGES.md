@@ -30,27 +30,27 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
 
 ## 🏗️ The "Source-First" Strategy (Standard)
 
-For new languages, we prefer a local-first approach where the grammar source is stored directly in the repository. This ensures full reproducibility and avoids network dependencies during build.
+For new languages, or those that present instability when managed via `go mod vendor` (e.g., Kotlin, Dart), CodeTextor adopts a **Source-First** approach. The grammar sources are stored directly in the repository, ensuring full reproducibility and avoiding network dependencies during build.
 
 ### 1. Project Structure
 Create a dedicated directory in `backend/internal/chunker/vendor_grammar/<lang>/`.
-Inside, create a `sources/` folder to host the Tree-sitter grammar files:
-- `grammar.js` (The source of truth)
-- `src/` (Generated C files)
-- `binding.go` (Go wrapper)
+The `fix_vendor.ps1` script will automatically organize the files as follows:
+- `binding.go` (Go wrapper in the grammar root)
+- `sources/grammar.js` (The source of truth)
+- `sources/tree-sitter.json` (Configuration)
+- `sources/src/` (Locally generated C files)
 
 ### 2. Generating the Parser
-CodeTextor uses the **global `tree-sitter` CLI** to generate the C parser from `grammar.js`.
-1.  **Install Tree-sitter CLI**: `npm install -g tree-sitter-cli`
-2.  **Update Grammar**: Modify `sources/grammar.js` if needed.
-3.  **Run Automation**: Use `fix_vendor.ps1`. The script will:
-    - Look for `tree-sitter` in your PATH.
-    - Generate the `src/` directory.
-    - Patch the `binding.go` to use the correct Go package name and C include paths.
-    - Clean up any temporary `node_modules`.
+CodeTextor automates parser generation via `fix_vendor.ps1`:
+1.  **Requirements**: The script prefers `tree-sitter-cli` in the PATH, but can perform a local fallback on `npm` if necessary.
+2.  **Execution**: By running `.\vendor_updates\fix_vendor.ps1`, the system:
+    - Downloads necessary sources from the original repository.
+    - Generates the `sources/src/` folder locally.
+    - Patches `binding.go` to use the correct relative paths (`sources/src/parser.c`).
+    - Applies any specific CGO fixes.
 
 ### 3. Registering the Internal Package
-Register the grammar in `backend/internal/chunker/grammar_registry.go` using the internal path:
+Once C dependencies are resolved with the script, register the grammar in `backend/internal/chunker/grammar_registry.go`:
 ```go
 import "CodeTextor/backend/internal/chunker/vendor_grammar/<lang>"
 

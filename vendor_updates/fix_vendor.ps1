@@ -204,128 +204,98 @@ $internalGrammars = @{
 
 foreach ($grammarName in $internalGrammars.Keys) {
     $baseUrl = $internalGrammars[$grammarName]
-    Write-Host "  Processing $grammarName..." -ForegroundColor Cyan
+    Write-Host "  Processing $grammarName (Source-First approach)..." -ForegroundColor Cyan
     
     $vendorGrammarRoot = Join-Path $PSScriptRoot "..\backend\internal\chunker\vendor_grammar"
     $langDir = Join-Path $vendorGrammarRoot $grammarName
-    $langSrc = Join-Path $langDir "src"
+    $sourcesDir = Join-Path $langDir "sources"
+    $sourcesSrcDir = Join-Path $sourcesDir "src"
 
     if (!(Test-Path $langDir)) { New-Item -ItemType Directory -Force -Path $langDir | Out-Null }
-    
-    # We only create the root src/ if this is NOT a Source-First grammar (like Swift)
-    if ($grammarName -ne "swift") {
-        if (!(Test-Path $langSrc)) { New-Item -ItemType Directory -Force -Path $langSrc | Out-Null }
+    if (!(Test-Path $sourcesDir)) { New-Item -ItemType Directory -Force -Path $sourcesDir | Out-Null }
+    if (!(Test-Path $sourcesSrcDir)) { New-Item -ItemType Directory -Force -Path $sourcesSrcDir | Out-Null }
+
+    # 1. Download Binding and Source files
+    $coreFiles = @{
+        "bindings/go/binding.go" = "binding.go"
+        "grammar.js"             = "sources/grammar.js"
+        "package.json"           = "sources/package.json"
+        "tree-sitter.json"       = "sources/tree-sitter.json"
+        "src/scanner.c"          = "sources/src/scanner.c"
     }
 
-    $files = @(
-        "bindings/go/binding.go",
-        "src/parser.c",
-        "src/scanner.c",
-        "src/tree_sitter/parser.h",
-        "src/tree_sitter/alloc.h",
-        "src/tree_sitter/array.h"
-    )
-
-    foreach ($file in $files) {
-        if ($grammarName -eq "swift" -and $file -match "^src/") {
-            continue # Skip common src files for Source-First grammars (handled in special block)
-        }
-
-        if ($file -match "binding.go") {
-            $destPath = Join-Path $langDir "binding.go"
-        } else {
-            $destPath = Join-Path $langDir $file.Replace("/", "\")
-        }
-        
+    foreach ($fPath in $coreFiles.Keys) {
+        $destRel = $coreFiles[$fPath]
+        $destPath = Join-Path $langDir ($destRel.Replace("/", "\"))
         $destDir = Split-Path $destPath -Parent
         if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
-        
-        Write-Host "    Downloading $file -> $(Split-Path $destPath -Leaf)..."
-        $url = "$baseUrl/$file"
+
+        Write-Host "    Downloading $fPath -> $(Split-Path $destPath -Leaf)..."
+        $url = "$baseUrl/$fPath"
         try {
             Invoke-WebRequest -Uri $url -OutFile $destPath -ErrorAction Stop
         } catch {
-            Write-Host "    Warning: Could not download $file (might be normal for source-only grammars like Swift)" -ForegroundColor Gray
+            if ($fPath -match "scanner.c") {
+                 Write-Host "    (Note: scanner.c not found, might be a pure grammar)" -ForegroundColor Gray
+            } else {
+                 Write-Host "    Warning: Could not download $fPath" -ForegroundColor Yellow
+            }
             if (Test-Path $destPath) { Remove-Item $destPath }
         }
     }
 
-    # Patch binding.go for internal vendor
+    # 2. Patch binding.go
     $bindingFile = Join-Path $langDir "binding.go"
     if (Test-Path $bindingFile) {
         $content = [System.IO.File]::ReadAllText($bindingFile)
         $content = $content -replace "package tree_sitter_$grammarName", "package $grammarName"
-        if ($grammarName -eq "swift") {
-             $content = $content -replace "../../src/", "sources/src/"
-        } else {
-             $content = $content -replace "../../src/", "src/"
-        }
+        # Force all internal grammars to use the 'sources/src/' path in binding.go
+        $content = $content -replace '"src/', '"sources/src/'
+        $content = $content -replace '"../../src/', '"sources/src/'
         [System.IO.File]::WriteAllText($bindingFile, $content)
-        Write-Host "    Updated package to '$grammarName' and fixed CGO paths" -ForegroundColor Green
+        Write-Host "    Updated binding.go: package '$grammarName' and CGO paths fixed." -ForegroundColor Green
     }
 
-    # Special logic for Swift: Local Generation
-    if ($grammarName -eq "swift") {
-        $sourcesDir = Join-Path $langDir "sources"
-        if (!(Test-Path $sourcesDir)) { New-Item -ItemType Directory -Force -Path $sourcesDir | Out-Null }
+    # 3. Generate Parser
+    $parserFile = Join-Path $sourcesSrcDir "parser.c"
+    if (!(Test-Path $parserFile)) {
+        Write-Host "    Generating parser for $grammarName..." -ForegroundColor Yellow
+        $globalTS = Get-Command "tree-sitter" -ErrorAction SilentlyContinue
         
-        Write-Host "    Swift detected. Ensuring sources are present..." -ForegroundColor Magenta
-        $sourceFiles = @{
-            "grammar.js" = "grammar.js"
-            "package.json" = "package.json"
-            "src/scanner.c" = "sources/src/scanner.c"
-            "tree-sitter.json" = "tree-sitter.json"
-        }
-
-        foreach ($sFile in $sourceFiles.Keys) {
-            $sDest = Join-Path $langDir ($sourceFiles[$sFile].Replace("/", "\"))
-            if (!(Test-Path (Split-Path $sDest))) { New-Item -ItemType Directory -Force -Path (Split-Path $sDest) | Out-Null }
-            
-            if (!(Test-Path $sDest)) {
-                Write-Host "      Downloading source: $sFile..."
-                $sUrl = "$baseUrl/$sFile"
-                Invoke-WebRequest -Uri $sUrl -OutFile $sDest -ErrorAction SilentlyContinue
+        if ($globalTS) {
+            Write-Host "      Using GLOBAL tree-sitter-cli..." -ForegroundColor Cyan
+            Push-Location $sourcesDir
+            try {
+                tree-sitter generate
+                Write-Host "      Generation successful!" -ForegroundColor Green
+            } catch {
+                Write-Host "      Generation failed: $($_.Exception.Message)" -ForegroundColor Red
             }
-        }
-
-        # Attempt generation: prefer global tree-sitter, fallback to local npm
-        $parserFile = Join-Path $langDir "sources\src\parser.c"
-        if (!(Test-Path $parserFile)) {
-            $globalTS = Get-Command "tree-sitter" -ErrorAction SilentlyContinue
-            
-            if ($globalTS) {
-                Write-Host "      Generating parser via GLOBAL tree-sitter-cli..." -ForegroundColor Cyan
-                Push-Location $sourcesDir
-                try {
-                    tree-sitter generate
-                    Write-Host "      Generation successful (global)!" -ForegroundColor Green
-                } catch {
-                    Write-Host "      Global generation failed: $($_.Exception.Message)" -ForegroundColor Red
-                }
+            Pop-Location
+        } elseif (Get-Command "npm" -ErrorAction SilentlyContinue) {
+            Write-Host "      Using LOCAL npm fallback..." -ForegroundColor Cyan
+            Push-Location $sourcesDir
+            try {
+                npm install tree-sitter-cli@latest --no-save
+                .\node_modules\.bin\tree-sitter.cmd generate
+                Write-Host "      Generation successful (local)!" -ForegroundColor Green
+                
+                # Cleanup local install
                 Pop-Location
-            } elseif (Get-Command "npm" -ErrorAction SilentlyContinue) {
-                Write-Host "      Generating parser via LOCAL npm fallback..." -ForegroundColor Cyan
-                Push-Location $sourcesDir
-                try {
-                    npm install tree-sitter-cli@latest --no-save
-                    .\node_modules\.bin\tree-sitter.cmd generate
-                    Write-Host "      Generation successful (local)!" -ForegroundColor Green
-                    
-                    # Cleanup local install
-                    Pop-Location
-                    Remove-Item -Path (Join-Path $sourcesDir "node_modules") -Recurse -Force -ErrorAction SilentlyContinue
-                    Remove-Item -Path (Join-Path $sourcesDir "package-lock.json") -Force -ErrorAction SilentlyContinue
-                } catch {
-                    if ($null -ne $sourcesDir) { try { Pop-Location } catch {} }
-                    Write-Host "      Local generation failed: $($_.Exception.Message)" -ForegroundColor Red
-                }
-            } else {
-                Write-Host "      Warning: tree-sitter or npm not found. Parser.c cannot be generated automatically." -ForegroundColor Yellow
+                Remove-Item -Path (Join-Path $sourcesDir "node_modules") -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -Path (Join-Path $sourcesDir "package-lock.json") -Force -ErrorAction SilentlyContinue
+            } catch {
+                if ($null -ne $sourcesDir) { try { Pop-Location } catch {} }
+                Write-Host "      Local generation failed: $($_.Exception.Message)" -ForegroundColor Red
             }
+        } else {
+            Write-Host "      Warning: tree-sitter or npm not found. Parser.c cannot be generated automatically." -ForegroundColor Magenta
         }
+    }
 
-        # 2026-04-09 Patch: Fix Swift CGO compilation issues (TOKEN_COUNT redefinition and Shift Overflow)
-        Write-Host "    Applying Swift CGO patches..." -ForegroundColor Cyan
+    # 4. Apply Language-specific patches
+    if ($grammarName -eq "swift") {
+        Write-Host "    Applying Swift-specific CGO patches..." -ForegroundColor Cyan
         
         # Patch 1: binding.go (#undef TOKEN_COUNT)
         if (Test-Path $bindingFile) {
@@ -338,7 +308,7 @@ foreach ($grammarName in $internalGrammars.Keys) {
         }
 
         # Patch 2: scanner.c (Shift Overflow: 1UL -> 1ULL)
-        $scannerFile = Join-Path $langDir "sources\src\scanner.c"
+        $scannerFile = Join-Path $sourcesSrcDir "scanner.c"
         if (Test-Path $scannerFile) {
             $sContent = [System.IO.File]::ReadAllText($scannerFile)
             if ($sContent -match "1UL << FAKE_TRY_BANG") {

@@ -1,9 +1,9 @@
 package dart
 
 // #cgo CFLAGS: -std=c11 -fPIC
-// #include "src/parser.c"
-// #if __has_include("src/scanner.c")
-// #include "src/scanner.c"
+// #include "sources/src/parser.c"
+// #if __has_include("sources/src/scanner.c")
+// #include "sources/src/scanner.c"
 // #endif
 import "C"
 
