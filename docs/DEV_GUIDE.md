@@ -523,7 +523,7 @@ See [TI_TOOL.md](TI_TOOL.md) for usage instructions and examples.
 * **Local-first:** No cloud dependencies; everything runs locally.
 * **Modular:** Each concern isolated in its own package or component.
 * **Transparent:** All data (chunks, symbols, embeddings) are inspectable.
-* **Extensible:** Add new languages via a two-step process: static Grammar Registration (registry update + rebuild) and dynamic Query Configuration (TOML iteration). We prefer a **"Source-First"** approach for grammars to ensure long-term maintainability.
+* **Extensible:** Add new languages via a two-step process: static Grammar Registration (centralized in `grammars.txt` + registry update + rebuild) and dynamic Query Configuration (TOML iteration). We prefer a **"Source-First"** approach for secondary and multi-variant grammars (Kotlin, Dart, Swift, SQL, TS/TSX, PHP, Bash, PowerShell) to ensure long-term maintainability.
 * **Readable:** Code designed to be understood by both humans and LLMs.
 
 ---

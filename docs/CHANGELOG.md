@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **PowerShell Support**: Added full support for parsing and chunking PowerShell scripts (.ps1, .psm1, .psd1).
 - **Bash Support**: Added full support for parsing and chunking Bash scripts (.sh, .bash, .zsh, .ebuild).
 - **Decentralized Grammar Management**: Centralized the list of Tree-sitter repositories into a dedicated `grammars.txt` file, ensuring cross-platform configuration parity between PowerShell and Bash sync scripts.
 - **Fix Indexing Progress**: Updated UI label to "Last indexed" and corrected the progress system to reflect real-time file processing (GPU stage).

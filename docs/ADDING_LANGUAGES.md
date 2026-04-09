@@ -30,7 +30,7 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
 
 ## 🏗️ The "Source-First" Strategy (Standard)
 
-For new languages, or those that present instability when managed via `go mod vendor` (e.g., Kotlin, Dart), CodeTextor adopts a **Source-First** approach. The grammar sources are stored directly in the repository, ensuring full reproducibility and avoiding network dependencies during build.
+For new languages, or those that present instability when managed via `go mod vendor` (e.g., Kotlin, Dart, Bash, PowerShell), CodeTextor adopts a **Source-First** approach. The grammar sources are stored directly in the repository, ensuring full reproducibility and avoiding network dependencies during build.
 
 ### 1. Project Structure & Configuration
 - Add the new grammar repository to **[vendor_updates/grammars.txt](../../vendor_updates/grammars.txt)**. Use the format: `name|repo|tag|subdirs`.

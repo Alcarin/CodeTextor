@@ -153,9 +153,9 @@ The semantic chunking system consists of three main components:
 1. **Parsers** (`backend/internal/chunker/query_parser.go`, `parsers/default/*.toml`)
    - **QueryParser Engine**: A dynamic, configuration-driven motor that uses Tree-sitter queries defined in TOML files to extract symbols, imports, and metadata.
    - **Zero-Code Extensions**: Support for new languages is added by dropping a TOML file into the registry, requiring no backend recompilation.
-   - **Supported languages**: Go, Java, Python, PHP, Rust, Kotlin, Swift, Dart, JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, C, C++, C# (all driven by the dynamic engine except specialized structural parsers).
+   - **Supported languages**: Go, Java, Python, PHP, Rust, Kotlin, Swift, Dart, JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, C, C++, C#, Bash, and PowerShell.
    - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager` and dynamic delegation.
-   - **"Source-First" Strategy**: For improved build stability and reproducibility, CodeTextor uses a local-first management strategy for Tree-sitter grammars under `backend/internal/chunker/vendor_grammar/<lang>/sources/` (currently used for **Swift**, **Kotlin**, and **Dart**). This allows generating parsers using the global `tree-sitter-cli` without external repository dependencies during compilation.
+   - **"Source-First" Strategy**: For improved build stability and reproducibility, CodeTextor uses a local-first management strategy for Tree-sitter grammars under `backend/internal/chunker/vendor_grammar/<lang>/sources/`. This strategy is applied to all secondary and multi-variant grammars (including Kotlin, Dart, Swift, SQL, TypeScript, PHP, Bash, and PowerShell), allowing generation via `tree-sitter-cli` without external repository dependencies during compilation.
 
 2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
    - **Statistical Detection**: Uses `github.com/go-enry/go-enry/v2` (Markov-chain based) to identify the language of embedded snippets when the config uses the `"detect"` keyword. This provides a robust, data-driven approach to determine the language of code within a larger file (e.g., JavaScript inside an HTML script tag).
@@ -373,7 +373,7 @@ User Opens File → OutlineView.vue
 **Backend:**
 - `backend/internal/chunker/query_parser.go`: Dynamic engine using TOML-defined Tree-sitter queries.
   - Extracts symbols with parent-child relationships and rich metadata.
-  - Languages: Go, Python, Java, TypeScript, JavaScript, HTML, CSS, Markdown, PHP, Rust, Kotlin, Swift, Dart, C, C++, C#.
+  - Languages: Go, Python, Java, TypeScript, JavaScript, HTML, CSS, Markdown, PHP, Rust, Kotlin, Swift, Dart, C, C++, C#, Bash, PowerShell.
 - `backend/pkg/outline/builder.go`: Convert flat symbols to hierarchical tree
   - Matches parents by name + line range containment
   - Handles duplicate names (e.g., multiple `div` elements)

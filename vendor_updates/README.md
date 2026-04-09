@@ -30,7 +30,7 @@ chmod +x sync_vendors.sh
 1.  **Fix Core**: Restores the `include` and `src` directories for `go-tree-sitter` from the local Go module cache.
 2.  **Standard Vendor Fixes**: Scans standard `tree-sitter-*` folders in `vendor/` and ensures they have the necessary `src` files to allow CGO compilation on any OS.
 3.  **Patch Tokenizer**: Automatically applies safety checks to the `tokenizer` package to prevent runtime panics.
-4.  **Source-First Management (Internal)**: This is the most important part for CodeTextor. It manages the 10 internal grammars (PHP, Swift, Kotlin, etc.) in `vendor_grammar/` by:
+4.  **Source-First Management (Internal)**: This is the most important part for CodeTextor. It manages the 12 internal grammars (PHP, Bash, PowerShell, Swift, etc.) in `vendor_grammar/` by:
     - Reading the centralized grammar list from **[grammars.txt](grammars.txt)**.
     - Cloning the specific grammar repositories.
     - Generating the parser using the **Tree-sitter CLI**.

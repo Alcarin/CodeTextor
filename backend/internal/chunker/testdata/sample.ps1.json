@@ -1,0 +1,12 @@
+{
+  "name": "PowerShell Support",
+  "file": "sample.ps1",
+  "language": "powershell",
+  "minSymbols": 4,
+  "expectSymbols": [
+    { "name": "Get-Hello", "kind": "function" },
+    { "name": "Where-Even", "kind": "filter" },
+    { "name": "$Global:AppVersion", "kind": "variable" }
+  ],
+  "expectImports": ["./MyModule.psm1", "./Common.ps1"]
+}

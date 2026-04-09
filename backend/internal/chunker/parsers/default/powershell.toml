@@ -1,0 +1,46 @@
+[language]
+name = "powershell"
+grammar = "tree-sitter-powershell"
+extensions = [".ps1", ".psm1", ".psd1"]
+
+[queries]
+symbols = """
+; Functions
+(function_statement 
+  "function"
+  (function_name) @name) @symbol.function
+
+; Filters
+(function_statement 
+  "filter"
+  (function_name) @name) @symbol.filter
+
+; Param blocks
+(param_block) @symbol.params
+
+; Variables (assignments) - simplified query without fields
+(assignment_expression 
+  (left_assignment_expression 
+    (logical_expression (bitwise_expression (comparison_expression (additive_expression (multiplicative_expression (format_expression (range_expression (array_literal_expression (unary_expression (variable) @name))))))))))) @symbol.variable
+"""
+
+imports = """
+; using module/namespace
+(command
+  (command_name) @_cmd (#eq? @_cmd "using")
+  (command_elements 
+    (generic_token) @_type (#match? @_type "^(module|namespace)$")
+    (generic_token) @import))
+
+; . ./path/to/file.ps1 (Dot sourcing)
+(command
+  (command_invokation_operator) @_dot (#eq? @_dot ".")
+  (command_name_expr (command_name) @import))
+"""
+
+[rules]
+comment_prefixes = ["#"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK):?\s*(.*)'
+node_types = ["comment"]
