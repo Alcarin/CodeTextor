@@ -1,0 +1,17 @@
+{
+  "name": "Dart Support",
+  "file": "sample.dart",
+  "language": "dart",
+  "minSymbols": 8,
+  "expectSymbols": [
+    { "name": "User", "kind": "class" },
+    { "name": "redirect", "kind": "constructor" },
+    { "name": "anonymous", "kind": "constructor" },
+    { "name": "displayName", "kind": "method" },
+    { "name": "sayHello", "kind": "method" },
+    { "name": "Status", "kind": "enum" },
+    { "name": "pending", "kind": "constant" },
+    { "name": "main", "kind": "function" }
+  ],
+  "expectImports": ["dart:async", "package:http/http.dart"]
+}

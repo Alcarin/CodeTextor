@@ -18,6 +18,7 @@ import (
     tree_sitter_csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
     tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
     "CodeTextor/backend/internal/chunker/vendor_grammar/kotlin"
+    "CodeTextor/backend/internal/chunker/vendor_grammar/dart"
     // Note: markdown and sql might have different binding paths or versions
     tree_sitter_markdown "github.com/tree-sitter-grammars/tree-sitter-markdown/bindings/go"
     tree_sitter_sql "github.com/DerekStride/tree-sitter-sql/bindings/go"
@@ -49,6 +50,7 @@ var grammarRegistry = map[string]func() *sitter.Language{
 	"tree-sitter-c-sharp":    func() *sitter.Language { return sitter.NewLanguage(tree_sitter_csharp.Language()) },
 	"tree-sitter-rust":       func() *sitter.Language { return sitter.NewLanguage(tree_sitter_rust.Language()) },
 	"tree-sitter-kotlin":     func() *sitter.Language { return sitter.NewLanguage(kotlin.Language()) },
+	"tree-sitter-dart":       func() *sitter.Language { return sitter.NewLanguage(dart.Language()) },
 }
 
 // GetGrammar returns the tree-sitter Language for the given grammar name.

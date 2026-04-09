@@ -196,47 +196,56 @@ if (Test-Path $normFile) {
 
 # 6. INTERNAL VENDOR SYNC
 Write-Host "[6/6] Syncing internal grammars (vendor_grammar)..." -ForegroundColor Yellow
-$grammarName = "kotlin"
-$vendorGrammarRoot = Join-Path $PSScriptRoot "..\backend\internal\chunker\vendor_grammar"
-$langDir = Join-Path $vendorGrammarRoot $grammarName
-$langSrc = Join-Path $langDir "src"
 
-if (!(Test-Path $langDir)) { New-Item -ItemType Directory -Force -Path $langDir | Out-Null }
-if (!(Test-Path $langSrc)) { New-Item -ItemType Directory -Force -Path $langSrc | Out-Null }
-
-$ktBaseUrl = "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/master"
-$ktFiles = @(
-    "bindings/go/binding.go",
-    "src/parser.c",
-    "src/scanner.c",
-    "src/tree_sitter/parser.h",
-    "src/tree_sitter/alloc.h",
-    "src/tree_sitter/array.h"
-)
-
-foreach ($file in $ktFiles) {
-    if ($file -match "binding.go") {
-        $destPath = Join-Path $langDir "binding.go"
-    } else {
-        $destPath = Join-Path $langDir $file.Replace("/", "\")
-    }
-    
-    $destDir = Split-Path $destPath -Parent
-    if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
-    
-    Write-Host "  Downloading $file -> $(Split-Path $destPath -Leaf)..."
-    $url = "$ktBaseUrl/$file"
-    Invoke-WebRequest -Uri $url -OutFile $destPath -ErrorAction SilentlyContinue
+$internalGrammars = @{
+    "kotlin" = "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/master"
+    "dart"   = "https://raw.githubusercontent.com/nielsenko/tree-sitter-dart/main"
 }
 
-# Patch binding.go for internal vendor
-$bindingFile = Join-Path $langDir "binding.go"
-if (Test-Path $bindingFile) {
-    $content = [System.IO.File]::ReadAllText($bindingFile)
-    $content = $content -replace "package tree_sitter_kotlin", "package $grammarName"
-    $content = $content -replace "../../src/", "src/"
-    [System.IO.File]::WriteAllText($bindingFile, $content)
-    Write-Host "  Updated package to '$grammarName' and fixed CGO paths" -ForegroundColor Green
+foreach ($grammarName in $internalGrammars.Keys) {
+    $baseUrl = $internalGrammars[$grammarName]
+    Write-Host "  Processing $grammarName..." -ForegroundColor Cyan
+    
+    $vendorGrammarRoot = Join-Path $PSScriptRoot "..\backend\internal\chunker\vendor_grammar"
+    $langDir = Join-Path $vendorGrammarRoot $grammarName
+    $langSrc = Join-Path $langDir "src"
+
+    if (!(Test-Path $langDir)) { New-Item -ItemType Directory -Force -Path $langDir | Out-Null }
+    if (!(Test-Path $langSrc)) { New-Item -ItemType Directory -Force -Path $langSrc | Out-Null }
+
+    $files = @(
+        "bindings/go/binding.go",
+        "src/parser.c",
+        "src/scanner.c",
+        "src/tree_sitter/parser.h",
+        "src/tree_sitter/alloc.h",
+        "src/tree_sitter/array.h"
+    )
+
+    foreach ($file in $files) {
+        if ($file -match "binding.go") {
+            $destPath = Join-Path $langDir "binding.go"
+        } else {
+            $destPath = Join-Path $langDir $file.Replace("/", "\")
+        }
+        
+        $destDir = Split-Path $destPath -Parent
+        if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+        
+        Write-Host "    Downloading $file -> $(Split-Path $destPath -Leaf)..."
+        $url = "$baseUrl/$file"
+        Invoke-WebRequest -Uri $url -OutFile $destPath -ErrorAction SilentlyContinue
+    }
+
+    # Patch binding.go for internal vendor
+    $bindingFile = Join-Path $langDir "binding.go"
+    if (Test-Path $bindingFile) {
+        $content = [System.IO.File]::ReadAllText($bindingFile)
+        $content = $content -replace "package tree_sitter_$grammarName", "package $grammarName"
+        $content = $content -replace "../../src/", "src/"
+        [System.IO.File]::WriteAllText($bindingFile, $content)
+        Write-Host "    Updated package to '$grammarName' and fixed CGO paths" -ForegroundColor Green
+    }
 }
 
 

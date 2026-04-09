@@ -1,0 +1,98 @@
+[language]
+name = "dart"
+grammar = "tree-sitter-dart"
+extensions = [".dart"]
+
+[queries]
+symbols = """
+; Classes
+(class_declaration
+  name: (identifier) @name) @symbol.class
+
+; Mixins
+(mixin_declaration
+  name: (identifier) @name) @symbol.class
+
+; Extensions
+(extension_declaration
+  name: (identifier) @name) @symbol.class
+
+; Enums
+(enum_declaration
+  name: (identifier) @name) @symbol.enum
+
+; Top-level functions
+(source_file (function_signature name: (identifier) @name) @symbol.function)
+(source_file (getter_signature name: (identifier) @name) @symbol.function)
+(source_file (setter_signature name: (identifier) @name) @symbol.function)
+
+; Methods
+(class_member
+  (method_signature
+    [
+      (function_signature name: (identifier) @name)
+      (getter_signature name: (identifier) @name)
+      (setter_signature name: (identifier) @name)
+    ]
+  )
+) @symbol.method
+
+; Constructors
+(class_member
+  (declaration
+    (constructor_signature name: (identifier) @name)
+  )
+) @symbol.constructor
+
+(class_member
+  (declaration
+    (constant_constructor_signature name: (identifier) @name)
+  )
+) @symbol.constructor
+
+(class_member
+  (method_signature
+    (factory_constructor_signature
+      (identifier) @name
+      (identifier)? @name)
+  )
+) @symbol.constructor
+
+(class_member
+  (declaration
+    (redirecting_factory_constructor_signature
+      (identifier) @name
+      (identifier)? @name)
+  )
+) @symbol.constructor
+
+; Typedefs
+(type_alias
+  (type_identifier) @name) @symbol.type
+
+; Enum constants
+(enum_constant
+  name: (identifier) @name) @symbol.constant
+"""
+
+imports = """
+(library_import
+  (import_specification
+    (configurable_uri
+      (uri
+        (string_literal) @import))))
+(library_export
+  (configurable_uri
+    (uri
+      (string_literal) @import)))
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.visibility]
+type = "prefix_underscore"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK):?\s*(.*)'
+node_types = ["line_comment", "block_comment"]
