@@ -26,15 +26,39 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
 
 4.  **Rebuild**: Run `wails dev` or `wails build`. This step is **mandatory** because C dependencies cannot be loaded dynamically at runtime.
 
-### ⚠️ Problematic Grammars (Internal Vendor)
-Some grammars (like `fwcd/tree-sitter-kotlin`) do not follow standard Go module naming or lack a valid `go.mod`. To avoid build issues with `go mod tidy`:
-1.  **Do NOT** add them to `go.mod`.
-2.  **Internal Vendor Strategy**: Use the `backend/internal/chunker/vendor_grammar/<lang>` directory.
-3.  **Automation**: Expand `vendor_updates/fix_vendor.ps1` to download the `binding.go` and the `src/` directory directly into this folder.
-4.  **Patching**: The script should automatically:
-    - Update the Go package name (e.g., `package <lang>`).
-    - Fix CGO include paths (e.g., change `../../src/` to `src/`).
-5.  This approach ensures the grammar is tracked by Git, requires no network during standard `go mod` operations, and is fully managed by the project's maintenance scripts.
+---
+
+## 🏗️ The "Source-First" Strategy (Standard)
+
+For new languages, we prefer a local-first approach where the grammar source is stored directly in the repository. This ensures full reproducibility and avoids network dependencies during build.
+
+### 1. Project Structure
+Create a dedicated directory in `backend/internal/chunker/vendor_grammar/<lang>/`.
+Inside, create a `sources/` folder to host the Tree-sitter grammar files:
+- `grammar.js` (The source of truth)
+- `src/` (Generated C files)
+- `binding.go` (Go wrapper)
+
+### 2. Generating the Parser
+CodeTextor uses the **global `tree-sitter` CLI** to generate the C parser from `grammar.js`.
+1.  **Install Tree-sitter CLI**: `npm install -g tree-sitter-cli`
+2.  **Update Grammar**: Modify `sources/grammar.js` if needed.
+3.  **Run Automation**: Use `fix_vendor.ps1`. The script will:
+    - Look for `tree-sitter` in your PATH.
+    - Generate the `src/` directory.
+    - Patch the `binding.go` to use the correct Go package name and C include paths.
+    - Clean up any temporary `node_modules`.
+
+### 3. Registering the Internal Package
+Register the grammar in `backend/internal/chunker/grammar_registry.go` using the internal path:
+```go
+import "CodeTextor/backend/internal/chunker/vendor_grammar/<lang>"
+
+// ...
+"tree-sitter-<lang>": func() *sitter.Language { return sitter.NewLanguage(<lang>.Language()) },
+```
+
+---
 
 ---
 

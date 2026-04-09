@@ -197,9 +197,9 @@ if (Test-Path $normFile) {
 # 6. INTERNAL VENDOR SYNC
 Write-Host "[6/6] Syncing internal grammars (vendor_grammar)..." -ForegroundColor Yellow
 
-$internalGrammars = @{
     "kotlin" = "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/master"
     "dart"   = "https://raw.githubusercontent.com/nielsenko/tree-sitter-dart/main"
+    "swift"  = "https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/main"
 }
 
 foreach ($grammarName in $internalGrammars.Keys) {
@@ -242,9 +242,98 @@ foreach ($grammarName in $internalGrammars.Keys) {
     if (Test-Path $bindingFile) {
         $content = [System.IO.File]::ReadAllText($bindingFile)
         $content = $content -replace "package tree_sitter_$grammarName", "package $grammarName"
-        $content = $content -replace "../../src/", "src/"
+        if ($grammarName -eq "swift") {
+             $content = $content -replace "../../src/", "sources/src/"
+        } else {
+             $content = $content -replace "../../src/", "src/"
+        }
         [System.IO.File]::WriteAllText($bindingFile, $content)
         Write-Host "    Updated package to '$grammarName' and fixed CGO paths" -ForegroundColor Green
+    }
+
+    # Special logic for Swift: Local Generation
+    if ($grammarName -eq "swift") {
+        $sourcesDir = Join-Path $langDir "sources"
+        if (!(Test-Path $sourcesDir)) { New-Item -ItemType Directory -Force -Path $sourcesDir | Out-Null }
+        
+        Write-Host "    Swift detected. Ensuring sources are present..." -ForegroundColor Magenta
+        $sourceFiles = @{
+            "grammar.js" = "grammar.js"
+            "package.json" = "package.json"
+            "src/scanner.c" = "sources/src/scanner.c"
+            "tree-sitter.json" = "tree-sitter.json"
+        }
+
+        foreach ($sFile in $sourceFiles.Keys) {
+            $sDest = Join-Path $langDir ($sourceFiles[$sFile].Replace("/", "\"))
+            if (!(Test-Path (Split-Path $sDest))) { New-Item -ItemType Directory -Force -Path (Split-Path $sDest) | Out-Null }
+            
+            if (!(Test-Path $sDest)) {
+                Write-Host "      Downloading source: $sFile..."
+                $sUrl = "$baseUrl/$sFile"
+                Invoke-WebRequest -Uri $sUrl -OutFile $sDest -ErrorAction SilentlyContinue
+            }
+        }
+
+        # Attempt generation: prefer global tree-sitter, fallback to local npm
+        $parserFile = Join-Path $langDir "sources\src\parser.c"
+        if (!(Test-Path $parserFile)) {
+            $globalTS = Get-Command "tree-sitter" -ErrorAction SilentlyContinue
+            
+            if ($globalTS) {
+                Write-Host "      Generating parser via GLOBAL tree-sitter-cli..." -ForegroundColor Cyan
+                Push-Location $sourcesDir
+                try {
+                    tree-sitter generate
+                    Write-Host "      Generation successful (global)!" -ForegroundColor Green
+                } catch {
+                    Write-Host "      Global generation failed: $($_.Exception.Message)" -ForegroundColor Red
+                }
+                Pop-Location
+            } elseif (Get-Command "npm" -ErrorAction SilentlyContinue) {
+                Write-Host "      Generating parser via LOCAL npm fallback..." -ForegroundColor Cyan
+                Push-Location $sourcesDir
+                try {
+                    npm install tree-sitter-cli@latest --no-save
+                    .\node_modules\.bin\tree-sitter.cmd generate
+                    Write-Host "      Generation successful (local)!" -ForegroundColor Green
+                    
+                    # Cleanup local install
+                    Pop-Location
+                    Remove-Item -Path (Join-Path $sourcesDir "node_modules") -Recurse -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path (Join-Path $sourcesDir "package-lock.json") -Force -ErrorAction SilentlyContinue
+                } catch {
+                    if ($null -ne $sourcesDir) { try { Pop-Location } catch {} }
+                    Write-Host "      Local generation failed: $($_.Exception.Message)" -ForegroundColor Red
+                }
+            } else {
+                Write-Host "      Warning: tree-sitter or npm not found. Parser.c cannot be generated automatically." -ForegroundColor Yellow
+            }
+        }
+
+        # 2026-04-09 Patch: Fix Swift CGO compilation issues (TOKEN_COUNT redefinition and Shift Overflow)
+        Write-Host "    Applying Swift CGO patches..." -ForegroundColor Cyan
+        
+        # Patch 1: binding.go (#undef TOKEN_COUNT)
+        if (Test-Path $bindingFile) {
+            $bContent = [System.IO.File]::ReadAllText($bindingFile)
+            if ($bContent -notmatch "#undef TOKEN_COUNT") {
+                $bContent = $bContent -replace '(#include "sources/src/parser.c")', "`$1`r`n// #undef TOKEN_COUNT"
+                [System.IO.File]::WriteAllText($bindingFile, $bContent)
+                Write-Host "      Patched binding.go (#undef TOKEN_COUNT)" -ForegroundColor Green
+            }
+        }
+
+        # Patch 2: scanner.c (Shift Overflow: 1UL -> 1ULL)
+        $scannerFile = Join-Path $langDir "sources\src\scanner.c"
+        if (Test-Path $scannerFile) {
+            $sContent = [System.IO.File]::ReadAllText($scannerFile)
+            if ($sContent -match "1UL << FAKE_TRY_BANG") {
+                $sContent = $sContent -replace "1UL << FAKE_TRY_BANG", "1ULL << FAKE_TRY_BANG"
+                [System.IO.File]::WriteAllText($scannerFile, $sContent)
+                Write-Host "      Patched scanner.c (1UL -> 1ULL shift overflow fix)" -ForegroundColor Green
+            }
+        }
     }
 }
 

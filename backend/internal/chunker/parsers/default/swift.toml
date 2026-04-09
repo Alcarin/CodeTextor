@@ -1,0 +1,61 @@
+[language]
+name = "swift"
+grammar = "tree-sitter-swift"
+extensions = [".swift"]
+
+[queries]
+symbols = """
+; Classes, Structs, Actors
+(class_declaration
+  name: (type_identifier) @name) @symbol.class
+
+; Enums
+(class_declaration
+  "enum"
+  name: (type_identifier) @name) @symbol.enum
+
+; Extensions
+(class_declaration
+  "extension"
+  name: (user_type (type_identifier) @name)) @symbol.class
+
+; Protocols
+(protocol_declaration
+  name: (type_identifier) @name) @symbol.interface
+
+; Functions
+(function_declaration
+  (simple_identifier) @name) @symbol.function
+
+; Initializers
+(init_declaration
+  "init" @name) @symbol.constructor
+
+; Deinitializers (guess based on ti pattern)
+(deinit_declaration
+  "deinit" @name) @symbol.method
+
+; Subscripts (guess based on ti pattern)
+(subscript_declaration
+  "subscript" @name) @symbol.method
+
+; Typealiases
+(typealias_declaration
+  name: (type_identifier) @name) @symbol.type
+"""
+
+imports = """
+(import_declaration
+  (identifier) @import)
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.visibility]
+type = "keyword"
+keywords = ["public", "private", "internal", "fileprivate", "open"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK):?\s*(.*)'
+node_types = ["comment", "multiline_comment"]

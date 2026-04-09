@@ -299,12 +299,13 @@ Tree-sitter grammars may sometimes have missing files in the `vendor/` folder wh
 
 ### Procedure for fixing vendor issues:
 
-If you encounter compilation errors related to missing `.c` or `.h` files in the `vendor/` directory:
+If you encounter compilation errors related to missing `.c` or `.h` files in the `vendor/` directory, or if you need to regenerate a parser from its `grammar.js` source:
 
-```bash
-1. **Windows**: Run `powershell -File vendor_updates/fix_vendor.ps1`
-2. **Linux/macOS**: Run `bash vendor_updates/fix_vendor.sh`
-```
+1. **Prerequisite**: Install the **global `tree-sitter` CLI** (`npm install -g tree-sitter-cli`). CodeTextor prefers the system-level CLI for stability and to keep the repository clean of local `node_modules`.
+2. **Windows**: Run `powershell -File vendor_updates/fix_vendor.ps1`
+3. **Linux/macOS**: Run `bash vendor_updates/fix_vendor.sh`
+
+The `fix_vendor.ps1` script automatically handles generating source files from `vendor_grammar/<lang>/sources/grammar.js`, cleaning up temporary build artifacts, and patching Go bindings for CGO compatibility.
 
 See [vendor_updates/README.md](../vendor_updates/README.md) for more details.
 
@@ -522,7 +523,7 @@ See [TI_TOOL.md](TI_TOOL.md) for usage instructions and examples.
 * **Local-first:** No cloud dependencies; everything runs locally.
 * **Modular:** Each concern isolated in its own package or component.
 * **Transparent:** All data (chunks, symbols, embeddings) are inspectable.
-* **Extensible:** Add new languages via a two-step process: static Grammar Registration (registry update + rebuild) and dynamic Query Configuration (TOML iteration).
+* **Extensible:** Add new languages via a two-step process: static Grammar Registration (registry update + rebuild) and dynamic Query Configuration (TOML iteration). We prefer a **"Source-First"** approach for grammars to ensure long-term maintainability.
 * **Readable:** Code designed to be understood by both humans and LLMs.
 
 ---

@@ -1,0 +1,63 @@
+{
+  "file": "sample.swift",
+  "symbols": [
+    {
+      "name": "Playable",
+      "kind": "interface",
+      "line_start": 10,
+      "line_end": 12
+    },
+    {
+      "name": "MediaPlayer",
+      "kind": "class",
+      "line_start": 15,
+      "line_end": 25
+    },
+    {
+      "name": "init",
+      "kind": "constructor",
+      "line_start": 18,
+      "line_end": 20
+    },
+    {
+      "name": "play",
+      "kind": "function",
+      "line_start": 22,
+      "line_end": 24
+    },
+    {
+      "name": "Settings",
+      "kind": "class",
+      "line_start": 27,
+      "line_end": 29
+    },
+    {
+      "name": "Status",
+      "kind": "enum",
+      "line_start": 31,
+      "line_end": 34
+    },
+    {
+      "name": "MediaPlayer",
+      "kind": "class",
+      "line_start": 36,
+      "line_end": 40
+    },
+    {
+      "name": "stop",
+      "kind": "function",
+      "line_start": 37,
+      "line_end": 39
+    },
+    {
+      "name": "topLevelFunction",
+      "kind": "function",
+      "line_start": 42,
+      "line_end": 44
+    }
+  ],
+  "imports": [
+    "Foundation",
+    "UIKit"
+  ]
+}
