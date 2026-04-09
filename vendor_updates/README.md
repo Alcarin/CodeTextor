@@ -15,22 +15,27 @@ If you have issues with `wails build` or `go build -mod=vendor` related to missi
 ### Windows (PowerShell)
 ```powershell
 cd vendor_updates
-.\fix_vendor.ps1
+.\sync_vendors.ps1
 ```
 
 ### Linux / macOS (Bash)
 ```bash
 cd vendor_updates
-chmod +x fix_vendor.sh
-./fix_vendor.sh
+chmod +x sync_vendors.sh
+./sync_vendors.sh
 ```
 
 ## What the scripts do
 
-1.  **Fix `go-tree-sitter`**: Restores the `include` and `src` directories from the local Go module cache into the vendor folder.
-2.  **Fix SQL Grammar**: Automatically downloads the missing `parser.c`, `scanner.c`, and headers for the SQL grammar from the official sources.
-3.  **Repair other grammars**: Scans all `tree-sitter-*` folders in `vendor/` and ensures they have the necessary `src` and `queries` folders by copying them from your local Go cache. It also handles special subfolder structures for PHP and TypeScript.
-4.  **Patch Tokenizer**: Automatically applies safety checks to `vendor/github.com/sugarme/tokenizer/normalizer/normalized.go` to prevent runtime panics.
+1.  **Fix Core**: Restores the `include` and `src` directories for `go-tree-sitter` from the local Go module cache.
+2.  **Standard Vendor Fixes**: Scans standard `tree-sitter-*` folders in `vendor/` and ensures they have the necessary `src` files to allow CGO compilation on any OS.
+3.  **Patch Tokenizer**: Automatically applies safety checks to the `tokenizer` package to prevent runtime panics.
+4.  **Source-First Management (Internal)**: This is the most important part for CodeTextor. It manages the 10 internal grammars (PHP, Swift, Kotlin, etc.) in `vendor_grammar/` by:
+    - Cloning the specific grammar repositories.
+    - Generating the parser using the **Tree-sitter CLI**.
+    - Extracting only the essential files (`parser.c`, `scanner.c`, headers) into a **Flat & Lean** structure.
+    - Automatically generating the Go bindings.
+    - Cleaning up all redundant source files and temporary clones.
 
 ## Permanent Fix
 

@@ -20,9 +20,9 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
       "tree-sitter-rust": func() *sitter.Language { return sitter.NewLanguage(tree_sitter_rust.Language()) },
       ```
 
-3.  **Fix Vendor Issues (Windows/CGO)**: `go mod vendor` often fails to copy `.c` or `.h` files for Tree-sitter grammars. CodeTextor provides a fix script:
-    - **Windows**: `powershell -File vendor_updates/fix_vendor.ps1`
-    - **Linux/macOS**: `bash vendor_updates/fix_vendor.sh`
+3.  **Fix Vendor Issues (Windows/CGO)**: `go mod vendor` often fails to copy `.c` or `.h` files for Tree-sitter grammars. CodeTextor provides a synchronization script:
+    - **Windows**: `powershell -File vendor_updates/sync_vendors.ps1`
+    - **Linux/macOS**: `bash vendor_updates/sync_vendors.sh`
 
 4.  **Rebuild**: Run `wails dev` or `wails build`. This step is **mandatory** because C dependencies cannot be loaded dynamically at runtime.
 
@@ -34,20 +34,10 @@ For new languages, or those that present instability when managed via `go mod ve
 
 ### 1. Project Structure
 Create a dedicated directory in `backend/internal/chunker/vendor_grammar/<lang>/`.
-The `fix_vendor.ps1` script will automatically organize the files as follows:
-- `binding.go` (Go wrapper in the grammar root)
-- `sources/grammar.js` (The source of truth)
-- `sources/tree-sitter.json` (Configuration)
-- `sources/src/` (Locally generated C files)
+The `sync_vendors.ps1` script will automatically organize the files into a **Flat & Lean** structure (just `.c`, `.h`, `.cc` and Go bindings) by extracting them from the grammar repositories.
 
 ### 2. Generating the Parser
-CodeTextor automates parser generation via `fix_vendor.ps1`:
-1.  **Requirements**: The script prefers `tree-sitter-cli` in the PATH, but can perform a local fallback on `npm` if necessary.
-2.  **Execution**: By running `.\vendor_updates\fix_vendor.ps1`, the system:
-    - Downloads necessary sources from the original repository.
-    - Generates the `sources/src/` folder locally.
-    - Patches `binding.go` to use the correct relative paths (`sources/src/parser.c`).
-    - Applies any specific CGO fixes.
+CodeTextor automates parser generation and extraction via `sync_vendors.ps1`. For technical details on the extraction logic and requirements, refer to the [vendor_updates README](../vendor_updates/README.md).
 
 ### 3. Registering the Internal Package
 Once C dependencies are resolved with the script, register the grammar in `backend/internal/chunker/grammar_registry.go`:

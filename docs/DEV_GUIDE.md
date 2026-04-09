@@ -302,10 +302,10 @@ Tree-sitter grammars may sometimes have missing files in the `vendor/` folder wh
 If you encounter compilation errors related to missing `.c` or `.h` files in the `vendor/` directory, or if you need to regenerate a parser from its `grammar.js` source:
 
 1. **Prerequisite**: Install the **global `tree-sitter` CLI** (`npm install -g tree-sitter-cli`). CodeTextor prefers the system-level CLI for stability and to keep the repository clean of local `node_modules`.
-2. **Windows**: Run `powershell -File vendor_updates/fix_vendor.ps1`
-3. **Linux/macOS**: Run `bash vendor_updates/fix_vendor.sh`
+2. **Windows**: Run `powershell -File vendor_updates/sync_vendors.ps1`
+3. **Linux/macOS**: Run `bash vendor_updates/sync_vendors.sh`
 
-The `fix_vendor.ps1` script automatically handles generating source files from `vendor_grammar/<lang>/sources/grammar.js`, cleaning up temporary build artifacts, and patching Go bindings for CGO compatibility.
+The `sync_vendors.ps1` script automatically handles generating source files, extracting only essential C/C++ components into a flat structure, and patching Go bindings for CGO compatibility.
 
 See [vendor_updates/README.md](../vendor_updates/README.md) for more details.
 

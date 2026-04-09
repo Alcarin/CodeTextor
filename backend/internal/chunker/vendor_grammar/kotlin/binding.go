@@ -1,9 +1,8 @@
 package kotlin
 
 // #cgo CFLAGS: -std=c11 -fPIC
-// #include "sources/src/parser.c"
-// #include "sources/src/scanner.c"
-// // NOTE: if your language has an external scanner, add it here.
+// #include <stdint.h>
+// extern void *tree_sitter_kotlin();
 import "C"
 
 import "unsafe"

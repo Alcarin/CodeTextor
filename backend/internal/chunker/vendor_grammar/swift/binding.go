@@ -1,9 +1,8 @@
 package swift
 
 // #cgo CFLAGS: -std=c11 -fPIC
-// #include "sources/src/parser.c"
-// #undef TOKEN_COUNT
-// #include "sources/src/scanner.c"
+// #include <stdint.h>
+// extern void *tree_sitter_swift();
 import "C"
 
 import "unsafe"
