@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **Kotlin Support**: Added full support for parsing and chunking Kotlin files (.kt, .kts).
+- **Manual Vendor Hydration**: Enhanced `fix_vendor.ps1` with a strategy to manually download and configure tree-sitter grammars (e.g., Kotlin) that lack standard Go module structures.
 - **Rust Support**: Added full support for parsing and chunking Rust files (.rs).
 - **C, C++ and C# Support**: Added full support for parsing and chunking C (.c, .h), C++ (.cpp, .hpp, .cc, .cxx, .hh) and C# (.cs) files.
 - **Java Support**: Added full support for parsing and chunking Java files (.java). 

@@ -26,6 +26,16 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
 
 4.  **Rebuild**: Run `wails dev` or `wails build`. This step is **mandatory** because C dependencies cannot be loaded dynamically at runtime.
 
+### ⚠️ Problematic Grammars (Internal Vendor)
+Some grammars (like `fwcd/tree-sitter-kotlin`) do not follow standard Go module naming or lack a valid `go.mod`. To avoid build issues with `go mod tidy`:
+1.  **Do NOT** add them to `go.mod`.
+2.  **Internal Vendor Strategy**: Use the `backend/internal/chunker/vendor_grammar/<lang>` directory.
+3.  **Automation**: Expand `vendor_updates/fix_vendor.ps1` to download the `binding.go` and the `src/` directory directly into this folder.
+4.  **Patching**: The script should automatically:
+    - Update the Go package name (e.g., `package <lang>`).
+    - Fix CGO include paths (e.g., change `../../src/` to `src/`).
+5.  This approach ensures the grammar is tracked by Git, requires no network during standard `go mod` operations, and is fully managed by the project's maintenance scripts.
+
 ---
 
 ## 📄 Step 2: Configure the Parser (TOML)

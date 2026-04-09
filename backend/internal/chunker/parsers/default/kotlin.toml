@@ -1,0 +1,50 @@
+[language]
+name = "kotlin"
+grammar = "tree-sitter-kotlin"
+extensions = [".kt", ".kts"]
+
+[queries]
+symbols = """
+; Classes, Objects and Interfaces
+(class_declaration
+  "class"
+  (type_identifier) @name) @symbol.class
+
+(class_declaration
+  "interface"
+  (type_identifier) @name) @symbol.interface
+
+(object_declaration
+  (type_identifier) @name) @symbol.object
+
+; Functions
+(function_declaration
+  (simple_identifier) @name) @symbol.function
+
+; Properties / Variables (Top-level or class members)
+(property_declaration
+  (variable_declaration
+    (simple_identifier) @name)) @symbol.property
+"""
+
+imports = """
+(import_header
+  (identifier) @import)
+"""
+
+metadata = """
+(package_header
+  (identifier) @meta.package)
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.visibility]
+type = "keyword"
+# Kotlin default visibility is public
+keywords = ["private", "internal", "protected", "public"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK):?\s*(.*)'
+node_types = ["line_comment", "block_comment"]

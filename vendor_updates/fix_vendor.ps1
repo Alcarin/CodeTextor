@@ -11,7 +11,7 @@ $modCache = Join-Path $goPath "pkg\mod"
 Write-Host "=== CodeTextor Vendor Fixer (Windows) ===" -ForegroundColor Cyan
 
 # 1. FIX CORE: go-tree-sitter
-Write-Host "[1/3] Fixing go-tree-sitter..." -ForegroundColor Yellow
+Write-Host "[1/6] Fixing go-tree-sitter..." -ForegroundColor Yellow
 $gtSource = Get-ChildItem -Path $modCache -Include "go-tree-sitter@*" -Recurse | Select-Object -First 1
 if ($gtSource) {
     $gtVendor = Join-Path $vendorDir "github.com\tree-sitter\go-tree-sitter"
@@ -30,9 +30,7 @@ if ($gtSource) {
 }
 
 # 2. SPECIFIC FIX: tree-sitter-sql (DerekStride)
-# This grammar doesn't include generated files (parser.c) in the master branch.
-# We download them from the official gh-pages branch.
-Write-Host "[2/3] Fixing tree-sitter-sql (downloading generated files)..." -ForegroundColor Yellow
+Write-Host "[2/6] Fixing tree-sitter-sql (downloading generated files)..." -ForegroundColor Yellow
 $sqlVendorSrc = Join-Path $vendorDir "github.com\DerekStride\tree-sitter-sql\src"
 if (!(Test-Path $sqlVendorSrc)) {
     New-Item -ItemType Directory -Force -Path $sqlVendorSrc | Out-Null
@@ -58,7 +56,7 @@ foreach ($file in $filesToDownload) {
 }
 
 # 3. GLOBAL GRAMMAR FIX: Other grammars
-Write-Host "[3/3] Checking other grammars..." -ForegroundColor Yellow
+Write-Host "[3/6] Checking other grammars..." -ForegroundColor Yellow
 $grammars = Get-ChildItem -Path "$vendorDir\github.com\tree-sitter" -Filter "tree-sitter-*" | Where-Object { $_.PSIsContainer }
 foreach ($g in $grammars) {
     if (!(Test-Path (Join-Path $g.FullName "bindings\go"))) { continue }
@@ -138,7 +136,7 @@ $mgSource = Get-ChildItem -Path "$modCache\github.com\tree-sitter-grammars" -Fil
 if ($mgSource) {
     $mgVendor = Join-Path $vendorDir "github.com\tree-sitter-grammars\tree-sitter-markdown"
     if (Test-Path $mgVendor) {
-        Write-Host "[4/4] Fixing tree-sitter-grammars/tree-sitter-markdown..." -ForegroundColor Yellow
+        Write-Host "[4/6] Fixing tree-sitter-grammars/tree-sitter-markdown..." -ForegroundColor Yellow
         
         # Restore common folder if it exists
         $commonPath = Join-Path $mgSource.FullName "common"
@@ -161,8 +159,7 @@ if ($mgSource) {
 }
 
 # 5. TOKENIZER PATCHES
-# These patches fix index out of bound panics in sugarme/tokenizer
-Write-Host "[5/5] Patching sugarme/tokenizer..." -ForegroundColor Yellow
+Write-Host "[5/6] Patching sugarme/tokenizer..." -ForegroundColor Yellow
 $normFile = Join-Path $vendorDir "github.com\sugarme\tokenizer\normalizer\normalized.go"
 if (Test-Path $normFile) {
     Write-Host "  Patching normalized.go..."
@@ -196,6 +193,52 @@ if (Test-Path $normFile) {
         Write-Host "    Protections already present or file structure changed." -ForegroundColor DarkGray
     }
 }
+
+# 6. INTERNAL VENDOR SYNC
+Write-Host "[6/6] Syncing internal grammars (vendor_grammar)..." -ForegroundColor Yellow
+$grammarName = "kotlin"
+$vendorGrammarRoot = Join-Path $PSScriptRoot "..\backend\internal\chunker\vendor_grammar"
+$langDir = Join-Path $vendorGrammarRoot $grammarName
+$langSrc = Join-Path $langDir "src"
+
+if (!(Test-Path $langDir)) { New-Item -ItemType Directory -Force -Path $langDir | Out-Null }
+if (!(Test-Path $langSrc)) { New-Item -ItemType Directory -Force -Path $langSrc | Out-Null }
+
+$ktBaseUrl = "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/master"
+$ktFiles = @(
+    "bindings/go/binding.go",
+    "src/parser.c",
+    "src/scanner.c",
+    "src/tree_sitter/parser.h",
+    "src/tree_sitter/alloc.h",
+    "src/tree_sitter/array.h"
+)
+
+foreach ($file in $ktFiles) {
+    if ($file -match "binding.go") {
+        $destPath = Join-Path $langDir "binding.go"
+    } else {
+        $destPath = Join-Path $langDir $file.Replace("/", "\")
+    }
+    
+    $destDir = Split-Path $destPath -Parent
+    if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+    
+    Write-Host "  Downloading $file -> $(Split-Path $destPath -Leaf)..."
+    $url = "$ktBaseUrl/$file"
+    Invoke-WebRequest -Uri $url -OutFile $destPath -ErrorAction SilentlyContinue
+}
+
+# Patch binding.go for internal vendor
+$bindingFile = Join-Path $langDir "binding.go"
+if (Test-Path $bindingFile) {
+    $content = [System.IO.File]::ReadAllText($bindingFile)
+    $content = $content -replace "package tree_sitter_kotlin", "package $grammarName"
+    $content = $content -replace "../../src/", "src/"
+    [System.IO.File]::WriteAllText($bindingFile, $content)
+    Write-Host "  Updated package to '$grammarName' and fixed CGO paths" -ForegroundColor Green
+}
+
 
 Write-Host "=== Operation Completed ===" -ForegroundColor Green
 Write-Host "You can now run: wails build"

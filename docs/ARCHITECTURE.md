@@ -153,7 +153,7 @@ The semantic chunking system consists of three main components:
 1. **Parsers** (`backend/internal/chunker/query_parser.go`, `parsers/default/*.toml`)
    - **QueryParser Engine**: A dynamic, configuration-driven motor that uses Tree-sitter queries defined in TOML files to extract symbols, imports, and metadata.
    - **Zero-Code Extensions**: Support for new languages is added by dropping a TOML file into the registry, requiring no backend recompilation.
-   - **Supported languages**: Go, Python, Java, TypeScript/JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, PHP, C, C++, C# (all driven by the dynamic engine except specialized structural parsers).
+   - **Supported languages**: Go, Java, Python, PHP, Rust, Kotlin, JavaScript (including JSX/TSX), HTML, CSS, Vue, Markdown, SQL, JSON, C, C++, C# (all driven by the dynamic engine except specialized structural parsers).
    - **Nested Code Parsing**: Automatically detects and parses embedded code (HTML/JS in PHP, SQL in Go/Python, etc.) using the `SubLanguageManager` and dynamic delegation.
 
 2. **SubLanguageManager** (`backend/internal/chunker/sub_language.go`)
@@ -748,5 +748,5 @@ These principles guide all implementation decisions and should be preserved as t
 
 ---
 
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-09
 **Version:** 0.3.0-dev

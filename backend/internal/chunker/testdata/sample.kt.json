@@ -1,0 +1,18 @@
+{
+  "name": "Kotlin Support",
+  "file": "sample.kt",
+  "language": "kotlin",
+  "minSymbols": 6,
+  "expectSymbols": [
+    { "name": "Calculator", "kind": "class" },
+    { "name": "Singleton", "kind": "object" },
+    { "name": "Shape", "kind": "interface" },
+    { "name": "add", "kind": "function" },
+    { "name": "topLevelFunction", "kind": "function" },
+    { "name": "globalVar", "kind": "property" }
+  ],
+  "expectImports": [
+    "kotlinx.coroutines",
+    "java.util.UUID"
+  ]
+}
