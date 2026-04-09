@@ -1,0 +1,40 @@
+[language]
+name = "c"
+extensions = [".c", ".h"]
+grammar = "tree-sitter-c"
+
+[queries]
+symbols = """
+(function_definition
+  declarator: (function_declarator
+    declarator: (identifier) @name)) @symbol.function
+
+(struct_specifier
+  name: (type_identifier) @name) @symbol.struct
+
+(enum_specifier
+  name: (type_identifier) @name) @symbol.enum
+
+(union_specifier
+  name: (type_identifier) @name) @symbol.union
+"""
+
+imports = """
+(preproc_include
+  path: [
+    (string_literal) @import
+    (system_lib_string) @import
+  ])
+"""
+
+usages = """
+(call_expression
+  function: (identifier) @call.name) @call
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

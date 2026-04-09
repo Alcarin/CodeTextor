@@ -87,7 +87,7 @@ type ParserSymbolUsage struct {
 // It contains all extracted symbols and any errors encountered.
 type ParseResult struct {
 	FilePath string              `json:"file_path"` // Path to the parsed file
-	Language string              `json:"language"`  // Detected language (go, python, typescript, etc.)
+	Language string              `json:"language"`  // Detected language (go, python, typescript, c, cpp, csharp, etc.)
 	Symbols  []Symbol            `json:"symbols"`   // All extracted symbols
 	Usages   []ParserSymbolUsage `json:"usages"`    // All extracted symbol usages
 	Imports  []string            `json:"imports"`   // List of imported modules/packages

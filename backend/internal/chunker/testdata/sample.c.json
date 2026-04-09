@@ -1,0 +1,15 @@
+{
+  "name": "C",
+  "file": "sample.c",
+  "language": "c",
+  "minSymbols": 4,
+  "expectSymbols": [
+    { "name": "Point", "kind": "struct" },
+    { "name": "printPoint", "kind": "function" },
+    { "name": "main", "kind": "function" }
+  ],
+  "expectImports": ["<stdio.h>"],
+  "expectTodos": [
+    { "contains": "TODO" }
+  ]
+}

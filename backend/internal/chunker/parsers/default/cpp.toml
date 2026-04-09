@@ -1,0 +1,49 @@
+[language]
+name = "cpp"
+extensions = [".cpp", ".hpp", ".cc", ".cxx", ".hh"]
+grammar = "tree-sitter-cpp"
+
+[queries]
+symbols = """
+(function_definition
+  declarator: [
+    (function_declarator declarator: (identifier) @name)
+    (function_declarator declarator: (field_identifier) @name)
+    (function_declarator declarator: (destructor_name) @name)
+  ]) @symbol.function
+
+(class_specifier
+  name: (type_identifier) @name) @symbol.class
+
+(struct_specifier
+  name: (type_identifier) @name) @symbol.struct
+
+(namespace_definition
+  name: [
+    (namespace_identifier) @name
+    (identifier) @name
+  ]) @symbol.namespace
+"""
+
+imports = """
+(preproc_include
+  path: [
+    (string_literal) @import
+    (system_lib_string) @import
+  ])
+"""
+
+usages = """
+(call_expression
+  function: [
+    (identifier) @call.name
+    (field_expression field: (field_identifier) @call.name)
+  ]) @call
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

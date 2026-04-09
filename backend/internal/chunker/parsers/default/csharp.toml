@@ -1,0 +1,51 @@
+[language]
+name = "csharp"
+extensions = [".cs"]
+grammar = "tree-sitter-c-sharp"
+
+[queries]
+symbols = """
+(class_declaration
+  name: (identifier) @name) @symbol.class
+
+(method_declaration
+  name: (identifier) @name) @symbol.method
+
+(interface_declaration
+  name: (identifier) @name) @symbol.interface
+
+(struct_declaration
+  name: (identifier) @name) @symbol.struct
+
+(enum_declaration
+  name: (identifier) @name) @symbol.enum
+
+(namespace_declaration
+  name: [
+    (identifier)
+    (qualified_name)
+  ] @name) @symbol.namespace
+"""
+
+imports = """
+(using_directive
+  [
+    (identifier)
+    (qualified_name)
+  ] @import)
+"""
+
+usages = """
+(invocation_expression
+  function: [
+    (identifier) @call.name
+    (member_access_expression name: (identifier) @call.name)
+  ]) @call
+"""
+
+[rules]
+comment_prefixes = ["//", "/*"]
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["comment"]

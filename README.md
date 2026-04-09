@@ -39,7 +39,7 @@ It extracts structural code chunks (functions, classes, comments, modules), gene
 
 CodeTextor provides advanced semantic indexing for a wide range of languages out of the box:
 
-- **Backend & Systems**: Go, Java, Python, PHP, SQL
+- **Backend & Systems**: Go, Java, Python, PHP, C, C++, C#, SQL
 - **Web & Frontend**: JavaScript (JSX), TypeScript (TSX), Vue, CSS, HTML
 - **Data & Documentation**: Markdown, JSON
 

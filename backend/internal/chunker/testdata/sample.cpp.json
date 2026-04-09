@@ -1,0 +1,17 @@
+{
+  "name": "C++",
+  "file": "sample.cpp",
+  "language": "cpp",
+  "minSymbols": 5,
+  "expectSymbols": [
+    { "name": "Geometry", "kind": "namespace" },
+    { "name": "Shape", "kind": "class", "parent": "Geometry" },
+    { "name": "Circle", "kind": "class", "parent": "Geometry" },
+    { "name": "area", "kind": "function", "parent": "Circle" },
+    { "name": "main", "kind": "function" }
+  ],
+  "expectImports": ["<iostream>", "<vector>"],
+  "expectTodos": [
+    { "contains": "FIXME" }
+  ]
+}

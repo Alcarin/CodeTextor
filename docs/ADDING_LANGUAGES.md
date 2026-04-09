@@ -19,7 +19,12 @@ Tree-sitter grammars are written in C and must be compiled into the Go binary.
       ```go
       "tree-sitter-rust": func() *sitter.Language { return sitter.NewLanguage(tree_sitter_rust.Language()) },
       ```
-3.  **Rebuild**: Run `wails dev` or `wails build`. This step is **mandatory** because C dependencies cannot be loaded dynamically at runtime.
+
+3.  **Fix Vendor Issues (Windows/CGO)**: `go mod vendor` often fails to copy `.c` or `.h` files for Tree-sitter grammars. CodeTextor provides a fix script:
+    - **Windows**: `powershell -File vendor_updates/fix_vendor.ps1`
+    - **Linux/macOS**: `bash vendor_updates/fix_vendor.sh`
+
+4.  **Rebuild**: Run `wails dev` or `wails build`. This step is **mandatory** because C dependencies cannot be loaded dynamically at runtime.
 
 ---
 
@@ -138,6 +143,32 @@ symbols = """
 2.  **Live Debugging**: Use the `ti` tool to test your TOML files against source code without restarting the app:
     ```bash
     .tmp/ti.exe rust sample.rs path/to/rust.toml
+    ```
+
+---
+
+## 🧪 Step 3: Quality Assurance (Testing)
+
+To ensure your new language parser is reliable and doesn't regress, you should add it to the suite of automated tests.
+
+1.  **Create a Sample File**: Add a realistic code example in `backend/internal/chunker/testdata/sample.<ext>`.
+2.  **Create a Test Fixture**: Add a JSON file `backend/internal/chunker/testdata/sample.<ext>.json` describing the expected extraction:
+    ```json
+    {
+      "name": "Rust Support",
+      "file": "sample.rs",
+      "language": "rust",
+      "minSymbols": 3,
+      "expectSymbols": [
+        { "name": "Calculator", "kind": "struct" },
+        { "name": "add", "kind": "function" }
+      ],
+      "expectImports": ["std::io"]
+    }
+    ```
+3.  **Run the Tests**: The system automatically discovers all `.json` files in `testdata` and runs them against the actual parser:
+    ```bash
+    go test -v ./backend/internal/chunker/testdata_test.go
     ```
 
 ---
