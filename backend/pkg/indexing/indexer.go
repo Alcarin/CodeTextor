@@ -45,7 +45,8 @@ type Indexer struct {
 	OnInitialScanComplete func()
 	OnFileIndexed         func(filePath string)
 
-	dbWriteMu sync.Mutex // Serializes writes to the single-writer SQLite DB
+	dbWriteMu   sync.Mutex // Serializes writes to the single-writer SQLite DB
+	progressMu  sync.RWMutex // Protects access to non-atomic progress fields
 }
 
 // embeddingTask holds pre-processed file data ready for GPU embedding.
@@ -110,14 +111,45 @@ func NewIndexer(project *models.Project, vectorStore *store.VectorStore, client 
 	}, nil
 }
 
+func (i *Indexer) setProgressStatus(status models.IndexingStatus) {
+	i.progressMu.Lock()
+	defer i.progressMu.Unlock()
+	i.progress.Status = status
+}
+
+func (i *Indexer) setProgressCurrentFile(filePath string) {
+	i.progressMu.Lock()
+	defer i.progressMu.Unlock()
+	i.progress.CurrentFile = filePath
+}
+
+func (i *Indexer) setProgressError(err string) {
+	i.progressMu.Lock()
+	defer i.progressMu.Unlock()
+	i.progress.Error = err
+}
+
+func (i *Indexer) GetProgress() models.IndexingProgress {
+	i.progressMu.RLock()
+	defer i.progressMu.RUnlock()
+	
+	return models.IndexingProgress{
+		TotalFiles:     atomic.LoadInt32(&i.progress.TotalFiles),
+		ProcessedFiles: atomic.LoadInt32(&i.progress.ProcessedFiles),
+		CurrentFile:    i.progress.CurrentFile,
+		Status:         i.progress.Status,
+		Error:          i.progress.Error,
+	}
+}
+
 // Run starts the indexing process.
 func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 	i.isInitialScan = true
-	i.progress.Status = models.IndexingStatusIndexing
+	i.setProgressStatus(models.IndexingStatusIndexing)
 	atomic.StoreInt32(&i.progress.TotalFiles, int32(len(filePreviews)))
 	atomic.StoreInt32(&i.progress.ProcessedFiles, 0)
-	i.progress.CurrentFile = ""
-	i.progress.Error = ""
+	i.setProgressCurrentFile("")
+	i.setProgressError("")
 
 	log.Printf("Starting indexing for project %s: %d files to process", i.project.Name, len(filePreviews))
 
@@ -166,7 +198,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 	initialScanWg.Wait()
 	i.isInitialScan = false
 
-	log.Printf("[%s] Initial scan complete. Processed: %d, Errors: %v", i.project.Name, i.progress.ProcessedFiles, i.progress.Error)
+	log.Printf("[%s] Initial scan complete. Processed: %d, Errors: %v", i.project.Name, i.progress.ProcessedFiles, i.getProgressError())
 	
 	if i.OnInitialScanComplete != nil {
 		i.OnInitialScanComplete()
@@ -176,8 +208,7 @@ func (i *Indexer) Run(filePreviews []*models.FilePreview) {
 		log.Printf("[%s] Starting file watcher for continuous indexing...", i.project.Name)
 		i.startWatcher()
 	} else {
-		i.progress.Status = models.IndexingStatusCompleted
-		i.progress.CurrentFile = ""
+		i.setProgressStatus(models.IndexingStatusCompleted)
 	}
 }
 
@@ -205,7 +236,7 @@ func (i *Indexer) startWatcher() {
 		})
 	}
 
-	i.progress.Status = models.IndexingStatusIdle
+	i.setProgressStatus(models.IndexingStatusIdle)
 
 	for {
 		select {
@@ -251,6 +282,7 @@ func (i *Indexer) processTask(task *embeddingTask, wg *sync.WaitGroup) {
 	}
 
 	// 1. GPU Stage: Generate Embeddings
+	i.setProgressCurrentFile(task.filePath)
 	log.Printf("[%s] Starting GPU stage: %s", i.project.Name, task.filePath)
 	embeddings, err := i.embeddingClient.GenerateEmbeddings(task.rawChunks)
 	if err != nil {
@@ -296,11 +328,18 @@ func (i *Indexer) processTask(task *embeddingTask, wg *sync.WaitGroup) {
 	if total > 0 {
 		percent = float64(processed) / float64(total) * 100
 	}
+	i.setProgressCurrentFile(task.filePath)
 	log.Printf("[%s] Indexed (%d/%d, %.1f%%): %s", i.project.Name, processed, total, percent, task.filePath)
 }
 
+func (i *Indexer) getProgressError() string {
+	i.progressMu.RLock()
+	defer i.progressMu.RUnlock()
+	return i.progress.Error
+}
+
 func (i *Indexer) submitFileToIndices(file *models.FilePreview, workerID int32) *embeddingTask {
-	i.progress.CurrentFile = file.RelativePath
+	i.setProgressCurrentFile(file.RelativePath)
 	
 	
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fix Indexing Progress**: Updated UI label to "Last indexed" and corrected the progress system to reflect real-time file processing (GPU stage).
 - **Final Tree-Sitter Architecture Migration**: Completed the transition to a "Flat & Lean" architecture for all 10 internal grammars. Renamed maintenance scripts to `sync_vendors.ps1/sh`, automated common header extraction, and optimized CGO bindings to prevent symbol collisions and build errors.
 - **Expansion of "Source-First" Standard (Kotlin & Dart)**: Migrated Kotlin and Dart to the local-first management strategy, unifying internal grammar management and improving build stability across all core languages.
 - **Universal `fix_vendor.ps1` Refactoring**: Generalized the vendor maintenance script to support automated local generation for all internal grammars, including automatic npm fallback and language-specific CGO patches.

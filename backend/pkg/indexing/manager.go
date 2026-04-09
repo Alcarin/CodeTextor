@@ -5,6 +5,7 @@ import (
 	"CodeTextor/backend/pkg/embedding"
 	"CodeTextor/backend/pkg/models"
 	"sync"
+	"sync/atomic"
 )
 
 // Manager manages the lifecycle of indexing jobs for all projects.
@@ -90,12 +91,31 @@ func (m *Manager) ClearProgress(projectID string) {
 }
 
 // GetIndexingProgress retrieves the current indexing progress for a project.
-func (m *Manager) GetIndexingProgress(projectID string) (*models.IndexingProgress, bool) {
+func (m *Manager) GetIndexingProgress(projectID string) (models.IndexingProgress, bool) {
+	m.mu.Lock()
+	indexer, exists := m.projectIndexers[projectID]
+	m.mu.Unlock()
+
+	if exists {
+		return indexer.GetProgress(), true
+	}
+
 	progress, found := m.progressMap.Load(projectID)
 	if !found {
-		return nil, false
+		return models.IndexingProgress{}, false
 	}
-	return progress.(*models.IndexingProgress), true
+	
+	// If the indexer is gone, we still have the last pointer in progressMap.
+	// Since no one is writing to it anymore (indexer is dead), it's safe-ish,
+	// but let's be consistent and return a copy.
+	p := progress.(*models.IndexingProgress)
+	return models.IndexingProgress{
+		TotalFiles:     atomic.LoadInt32(&p.TotalFiles),
+		ProcessedFiles: atomic.LoadInt32(&p.ProcessedFiles),
+		CurrentFile:    p.CurrentFile,
+		Status:         p.Status,
+		Error:          p.Error,
+	}, true
 }
 
 // IsProjectIndexing returns true if an indexer is currently active for the given project.

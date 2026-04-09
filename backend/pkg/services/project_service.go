@@ -892,7 +892,7 @@ func (s *ProjectService) GetIndexingProgress(projectID string) (models.IndexingP
 	if !found {
 		return models.IndexingProgress{Status: models.IndexingStatusIdle}, nil
 	}
-	return *progress, nil
+	return progress, nil
 }
 
 func (s *ProjectService) ensureDefaultEmbeddingModels() error {

@@ -1325,7 +1325,7 @@ watch(selectedEmbeddingModelId, async modelId => {
             <span>{{ progress.processedFiles }} / {{ progress.totalFiles }} files</span>
           </template>
           <span v-else>Awaiting first indexing run</span>
-          <span v-if="isIndexing && progress.currentFile">Current: {{ progress.currentFile }}</span>
+          <span v-if="isIndexing && progress.currentFile">Last indexed: {{ progress.currentFile }}</span>
         </div>
         <p v-if="indexingResumeMessage" class="resume-notice">
           {{ indexingResumeMessage }}
