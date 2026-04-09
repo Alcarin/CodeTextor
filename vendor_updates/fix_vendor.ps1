@@ -196,7 +196,7 @@ if (Test-Path $normFile) {
 
 # 6. INTERNAL VENDOR SYNC
 Write-Host "[6/6] Syncing internal grammars (vendor_grammar)..." -ForegroundColor Yellow
-
+$internalGrammars = @{
     "kotlin" = "https://raw.githubusercontent.com/fwcd/tree-sitter-kotlin/master"
     "dart"   = "https://raw.githubusercontent.com/nielsenko/tree-sitter-dart/main"
     "swift"  = "https://raw.githubusercontent.com/alex-pinkus/tree-sitter-swift/main"
@@ -211,7 +211,11 @@ foreach ($grammarName in $internalGrammars.Keys) {
     $langSrc = Join-Path $langDir "src"
 
     if (!(Test-Path $langDir)) { New-Item -ItemType Directory -Force -Path $langDir | Out-Null }
-    if (!(Test-Path $langSrc)) { New-Item -ItemType Directory -Force -Path $langSrc | Out-Null }
+    
+    # We only create the root src/ if this is NOT a Source-First grammar (like Swift)
+    if ($grammarName -ne "swift") {
+        if (!(Test-Path $langSrc)) { New-Item -ItemType Directory -Force -Path $langSrc | Out-Null }
+    }
 
     $files = @(
         "bindings/go/binding.go",
@@ -223,6 +227,10 @@ foreach ($grammarName in $internalGrammars.Keys) {
     )
 
     foreach ($file in $files) {
+        if ($grammarName -eq "swift" -and $file -match "^src/") {
+            continue # Skip common src files for Source-First grammars (handled in special block)
+        }
+
         if ($file -match "binding.go") {
             $destPath = Join-Path $langDir "binding.go"
         } else {
@@ -234,7 +242,12 @@ foreach ($grammarName in $internalGrammars.Keys) {
         
         Write-Host "    Downloading $file -> $(Split-Path $destPath -Leaf)..."
         $url = "$baseUrl/$file"
-        Invoke-WebRequest -Uri $url -OutFile $destPath -ErrorAction SilentlyContinue
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $destPath -ErrorAction Stop
+        } catch {
+            Write-Host "    Warning: Could not download $file (might be normal for source-only grammars like Swift)" -ForegroundColor Gray
+            if (Test-Path $destPath) { Remove-Item $destPath }
+        }
     }
 
     # Patch binding.go for internal vendor
