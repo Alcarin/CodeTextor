@@ -1,0 +1,78 @@
+[language]
+name = "rust"
+grammar = "tree-sitter-rust"
+extensions = [".rs"]
+
+[queries]
+symbols = """
+; Functions
+(function_item 
+  name: (identifier) @name) @symbol.function
+
+; Structs
+(struct_item 
+  name: (type_identifier) @name) @symbol.struct
+
+; Traits
+(trait_item 
+  name: (type_identifier) @name) @symbol.interface
+
+; Enums
+(enum_item 
+  name: (type_identifier) @name) @symbol.enum
+
+; Modules
+(mod_item 
+  name: (identifier) @name) @symbol.module
+
+; Implementations
+(impl_item
+  type: (type_identifier) @name) @symbol.class
+
+; Macros
+(macro_definition 
+  name: (identifier) @name) @symbol.macro
+
+; Constants and Statics
+(const_item 
+  name: (identifier) @name) @symbol.constant
+(static_item 
+  name: (identifier) @name) @symbol.variable
+
+; Type Aliases
+(type_item 
+  name: (type_identifier) @name) @symbol.type
+"""
+
+imports = """
+(use_declaration
+  argument: [
+    (scoped_identifier) @import
+    (identifier) @import
+    (use_list (scoped_identifier) @import)
+    (use_list (identifier) @import)
+  ])
+"""
+
+usages = """
+(call_expression
+  function: [
+    (identifier) @call.name
+    (field_expression
+      value: (_) @call.receiver
+      field: (field_identifier) @call.name)
+    (scoped_identifier
+      path: (_) @call.receiver
+      name: (identifier) @call.name)
+  ]) @call
+"""
+
+[rules]
+comment_prefixes = ["//", "///", "/*", "/**"]
+
+[rules.visibility]
+type = "keyword"
+
+[rules.todo]
+pattern = '(?i)(TODO|FIXME|HACK|XXX|NOTE):?\s*(.*)'
+node_types = ["line_comment", "block_comment"]

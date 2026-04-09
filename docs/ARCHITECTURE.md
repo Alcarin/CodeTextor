@@ -372,7 +372,7 @@ User Opens File → OutlineView.vue
 **Backend:**
 - `backend/internal/chunker/query_parser.go`: Dynamic engine using TOML-defined Tree-sitter queries.
   - Extracts symbols with parent-child relationships and rich metadata.
-  - Languages: Go, Python, Java, TypeScript, JavaScript, HTML, CSS, Markdown, PHP, C, C++, C#.
+  - Languages: Go, Python, Java, TypeScript, JavaScript, HTML, CSS, Markdown, PHP, Rust, C, C++, C#.
 - `backend/pkg/outline/builder.go`: Convert flat symbols to hierarchical tree
   - Matches parents by name + line range containment
   - Handles duplicate names (e.g., multiple `div` elements)

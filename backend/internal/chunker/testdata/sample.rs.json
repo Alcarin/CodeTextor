@@ -1,0 +1,21 @@
+{
+  "name": "Rust Support",
+  "file": "sample.rs",
+  "language": "rust",
+  "minSymbols": 10,
+  "expectSymbols": [
+    { "name": "Calculator", "kind": "struct" },
+    { "name": "new", "kind": "function" },
+    { "name": "add", "kind": "function" },
+    { "name": "get_value", "kind": "function" },
+    { "name": "Display", "kind": "interface" },
+    { "name": "State", "kind": "enum" },
+    { "name": "internal", "kind": "module" },
+    { "name": "PI", "kind": "constant" },
+    { "name": "main", "kind": "function" }
+  ],
+  "expectImports": ["std::collections::HashMap"],
+  "expectTodos": [
+    { "contains": "handle overflow" }
+  ]
+}
