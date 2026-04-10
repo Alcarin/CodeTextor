@@ -26,6 +26,10 @@ export function GetAllProjectsStats() {
   return window['go']['main']['App']['GetAllProjectsStats']();
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetEmbeddingCapabilities() {
   return window['go']['main']['App']['GetEmbeddingCapabilities']();
 }
@@ -34,8 +38,8 @@ export function GetFileChunks(arg1, arg2) {
   return window['go']['main']['App']['GetFileChunks'](arg1, arg2);
 }
 
-export function GetFileOutline(arg1, arg2) {
-  return window['go']['main']['App']['GetFileOutline'](arg1, arg2);
+export function GetFileOutline(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetFileOutline'](arg1, arg2, arg3);
 }
 
 export function GetFilePreviews(arg1, arg2) {

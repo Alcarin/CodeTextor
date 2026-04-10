@@ -30,6 +30,7 @@ vi.mock('../api/backend', () => ({
     updateProjectConfig: vi.fn(),
     deleteProject: vi.fn(),
     selectDirectory: vi.fn(),
+    getAppVersion: vi.fn().mockResolvedValue('v0.1.0'),
   },
 }));
 

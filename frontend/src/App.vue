@@ -31,6 +31,7 @@ const { currentProject, loadCurrentProject } = useCurrentProject();
 // Footer stats
 const projectStats = ref<ProjectStats | null>(null);
 const mcpStatus = ref<MCPServerStatus | null>(null);
+const appVersion = ref('');
 let statsInterval: number | null = null;
 let statusUnsubscribe: (() => void) | null = null;
 
@@ -142,6 +143,14 @@ watch(currentProject, (newProject) => {
 onMounted(async () => {
   // Load current project first
   await loadCurrentProject();
+
+  // Load app version
+  try {
+    appVersion.value = await backend.getAppVersion();
+  } catch (error) {
+    console.error('Failed to load app version:', error);
+    appVersion.value = 'unknown';
+  }
 
   // If no project, ensure we're on projects view
   if (!currentProject.value && currentView.value !== 'projects') {
@@ -285,7 +294,7 @@ onUnmounted(() => {
     <!-- Footer -->
     <footer class="app-footer">
       <div class="footer-brand">
-        <span class="footer-title">CodeTextor v1.0</span>
+        <span class="footer-title">CodeTextor v{{ appVersion }}</span>
         <span v-if="currentProject" class="footer-subtitle">
           Project: {{ currentProject.name }}
         </span>

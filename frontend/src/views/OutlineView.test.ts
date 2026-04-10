@@ -32,6 +32,7 @@ describe('OutlineView.vue', () => {
     vi.spyOn(backend, 'getFilePreviews').mockResolvedValue([
       { absolutePath: '/root/main.ts', relativePath: 'main.ts', extension: '.ts', size: '1 KB', hidden: false, lastModified: Date.now() / 1000, isDir: false },
     ]);
+    vi.spyOn(backend, 'getAppVersion').mockResolvedValue('v0.1.0');
   });
 
   const mountComponent = () => mount(OutlineView, {

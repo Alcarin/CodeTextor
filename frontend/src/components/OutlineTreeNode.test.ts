@@ -36,7 +36,7 @@ describe('OutlineTreeNode.vue', () => {
       props: { node, level: 0, expanded: false },
     });
 
-    await wrapper.find('.node-header').trigger('click');
+    await wrapper.find('.node-toggle').trigger('click');
     expect(wrapper.emitted().toggle).toBeTruthy();
     expect(wrapper.emitted().toggle[0]).toEqual(['n1']);
   });

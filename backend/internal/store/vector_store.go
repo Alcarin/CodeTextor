@@ -64,13 +64,9 @@ func (s *VectorStore) cacheFileID(path string, id int64) {
 // NewVectorStore creates a new VectorStore instance for a given project.
 // It initializes the SQLite database and runs migrations if necessary.
 func NewVectorStore(projectID, projectSlug string) (*VectorStore, error) {
-	projectIndexDir := os.Getenv("CODETEXTOR_INDEXES_DIR")
-	if projectIndexDir == "" {
-		dataDir, err := utils.GetAppDataDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get data directory: %w", err)
-		}
-		projectIndexDir = filepath.Join(dataDir, "indexes")
+	projectIndexDir, err := utils.GetIndexesDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get indexes directory: %w", err)
 	}
 
 	if err := os.MkdirAll(projectIndexDir, 0755); err != nil {

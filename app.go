@@ -1,6 +1,7 @@
 package main
 
 import (
+	"CodeTextor/backend/pkg/config"
 	"CodeTextor/backend/pkg/mcp"
 	"CodeTextor/backend/pkg/models"
 	"CodeTextor/backend/pkg/services"
@@ -65,6 +66,11 @@ func (a *App) shutdown(ctx context.Context) {
 			log.Printf("Error closing MCP manager: %v", err)
 		}
 	}
+}
+
+// GetAppVersion returns the current application version.
+func (a *App) GetAppVersion() string {
+	return config.Version
 }
 
 // Greet returns a greeting for the given name
@@ -241,8 +247,8 @@ func (a *App) GetIndexedFiles(projectID string) ([]*models.IndexedFile, error) {
 }
 
 // GetFileOutline fetches the persisted outline tree for a file.
-func (a *App) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
-	return a.projectService.GetFileOutline(projectID, path)
+func (a *App) GetFileOutline(projectID, path string, depth int) ([]*models.OutlineNode, error) {
+	return a.projectService.GetFileOutline(projectID, path, depth)
 }
 
 // GetOutlineTimestamps fetches update timestamps for all outlines in a project.

@@ -16,6 +16,7 @@ func setupTestService(t *testing.T) (*ProjectService, func()) {
 	t.Setenv("LOCALAPPDATA", tempHome)
 	t.Setenv("USERPROFILE", tempHome)
 	t.Setenv("XDG_CONFIG_HOME", tempHome)
+	t.Setenv("CODETEXTOR_APP_DATA", tempHome)
 	t.Setenv("CODETEXTOR_INDEXES_DIR", filepath.Join(tempHome, "indexes"))
 
     service, err := NewProjectService(context.Background())

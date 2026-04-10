@@ -3,6 +3,7 @@ package services
 import (
 	"CodeTextor/backend/internal/store"
 	"CodeTextor/backend/pkg/models"
+	"CodeTextor/backend/pkg/utils"
 	"os"
 	"testing"
 
@@ -97,7 +98,7 @@ func TestLinkerService_ResolveUsages(t *testing.T) {
 	}
 
 	// Check usage 2 (Virtual)
-	virtualID := "v-fmt-Println"
+	virtualID := utils.GenerateSymbolID("@external/fmt", 0, 0, "Println", 1)
 	virtualUsages, err := vs.GetSymbolUsages(virtualID)
 	if err != nil {
 		t.Fatalf("Failed to get resolved usages for virtual ID: %v", err)

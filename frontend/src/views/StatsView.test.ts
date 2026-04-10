@@ -8,7 +8,8 @@ import { useCurrentProject } from '../composables/useCurrentProject';
 vi.mock('../composables/useCurrentProject');
 vi.mock('../api/backend', () => ({
   backend: {
-    getProjectStats: vi.fn()
+    getProjectStats: vi.fn(),
+    getAppVersion: vi.fn().mockResolvedValue('v0.1.0'),
   }
 }));
 

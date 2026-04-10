@@ -1,6 +1,6 @@
 # Changelog
 
-**Note:** This project is currently in early development. First release (v0.1.0) will be announced when core functionality is complete.
+**Note:** Project has reached its first stable development release (v0.1.0).
 
 All notable user-facing changes to CodeTextor will be documented in this file.
 
@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-04-10
+
+- **Automated Release Workflow**: Implemented a full CI/CD pipeline using GitHub Actions to build and release CodeTextor for Windows, Linux, and macOS.
+  - Generates portable binaries and installers (NSIS for Windows, DEB/RPM for Linux).
+  - Includes standard security notices for unsigned binaries built directly from source.
+- **Centralized Version Management**: Unified the application version in a single Go package (`backend/pkg/config`), synchronized automatically with Git tags via `ldflags`.
+- **UPX Compression**: Integrated UPX into the build pipeline to significantly reduce executable sizes for all supported platforms.
+- **Dynamic Version UI**: Added a dynamic version display in the application footer that retrieves the real version from the backend at startup.
 - **PowerShell Support**: Added full support for parsing and chunking PowerShell scripts (.ps1, .psm1, .psd1).
 - **Bash Support**: Added full support for parsing and chunking Bash scripts (.sh, .bash, .zsh, .ebuild).
 - **Decentralized Grammar Management**: Centralized the list of Tree-sitter repositories into a dedicated `grammars.txt` file, ensuring cross-platform configuration parity between PowerShell and Bash sync scripts.

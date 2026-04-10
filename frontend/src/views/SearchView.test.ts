@@ -12,7 +12,8 @@ vi.mock('../api/backend', async () => {
     ...actual,
     backend: {
       ...actual.backend,
-      search: vi.fn()
+      search: vi.fn(),
+      getAppVersion: vi.fn().mockResolvedValue('v0.1.0'),
     }
   };
 });
@@ -90,14 +91,16 @@ describe('SearchView.vue', () => {
 
   it('shows an error message on search failure', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     backendMock.search.mockRejectedValue(new Error('Search failed'));
-
+ 
     const wrapper = mountComponent();
     await wrapper.find('#query').setValue('test query');
     await wrapper.find('button.btn-primary').trigger('click');
     await flushPromises();
-
-    expect(alertSpy).toHaveBeenCalledWith('Search failed: Search failed');
+ 
+    expect(alertSpy).toHaveBeenCalledWith('Failed to search: Search failed');
     alertSpy.mockRestore();
+    consoleSpy.mockRestore();
   });
 });

@@ -9,6 +9,27 @@ import { useNavigation } from './composables/useNavigation';
 vi.mock('./composables/useCurrentProject');
 vi.mock('./composables/useNavigation');
 
+// Mock backend
+vi.mock('./api/backend', () => ({
+  backend: {
+    getAppVersion: vi.fn().mockResolvedValue('v0.1.0'),
+    getAllProjectsStats: vi.fn().mockResolvedValue({
+      totalFiles: 0,
+      totalChunks: 0,
+      totalSymbols: 0,
+      isIndexing: false
+    }),
+    getMCPStatus: vi.fn().mockResolvedValue({
+      isRunning: false,
+      uptime: 0,
+      activeConnections: 0,
+      totalRequests: 0,
+      averageResponseTime: 0
+    }),
+    getMCPTools: vi.fn().mockResolvedValue([])
+  }
+}));
+
 // Mock child components to avoid rendering them
 const ProjectSelector = {
   template: '<div data-testid="project-selector-mock"></div>'

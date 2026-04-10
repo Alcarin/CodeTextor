@@ -80,7 +80,7 @@ type ProjectServiceAPI interface {
 	SetProjectIndexing(projectID string, enabled bool) error
 	GetFilePreviews(projectID string, config models.ProjectConfig) ([]*models.FilePreview, error)
 	GetProjectStructure(projectID string, subPath string, depth int) ([]*models.FilePreview, error)
-	GetFileOutline(projectID, path string) ([]*models.OutlineNode, error)
+	GetFileOutline(projectID, path string, depth int) ([]*models.OutlineNode, error)
 	GetFileChunks(projectID, path string) ([]*models.Chunk, error)
 	GetChunkByID(projectID, chunkID string) (*models.Chunk, error)
 	GetChunksByIDFuzzy(projectID, chunkID string) ([]*models.Chunk, error)
@@ -1819,7 +1819,7 @@ func (s *ProjectService) GetProjectStructure(projectID string, subPath string, d
 }
 
 // GetFileOutline retrieves the stored outline for a single file.
-func (s *ProjectService) GetFileOutline(projectID, path string) ([]*models.OutlineNode, error) {
+func (s *ProjectService) GetFileOutline(projectID, path string, depth int) ([]*models.OutlineNode, error) {
 	project, err := s.GetProject(projectID)
 	if err != nil {
 		return nil, err

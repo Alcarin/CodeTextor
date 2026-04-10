@@ -23,44 +23,38 @@ exclude_import_pattern = '^https?://'
 # Signature mappings for headings
 [[queries.symbol_patterns]]
 kind = "heading"
-pattern = '(?m)^#\s+(.*)'
+pattern = '(?m)^[ \t]*#[ \t]+([^\r\n]+)'
 signature_prefix = "h1"
-signature_group = -1
 name_group = 1
 
 [[queries.symbol_patterns]]
 kind = "heading"
-pattern = '(?m)^##\s+(.*)'
+pattern = '(?m)^[ \t]*##[ \t]+([^\r\n]+)'
 signature_prefix = "h2"
-signature_group = -1
 name_group = 1
 
 [[queries.symbol_patterns]]
 kind = "heading"
-pattern = '(?m)^###\s+(.*)'
+pattern = '(?m)^[ \t]*###[ \t]+([^\r\n]+)'
 signature_prefix = "h3"
-signature_group = -1
 name_group = 1
 
 [[queries.symbol_patterns]]
 kind = "heading"
-pattern = '(?m)^####\s+(.*)'
+pattern = '(?m)^[ \t]*####[ \t]+([^\r\n]+)'
 signature_prefix = "h4"
-signature_group = -1
 name_group = 1
 
 [[queries.symbol_patterns]]
 kind = "heading"
-pattern = '(?m)^#####\s+(.*)'
+pattern = '(?m)^[ \t]*#####[ \t]+([^\r\n]+)'
 signature_prefix = "h5"
-signature_group = -1
 name_group = 1
 
 [[queries.symbol_patterns]]
 kind = "heading"
-pattern = '(?m)^######\s+(.*)'
+pattern = '(?m)^[ \t]*######[ \t]+([^\r\n]+)'
 signature_prefix = "h6"
-signature_group = -1
 name_group = 1
 
 # Link extraction as symbols

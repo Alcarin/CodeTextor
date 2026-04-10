@@ -206,9 +206,10 @@ export const backend = {
    */
   async getFileOutline(
     projectId: string,
-    path: string
+    path: string,
+    depth: number = 2
   ): Promise<models.OutlineNode[]> {
-    return App.GetFileOutline(projectId, path)
+    return App.GetFileOutline(projectId, path, depth)
   },
 
   /**
@@ -381,6 +382,14 @@ export const backend = {
 
   async toggleMCPTool(name: string): Promise<void> {
     return App.ToggleMCPTool(name)
+  },
+
+  /**
+   * Retrieves the current application version from the backend.
+   * @returns Promise resolving to the version string
+   */
+  async getAppVersion(): Promise<string> {
+    return App.GetAppVersion()
   },
 }
 

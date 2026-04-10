@@ -14,11 +14,13 @@ export function DownloadONNXRuntime():Promise<void>;
 
 export function GetAllProjectsStats():Promise<models.ProjectStats>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetEmbeddingCapabilities():Promise<models.EmbeddingCapabilities>;
 
 export function GetFileChunks(arg1:string,arg2:string):Promise<Array<models.Chunk>>;
 
-export function GetFileOutline(arg1:string,arg2:string):Promise<Array<models.OutlineNode>>;
+export function GetFileOutline(arg1:string,arg2:string,arg3:number):Promise<Array<models.OutlineNode>>;
 
 export function GetFilePreviews(arg1:string,arg2:models.ProjectConfig):Promise<Array<models.FilePreview>>;
 

@@ -1274,7 +1274,7 @@ func (m *Manager) handleOutline(boundProjectID string) sdkmcp.ToolHandlerFor[out
 		if strings.TrimSpace(input.Path) == "" {
 			return nil, outlineOutput{}, fmt.Errorf("path cannot be empty")
 		}
-		nodes, err := m.projectService.GetFileOutline(projectID, input.Path)
+		nodes, err := m.projectService.GetFileOutline(projectID, input.Path, 2)
 		if err != nil {
 			return nil, outlineOutput{}, err
 		}

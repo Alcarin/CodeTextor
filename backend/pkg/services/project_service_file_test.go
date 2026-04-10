@@ -8,15 +8,15 @@ import (
 )
 
 func TestReadFileContent(t *testing.T) {
-	// Create temp directory for test
-	tempDir := t.TempDir()
-
-	// Use temporary HOME to avoid polluting real database
+	// Use a single temp directory for everything in this test
 	testHome := t.TempDir()
+	tempDir := testHome
+	
 	t.Setenv("HOME", testHome)
 	t.Setenv("APPDATA", testHome)
 	t.Setenv("LOCALAPPDATA", testHome)
 	t.Setenv("XDG_CONFIG_HOME", testHome)
+	t.Setenv("CODETEXTOR_APP_DATA", testHome)
 
 
 	// Create a test file
@@ -65,6 +65,7 @@ func TestReadFileContent_SecurityCheck(t *testing.T) {
 	t.Setenv("APPDATA", testHome)
 	t.Setenv("LOCALAPPDATA", testHome)
 	t.Setenv("XDG_CONFIG_HOME", testHome)
+	t.Setenv("CODETEXTOR_APP_DATA", testHome)
 
 
 	// Create a file outside project root
@@ -110,6 +111,7 @@ func TestReadFileContent_NonExistentFile(t *testing.T) {
 	t.Setenv("APPDATA", testHome)
 	t.Setenv("LOCALAPPDATA", testHome)
 	t.Setenv("XDG_CONFIG_HOME", testHome)
+	t.Setenv("CODETEXTOR_APP_DATA", testHome)
 
 
 	// Create test service

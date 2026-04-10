@@ -22,6 +22,7 @@ func TestProjectService_StaticAnalysis(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", tempDir)
 	t.Setenv("USERPROFILE", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	t.Setenv("CODETEXTOR_APP_DATA", tempDir)
 	t.Setenv("CODETEXTOR_INDEXES_DIR", filepath.Join(tempDir, "indexes"))
 
 	service, err := NewProjectService(ctx)

@@ -10,6 +10,7 @@ vi.mock('../composables/useCurrentProject');
 vi.mock('../composables/useNavigation');
 vi.mock('../api/backend', () => ({
   backend: {
+    getAppVersion: vi.fn().mockResolvedValue('v0.1.0'),
     getEmbeddingCapabilities: vi.fn().mockResolvedValue({ onnxRuntimeAvailable: true }),
     listEmbeddingModels: vi.fn().mockResolvedValue([]),
     getProjectStats: vi.fn().mockResolvedValue({
@@ -34,7 +35,9 @@ vi.mock('../api/backend', () => ({
     reindexProject: vi.fn().mockResolvedValue(undefined),
     saveEmbeddingModel: vi.fn().mockResolvedValue({}),
     downloadEmbeddingModel: vi.fn().mockResolvedValue({}),
-    updateProjectConfig: vi.fn().mockResolvedValue({})
+    updateProjectConfig: vi.fn().mockResolvedValue({}),
+    getIndexedFiles: vi.fn().mockResolvedValue([]),
+    getSupportedExtensions: vi.fn().mockResolvedValue([])
   }
 }));
 vi.mock('../../wailsjs/runtime/runtime', () => ({

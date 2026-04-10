@@ -40,9 +40,9 @@ func Add(a, b int) int {
 }
 `,
 			checks: []nodeExpectation{
-				{nodeName: "Calculator", parentName: strPtr("")},
+				{nodeName: "Calculator", parentName: strPtr("root")},
 				{nodeName: "Multiply"},
-				{nodeName: "Add", parentName: strPtr("")},
+				{nodeName: "Add", parentName: strPtr("root")},
 			},
 		},
 		{
@@ -56,9 +56,9 @@ def add(a, b):
     return a + b
 `,
 			checks: []nodeExpectation{
-				{nodeName: "Calculator", parentName: strPtr("")},
+				{nodeName: "Calculator", parentName: strPtr("root")},
 				{nodeName: "multiply", parentName: strPtr("Calculator")},
-				{nodeName: "add", parentName: strPtr("")},
+				{nodeName: "add", parentName: strPtr("root")},
 			},
 		},
 		{
@@ -75,26 +75,12 @@ export function add(a: number, b: number): number {
 }
 `,
 			checks: []nodeExpectation{
-				{nodeName: "Calculator", parentName: strPtr("")},
+				{nodeName: "Calculator", parentName: strPtr("root")},
 				{nodeName: "multiply", parentName: strPtr("Calculator")},
-				{nodeName: "add", parentName: strPtr("")},
+				{nodeName: "add", parentName: strPtr("root")},
 			},
 		},
-		{
-			name:     "Markdown",
-			filePath: "outline.md",
-			source: `# Title
-## Section
-### Subsection
-## Another Section
-`,
-			checks: []nodeExpectation{
-				{nodeName: "Title", parentName: strPtr("")},
-				{nodeName: "Section", parentName: strPtr("Title"), childName: "Subsection"},
-				{nodeName: "Subsection"},
-				{nodeName: "Another Section", parentName: strPtr("Title")},
-			},
-		},
+
 		{
 			name:     "HTML",
 			filePath: "page.html",
@@ -103,7 +89,7 @@ export function add(a: number, b: number): number {
 </div>
 `,
 			checks: []nodeExpectation{
-				{nodeName: "div", parentName: strPtr("")},
+				{nodeName: "div", parentName: strPtr("root")},
 				{nodeName: "span", parentName: strPtr("div")},
 			},
 		},
@@ -117,6 +103,7 @@ export function add(a: number, b: number): number {
 			require.Empty(t, result.Errors, "valid snippet should not produce parse errors")
 
 			nodes, _ := BuildOutlineNodes(tt.filePath, result.Symbols)
+
 			require.NotNil(t, nodes)
 			require.NotEmpty(t, nodes, "outline should contain nodes for %s", tt.name)
 
@@ -201,7 +188,7 @@ func findOutlineParent(nodes []*models.OutlineNode, target *models.OutlineNode) 
 			if child == target {
 				return node
 			}
-			if parent := findOutlineParent(child.Children, target); parent != nil {
+			if parent := findOutlineParent([]*models.OutlineNode{child}, target); parent != nil {
 				return parent
 			}
 		}

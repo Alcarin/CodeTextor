@@ -57,6 +57,8 @@ type MockProjectServiceAPI struct {
 	FindImplementationsFunc      func(projectID, nodeID string) (*models.FindImplementationsResponse, error)
 	FindTodosFunc                func(projectID string) (*models.FindTodosResponse, error)
 	GetPackageGraphFunc          func(projectID string, depth int) (models.PackageGraphResponse, error)
+	GetSupportedExtensionsFunc   func() []string
+	GetIndexedFilesFunc          func(projectID string) ([]*models.IndexedFile, error)
 	CloseFunc                    func() error
 }
 
@@ -321,6 +323,18 @@ func (m *MockProjectServiceAPI) GetPackageGraph(projectID string, depth int) (mo
 func (m *MockProjectServiceAPI) FindImplementations(projectID, nodeID string) (*models.FindImplementationsResponse, error) {
 	if m.FindImplementationsFunc != nil {
 		return m.FindImplementationsFunc(projectID, nodeID)
+	}
+	return nil, nil
+}
+func (m *MockProjectServiceAPI) GetSupportedExtensions() []string {
+	if m.GetSupportedExtensionsFunc != nil {
+		return m.GetSupportedExtensionsFunc()
+	}
+	return nil
+}
+func (m *MockProjectServiceAPI) GetIndexedFiles(projectID string) ([]*models.IndexedFile, error) {
+	if m.GetIndexedFilesFunc != nil {
+		return m.GetIndexedFilesFunc(projectID)
 	}
 	return nil, nil
 }

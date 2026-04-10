@@ -128,6 +128,82 @@ const refreshFileTree = async () => {
   }
 };
 
+// Check for outline updates and refresh if needed
+const checkForOutlineUpdates = async () => {
+  if (!currentProject.value) return;
+
+  try {
+    const newTimestamps = await backend.getOutlineTimestamps(currentProject.value.id);
+    let hasChanges = false;
+    let selectedFileUpdatedTimestamp: number | null = null;
+
+    // Check each file with a loaded outline
+    for (const [path, newTimestamp] of Object.entries(newTimestamps)) {
+      const oldTimestamp = outlineTimestamps.value[path];
+
+      // If timestamp changed, refresh the outline for this file
+      if (oldTimestamp && newTimestamp > oldTimestamp) {
+        hasChanges = true;
+        const node = findFileNode(fileTree.value, path);
+        if (node && node.outlineStatus === 'ready') {
+          // Silently refresh the outline without changing status
+          try {
+            const result = await backend.getFileOutline(currentProject.value.id, node.path, 2);
+            node.outlineNodes = result;
+            if (path === selectedFilePath.value) {
+              selectedFileUpdatedTimestamp = newTimestamp;
+            }
+          } catch (error) {
+            console.error(`Failed to refresh outline for ${path}:`, error);
+          }
+        }
+      } else if (!oldTimestamp && path === selectedFilePath.value) {
+        selectedFileUpdatedTimestamp = newTimestamp;
+      }
+    }
+
+    // Check for new files with outlines (files we didn't have before)
+    for (const path of Object.keys(newTimestamps)) {
+      if (!outlineTimestamps.value[path]) {
+        hasChanges = true;
+        break;
+      }
+    }
+
+    // If any outline changed, also refresh the file tree to ensure consistency
+    if (hasChanges) {
+      await checkForFileTreeChanges();
+    }
+
+    // Update timestamps
+    outlineTimestamps.value = newTimestamps;
+
+    if (selectedFileUpdatedTimestamp !== null) {
+      bumpSelectedFileVersion(selectedFileUpdatedTimestamp);
+    }
+  } catch (error) {
+    console.error('Failed to check for outline updates:', error);
+  }
+};
+
+// Start polling for outline updates and file tree changes
+const startPolling = () => {
+  if (pollingInterval.value !== null) return;
+
+  pollingInterval.value = window.setInterval(() => {
+    checkForFileTreeChanges();
+    checkForOutlineUpdates();
+  }, POLL_INTERVAL_MS);
+};
+
+// Stop polling
+const stopPolling = () => {
+  if (pollingInterval.value !== null) {
+    window.clearInterval(pollingInterval.value);
+    pollingInterval.value = null;
+  }
+};
+
 watch(
   () => currentProject.value?.id,
   async (projectId) => {
@@ -175,7 +251,7 @@ const handleFetchOutline = async (node: FileTreeNodeType) => {
   node.outlineStatus = 'loading';
   node.outlineError = '';
   try {
-    const result = await backend.getFileOutline(currentProject.value.id, node.path);
+    const result = await backend.getFileOutline(currentProject.value.id, node.path, 2);
     node.outlineNodes = result;
     node.outlineStatus = 'ready';
 
@@ -297,64 +373,6 @@ const checkForFileTreeChanges = async () => {
   }
 };
 
-// Check for outline updates and refresh if needed
-const checkForOutlineUpdates = async () => {
-  if (!currentProject.value) return;
-
-  try {
-    const newTimestamps = await backend.getOutlineTimestamps(currentProject.value.id);
-    let hasChanges = false;
-    let selectedFileUpdatedTimestamp: number | null = null;
-
-    // Check each file with a loaded outline
-    for (const [path, newTimestamp] of Object.entries(newTimestamps)) {
-      const oldTimestamp = outlineTimestamps.value[path];
-
-      // If timestamp changed, refresh the outline for this file
-      if (oldTimestamp && newTimestamp > oldTimestamp) {
-        hasChanges = true;
-        const node = findFileNode(fileTree.value, path);
-        if (node && node.outlineStatus === 'ready') {
-          // Silently refresh the outline without changing status
-          try {
-            const result = await backend.getFileOutline(currentProject.value.id, node.path);
-            node.outlineNodes = result;
-            if (path === selectedFilePath.value) {
-              selectedFileUpdatedTimestamp = newTimestamp;
-            }
-          } catch (error) {
-            console.error(`Failed to refresh outline for ${path}:`, error);
-          }
-        }
-      } else if (!oldTimestamp && path === selectedFilePath.value) {
-        selectedFileUpdatedTimestamp = newTimestamp;
-      }
-    }
-
-    // Check for new files with outlines (files we didn't have before)
-    for (const path of Object.keys(newTimestamps)) {
-      if (!outlineTimestamps.value[path]) {
-        hasChanges = true;
-        break;
-      }
-    }
-
-    // If any outline changed, also refresh the file tree to ensure consistency
-    if (hasChanges) {
-      await checkForFileTreeChanges();
-    }
-
-    // Update timestamps
-    outlineTimestamps.value = newTimestamps;
-
-    if (selectedFileUpdatedTimestamp !== null) {
-      bumpSelectedFileVersion(selectedFileUpdatedTimestamp);
-    }
-  } catch (error) {
-    console.error('Failed to check for outline updates:', error);
-  }
-};
-
 const refreshOutlineForFile = async (filePath: string, timestamp?: number) => {
   if (!currentProject.value) return;
   const node = findFileNode(fileTree.value, filePath);
@@ -375,7 +393,7 @@ const refreshOutlineForFile = async (filePath: string, timestamp?: number) => {
 
   try {
     const previousSelectedId = selectedFilePath.value === filePath ? selectedNodeId.value : '';
-    const result = await backend.getFileOutline(currentProject.value.id, node.path);
+    const result = await backend.getFileOutline(currentProject.value.id, node.path, 2);
     node.outlineNodes = result;
     outlineTimestamps.value[filePath] = timestamp ?? Date.now();
 
@@ -406,24 +424,6 @@ const handleFileIndexedEvent = (payload: any) => {
   }
   const timestamp = typeof payload?.timestamp === 'number' ? payload.timestamp : undefined;
   refreshOutlineForFile(filePath, timestamp);
-};
-
-// Start polling for outline updates and file tree changes
-const startPolling = () => {
-  if (pollingInterval.value !== null) return;
-
-  pollingInterval.value = window.setInterval(() => {
-    checkForFileTreeChanges();
-    checkForOutlineUpdates();
-  }, POLL_INTERVAL_MS);
-};
-
-// Stop polling
-const stopPolling = () => {
-  if (pollingInterval.value !== null) {
-    window.clearInterval(pollingInterval.value);
-    pollingInterval.value = null;
-  }
 };
 
 // Load initial timestamps

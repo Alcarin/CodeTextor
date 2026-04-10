@@ -14,7 +14,8 @@ vi.mock('../api/backend', () => ({
     stopMCPServer: vi.fn(),
     getMCPStatus: vi.fn(),
     getMCPTools: vi.fn(),
-    toggleMCPTool: vi.fn()
+    toggleMCPTool: vi.fn(),
+    getAppVersion: vi.fn()
   }
 }));
 vi.mock('../../wailsjs/runtime/runtime', () => ({
@@ -43,11 +44,13 @@ describe('MCPView.vue', () => {
     backendMock.getMCPTools.mockReset();
     backendMock.startMCPServer.mockReset();
     backendMock.stopMCPServer.mockReset();
+    backendMock.getAppVersion.mockReset();
   });
 
   const mountComponent = () => mount(MCPView);
 
   it('renders the component and loads initial data', async () => {
+    backendMock.getAppVersion.mockResolvedValue('v0.1.0');
     const getConfigSpy = backendMock.getMCPConfig.mockResolvedValue({
       host: 'localhost',
       port: 3000,
@@ -73,7 +76,8 @@ describe('MCPView.vue', () => {
     expect(wrapper.text()).toContain('Server Status');
   });
 
-  it('starts the server when the start button is clicked', async () => {
+  it('starts the server when the toggle is clicked', async () => {
+    backendMock.getAppVersion.mockResolvedValue('v0.1.0');
     backendMock.getMCPConfig.mockResolvedValue({
       host: 'localhost',
       port: 3000,
@@ -94,13 +98,15 @@ describe('MCPView.vue', () => {
     const wrapper = mountComponent();
     await flushPromises();
 
-    await wrapper.find('button.btn-success').trigger('click');
+    const toggleInput = wrapper.find('input[type="checkbox"]');
+    await toggleInput.trigger('change');
     await flushPromises();
 
     expect(startServerSpy).toHaveBeenCalled();
   });
 
-  it('stops the server when the stop button is clicked', async () => {
+  it('stops the server when the toggle is clicked off', async () => {
+    backendMock.getAppVersion.mockResolvedValue('v0.1.0');
     backendMock.getMCPConfig.mockResolvedValue({
       host: 'localhost',
       port: 3000,
@@ -122,13 +128,15 @@ describe('MCPView.vue', () => {
     const wrapper = mountComponent();
     await flushPromises();
 
-    await wrapper.find('button.btn-danger').trigger('click');
+    const toggleInput = wrapper.find('input[type="checkbox"]');
+    await toggleInput.trigger('change');
     await flushPromises();
 
     expect(stopServerSpy).toHaveBeenCalled();
   });
 
   it('displays server status correctly', async () => {
+    backendMock.getAppVersion.mockResolvedValue('v0.1.0');
     backendMock.getMCPConfig.mockResolvedValue({
       host: 'localhost',
       port: 3000,
@@ -148,7 +156,7 @@ describe('MCPView.vue', () => {
     const wrapper = mountComponent();
     await flushPromises();
 
-    expect(wrapper.text()).toContain('Running');
+    expect(wrapper.text()).toContain('On');
     expect(wrapper.text()).toContain('2m 3s');
     expect(wrapper.find('.status-grid').text()).toContain('2');
     expect(wrapper.find('.status-grid').text()).toContain('42');
