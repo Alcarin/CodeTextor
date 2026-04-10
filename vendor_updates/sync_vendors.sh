@@ -75,7 +75,73 @@ if [ -f "$NORM_FILE" ]; then
 fi
 
 # 4. INTERNAL VENDOR SYNC (Source-First & Flat Structure)
-echo -e "\033[0;33m[4/4] Syncing internal grammars (vendor_grammar) - Flat & Lean...\033[0m"
+echo -e "\033[0;33m[4/4] Syncing internal grammars and Core - Flat & Lean...\033[0m"
+
+CORE_ROOT="$SCRIPT_DIR/../backend/internal/tree-sitter"
+mkdir -p "$CORE_ROOT"
+
+# 4.0. SYNC TREE-SITTER CORE & GO-BINDINGS
+echo -e "\033[0;36m  -> Syncing Tree-Sitter Core & Go-Bindings...\033[0m"
+
+CORE_REPO="https://github.com/tree-sitter/tree-sitter.git"
+GO_REPO="https://github.com/tree-sitter/go-tree-sitter.git"
+
+# Use specific stable versions for compatibility
+CORE_TAG="v0.25.1"
+GO_TAG="v0.24.0"
+echo "    Using stable versions: Core $CORE_TAG, Go-Bindings $GO_TAG"
+
+TMP_CORE="$CORE_ROOT/.tmp_core"
+TMP_GO="$CORE_ROOT/.tmp_go"
+
+rm -rf "$TMP_CORE" "$TMP_GO"
+
+echo "    Cloning Core ($CORE_TAG)..."
+git clone --depth 1 --branch "$CORE_TAG" "$CORE_REPO" "$TMP_CORE" 2>/dev/null
+
+echo "    Cloning Go-Bindings ($GO_TAG)..."
+git clone --depth 1 --branch "$GO_TAG" "$GO_REPO" "$TMP_GO" 2>/dev/null
+
+# 1. Extract Go files
+echo "    Extracting Go bindings (Go + C sources)..."
+cp "$TMP_GO"/*.go "$CORE_ROOT/"
+cp "$TMP_GO"/*.h "$CORE_ROOT/" 2>/dev/null || true
+cp "$TMP_GO"/*.c "$CORE_ROOT/" 2>/dev/null || true
+cp "$TMP_GO"/*.cc "$CORE_ROOT/" 2>/dev/null || true
+# Remove tests
+rm -f "$CORE_ROOT"/*_test.go
+[ -f "$TMP_GO/LICENSE" ] && cp "$TMP_GO/LICENSE" "$CORE_ROOT/"
+
+# 2. Extract Core C Sources (Lean)
+echo "    Extracting Core C sources..."
+INCLUDE_DEST="$CORE_ROOT/include/tree_sitter"
+SRC_DEST="$CORE_ROOT/src"
+
+mkdir -p "$INCLUDE_DEST" "$SRC_DEST"
+
+cp "$TMP_CORE/lib/include/tree_sitter/"*.h "$INCLUDE_DEST/"
+cp -r "$TMP_CORE/lib/src/"* "$SRC_DEST/"
+
+# 3. Synchronize with vendor folder (for consistency)
+GT_VENDOR="$VENDOR_DIR/github.com/tree-sitter/go-tree-sitter"
+if [ -d "$GT_VENDOR" ]; then
+    echo "    Updating vendor copy..."
+    [ -d "$CORE_ROOT/include" ] && cp -r "$CORE_ROOT/include" "$GT_VENDOR/"
+    [ -d "$CORE_ROOT/src" ] && cp -r "$CORE_ROOT/src" "$GT_VENDOR/"
+    
+    # Also copy root C/H files (like allocator.h/c)
+    cp "$CORE_ROOT"/*.h "$GT_VENDOR/" 2>/dev/null || true
+    cp "$CORE_ROOT"/*.c "$GT_VENDOR/" 2>/dev/null || true
+    cp "$CORE_ROOT"/*.cc "$GT_VENDOR/" 2>/dev/null || true
+fi
+
+# Cleanup temp
+rm -rf "$TMP_CORE" "$TMP_GO"
+
+echo -e "\033[0;32m    Core Sync Completed.\033[0m"
+echo ""
+
+# 4.1. GRAMMAR SYNC LOOP
 
 GRAMMARS_FILE="$SCRIPT_DIR/grammars.txt"
 if [ ! -f "$GRAMMARS_FILE" ]; then

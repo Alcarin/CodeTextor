@@ -66,7 +66,6 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sugarme/regexpset v0.0.0-20200920021344-4d4ec8eaf93c // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
-	github.com/tree-sitter/tree-sitter-php v0.24.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
@@ -87,3 +86,5 @@ require (
 // replace github.com/wailsapp/wails/v2 v2.10.2 => /home/frubeo/go/pkg/mod
 
 // replace github.com/tree-sitter/tree-sitter-sql => github.com/DerekStride/tree-sitter-sql v0.3.11
+
+replace github.com/tree-sitter/go-tree-sitter => ./backend/internal/tree-sitter

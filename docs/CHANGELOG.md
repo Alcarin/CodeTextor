@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bash Support**: Added full support for parsing and chunking Bash scripts (.sh, .bash, .zsh, .ebuild).
 - **Decentralized Grammar Management**: Centralized the list of Tree-sitter repositories into a dedicated `grammars.txt` file, ensuring cross-platform configuration parity between PowerShell and Bash sync scripts.
 - **Fix Indexing Progress**: Updated UI label to "Last indexed" and corrected the progress system to reflect real-time file processing (GPU stage).
+- **Self-Contained Tree-Sitter Architecture**: Migrated to a completely autonomous build system where Tree-Sitter core and Go bindings are managed locally.
+  - Eliminated external system OS dependencies (like `libtree-sitter-dev` or `brew install`), enabling "Zero-Friction" builds on Windows, Linux, and macOS.
+  - Automated surgical extraction of C sources and headers (including internal dependencies like `unicode/` and `allocator.h`) directly into the project's `backend/internal/tree-sitter` and `vendor` directories.
+  - Fixed API version mismatches by locking core (`v0.25.1`) and bindings (`v0.24.0`) to specific stable versions, ensuring long-term build reproducibility.
 - **Final Tree-Sitter Architecture Migration**: Completed the transition to a "Flat & Lean" architecture for all 10 internal grammars. Renamed maintenance scripts to `sync_vendors.ps1/sh`, automated common header extraction, and optimized CGO bindings to prevent symbol collisions and build errors.
 - **Expansion of "Source-First" Standard (Kotlin & Dart)**: Migrated Kotlin and Dart to the local-first management strategy, unifying internal grammar management and improving build stability across all core languages.
 - **Universal `fix_vendor.ps1` Refactoring**: Generalized the vendor maintenance script to support automated local generation for all internal grammars, including automatic npm fallback and language-specific CGO patches.

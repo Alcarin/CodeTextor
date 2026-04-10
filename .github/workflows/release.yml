@@ -86,8 +86,6 @@ jobs:
           LDFLAGS="-X 'CodeTextor/backend/pkg/config.Version=$VERSION'"
           # Build portable binary
           wails build -clean -platform ${{ matrix.platform }} -tags webkit2_41 -upx -ldflags "$LDFLAGS" -o CodeTextor-$VERSION-${{ matrix.tag }}
-          # Build .deb and .rpm packages
-          wails build -platform ${{ matrix.platform }} -tags webkit2_41 -package -ldflags "$LDFLAGS"
         shell: bash
 
       - name: Build Wails App (Windows)
@@ -106,7 +104,7 @@ jobs:
         run: |
           VERSION=${{ github.ref_name }}
           LDFLAGS="-X 'CodeTextor/backend/pkg/config.Version=$VERSION'"
-          wails build -clean -platform ${{ matrix.platform }} -upx -ldflags "$LDFLAGS"
+          wails build -clean -platform ${{ matrix.platform }} -ldflags "$LDFLAGS"
         shell: bash
 
       - name: Package and Rename (macOS)

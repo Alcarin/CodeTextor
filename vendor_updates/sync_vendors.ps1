@@ -114,7 +114,82 @@ if (Test-Path $normFile) {
 }
 
 # 4. INTERNAL VENDOR SYNC (Source-First & Flat Structure)
-Write-Host "[4/4] Syncing internal grammars (vendor_grammar) - Flat & Lean..." -ForegroundColor Yellow
+Write-Host "[4/4] Syncing internal grammars and Core - Flat & Lean..." -ForegroundColor Yellow
+
+$coreRoot = Join-Path $PSScriptRoot "..\backend\internal\tree-sitter"
+if (!(Test-Path $coreRoot)) { New-Item -ItemType Directory -Force -Path $coreRoot | Out-Null }
+
+# 4.0. SYNC TREE-SITTER CORE & GO-BINDINGS
+Write-Host "  -> Syncing Tree-Sitter Core & Go-Bindings..." -ForegroundColor Cyan
+
+$coreRepo = "https://github.com/tree-sitter/tree-sitter.git"
+$goRepo = "https://github.com/tree-sitter/go-tree-sitter.git"
+
+# Use specific stable versions for compatibility
+$coreTag = "v0.25.1"
+$goTag = "v0.24.0"
+Write-Host "    Using stable versions: Core $coreTag, Go-Bindings $goTag" -ForegroundColor Gray
+
+$tmpCore = Join-Path $coreRoot ".tmp_core"
+$tmpGo = Join-Path $coreRoot ".tmp_go"
+
+if (Test-Path $tmpCore) { Remove-Item -Recurse -Force $tmpCore }
+if (Test-Path $tmpGo) { Remove-Item -Recurse -Force $tmpGo }
+
+$oldEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+
+Write-Host "    Cloning Core ($coreTag)..." -ForegroundColor Gray
+& git clone --depth 1 --branch $coreTag $coreRepo $tmpCore 2>$null
+
+Write-Host "    Cloning Go-Bindings ($goTag)..." -ForegroundColor Gray
+& git clone --depth 1 --branch $goTag $goRepo $tmpGo 2>$null
+
+$ErrorActionPreference = $oldEAP
+
+# 1. Extract Go files
+Write-Host "    Extracting Go bindings (Go + C sources)..." -ForegroundColor Gray
+Get-ChildItem -Path $tmpGo -Filter "*.go" | Where-Object { $_.Name -notmatch "_test.go" } | Copy-Item -Destination $coreRoot -Force
+Copy-Item -Path "$tmpGo\*.h" -Destination $coreRoot -Force -ErrorAction SilentlyContinue
+Copy-Item -Path "$tmpGo\*.c" -Destination $coreRoot -Force -ErrorAction SilentlyContinue
+Copy-Item -Path "$tmpGo\*.cc" -Destination $coreRoot -Force -ErrorAction SilentlyContinue
+if (Test-Path (Join-Path $tmpGo "LICENSE")) { Copy-Item (Join-Path $tmpGo "LICENSE") $coreRoot -Force }
+
+# 2. Extract Core C Sources (Lean)
+Write-Host "    Extracting Core C sources..." -ForegroundColor Gray
+$includeDest = Join-Path $coreRoot "include\tree_sitter"
+$srcDest = Join-Path $coreRoot "src"
+
+if (!(Test-Path $includeDest)) { New-Item -ItemType Directory -Force -Path $includeDest | Out-Null }
+if (!(Test-Path $srcDest)) { New-Item -ItemType Directory -Force -Path $srcDest | Out-Null }
+
+Copy-Item (Join-Path $tmpCore "lib\include\tree_sitter\*.h") $includeDest -Force
+Copy-Item -Path (Join-Path $tmpCore "lib\src\*") -Destination $srcDest -Recurse -Force
+
+# 3. Synchronize with vendor folder (for consistency)
+$gtVendor = Join-Path $vendorDir "github.com\tree-sitter\go-tree-sitter"
+if (Test-Path $gtVendor) {
+    Write-Host "    Updating vendor copy..." -ForegroundColor Gray
+    $sourceInclude = Join-Path $coreRoot "include"
+    $sourceSrc = Join-Path $coreRoot "src"
+    
+    if (Test-Path $sourceInclude) { Copy-Item -Path $sourceInclude -Destination $gtVendor -Recurse -Force }
+    if (Test-Path $sourceSrc) { Copy-Item -Path $sourceSrc -Destination $gtVendor -Recurse -Force }
+    
+    # Also copy root C/H files (like allocator.h/c)
+    Copy-Item -Path "$coreRoot\*.h" -Destination $gtVendor -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$coreRoot\*.c" -Destination $gtVendor -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path "$coreRoot\*.cc" -Destination $gtVendor -Force -ErrorAction SilentlyContinue
+}
+
+# Cleanup temp
+Remove-Item -Recurse -Force $tmpCore
+Remove-Item -Recurse -Force $tmpGo
+
+Write-Host "    Core Sync Completed." -ForegroundColor Green
+Write-Host ""
+
+# 4.1. GRAMMAR SYNC LOOP
 
 $grammarsFile = Join-Path $PSScriptRoot "grammars.txt"
 if (!(Test-Path $grammarsFile)) {
